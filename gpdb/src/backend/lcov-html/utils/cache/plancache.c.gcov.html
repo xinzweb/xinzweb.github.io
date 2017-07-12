@@ -1,0 +1,1272 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/cache/plancache.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/cache</a> - plancache.c<span style="font-size: 80%;"> (source / <a href="plancache.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">382</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">284</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * plancache.c
+<span class="lineNum">       4 </span>                :            :  *        Plan cache management.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * We can store a cached plan in either fully-planned format, or just
+<span class="lineNum">       7 </span>                :            :  * parsed-and-rewritten if the caller wishes to postpone planning until
+<span class="lineNum">       8 </span>                :            :  * actual parameter values are available.  CachedPlanSource has the same
+<span class="lineNum">       9 </span>                :            :  * contents either way, but CachedPlan contains a list of PlannedStmts
+<span class="lineNum">      10 </span>                :            :  * and bare utility statements in the first case, or a list of Query nodes
+<span class="lineNum">      11 </span>                :            :  * in the second case.
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  * The plan cache manager itself is principally responsible for tracking
+<span class="lineNum">      14 </span>                :            :  * whether cached plans should be invalidated because of schema changes in
+<span class="lineNum">      15 </span>                :            :  * the objects they depend on.  When (and if) the next demand for a cached
+<span class="lineNum">      16 </span>                :            :  * plan occurs, the query will be replanned.  Note that this could result
+<span class="lineNum">      17 </span>                :            :  * in an error, for example if a column referenced by the query is no
+<span class="lineNum">      18 </span>                :            :  * longer present.      The creator of a cached plan can specify whether it
+<span class="lineNum">      19 </span>                :            :  * is allowable for the query to change output tupdesc on replan (this
+<span class="lineNum">      20 </span>                :            :  * could happen with &quot;SELECT *&quot; for example) --- if so, it's up to the
+<span class="lineNum">      21 </span>                :            :  * caller to notice changes and cope with them.
+<span class="lineNum">      22 </span>                :            :  *
+<span class="lineNum">      23 </span>                :            :  * Currently, we track exactly the dependencies of plans on relations and
+<span class="lineNum">      24 </span>                :            :  * user-defined functions.  On relcache invalidation events or pg_proc
+<span class="lineNum">      25 </span>                :            :  * syscache invalidation events, we invalidate just those plans that depend
+<span class="lineNum">      26 </span>                :            :  * on the particular object being modified.  (Note: this scheme assumes
+<span class="lineNum">      27 </span>                :            :  * that any table modification that requires replanning will generate a
+<span class="lineNum">      28 </span>                :            :  * relcache inval event.)  We also watch for inval events on certain other
+<span class="lineNum">      29 </span>                :            :  * system catalogs, such as pg_namespace; but for them, our response is
+<span class="lineNum">      30 </span>                :            :  * just to invalidate all plans.  We expect updates on those catalogs to
+<span class="lineNum">      31 </span>                :            :  * be infrequent enough that more-detailed tracking is not worth the effort.
+<span class="lineNum">      32 </span>                :            :  *
+<span class="lineNum">      33 </span>                :            :  *
+<span class="lineNum">      34 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">      35 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      36 </span>                :            :  *
+<span class="lineNum">      37 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      38 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/utils/cache/plancache.c,v 1.23 2008/10/04 21:56:54 tgl Exp $
+<span class="lineNum">      39 </span>                :            :  *
+<span class="lineNum">      40 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      41 </span>                :            :  */
+<span class="lineNum">      42 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : #include &quot;utils/plancache.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;access/transam.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;catalog/namespace.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;executor/executor.h&quot;
+<span class="lineNum">      48 </span>                :            : #include &quot;executor/spi.h&quot;
+<span class="lineNum">      49 </span>                :            : #include &quot;nodes/nodeFuncs.h&quot;
+<span class="lineNum">      50 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      51 </span>                :            : #include &quot;optimizer/planmain.h&quot;
+<span class="lineNum">      52 </span>                :            : #include &quot;storage/lmgr.h&quot;
+<span class="lineNum">      53 </span>                :            : #include &quot;tcop/pquery.h&quot;
+<span class="lineNum">      54 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      55 </span>                :            : #include &quot;tcop/utility.h&quot;
+<span class="lineNum">      56 </span>                :            : #include &quot;utils/inval.h&quot;
+<span class="lineNum">      57 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      58 </span>                :            : #include &quot;utils/resowner.h&quot;
+<span class="lineNum">      59 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      60 </span>                :            : 
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :            : static List *cached_plans_list = NIL;
+<span class="lineNum">      63 </span>                :            : 
+<span class="lineNum">      64 </span>                :            : static void StoreCachedPlan(CachedPlanSource *plansource, List *stmt_list,
+<span class="lineNum">      65 </span>                :            :                                 MemoryContext plan_context);
+<span class="lineNum">      66 </span>                :            : static void AcquireExecutorLocks(List *stmt_list, bool acquire);
+<span class="lineNum">      67 </span>                :            : static void AcquirePlannerLocks(List *stmt_list, bool acquire);
+<span class="lineNum">      68 </span>                :            : static void ScanQueryForLocks(Query *parsetree, bool acquire);
+<span class="lineNum">      69 </span>                :            : static bool ScanQueryWalker(Node *node, bool *acquire);
+<span class="lineNum">      70 </span>                :            : static bool rowmark_member(List *rowMarks, int rt_index);
+<span class="lineNum">      71 </span>                :            : static bool plan_list_is_transient(List *stmt_list);
+<span class="lineNum">      72 </span>                :            : static void PlanCacheRelCallback(Datum arg, Oid relid);
+<span class="lineNum">      73 </span>                :            : static void PlanCacheFuncCallback(Datum arg, int cacheid, ItemPointer tuplePtr);
+<span class="lineNum">      74 </span>                :            : static void PlanCacheSysCallback(Datum arg, int cacheid, ItemPointer tuplePtr);
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : 
+<span class="lineNum">      77 </span>                :            : /*
+<span class="lineNum">      78 </span>                :            :  * InitPlanCache: initialize module during InitPostgres.
+<span class="lineNum">      79 </span>                :            :  *
+<span class="lineNum">      80 </span>                :            :  * All we need to do is hook into inval.c's callback lists.
+<a name="81"><span class="lineNum">      81 </span>                :            :  */</a>
+<span class="lineNum">      82 </span>                :            : void
+<span class="lineNum">      83 </span>                :            : InitPlanCache(void)
+<span class="lineNum">      84 </span>                :            : {
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         CacheRegisterRelcacheCallback(PlanCacheRelCallback, (Datum) 0);</span>
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :         CacheRegisterSyscacheCallback(PROCOID, PlanCacheFuncCallback, (Datum) 0);</span>
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :         CacheRegisterSyscacheCallback(NAMESPACEOID, PlanCacheSysCallback, (Datum) 0);</span>
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :         CacheRegisterSyscacheCallback(OPEROID, PlanCacheSysCallback, (Datum) 0);</span>
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :         CacheRegisterSyscacheCallback(AMOPOPID, PlanCacheSysCallback, (Datum) 0);</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :            : /*
+<span class="lineNum">      93 </span>                :            :  * CreateCachedPlan: initially create a plan cache entry.
+<span class="lineNum">      94 </span>                :            :  *
+<span class="lineNum">      95 </span>                :            :  * The caller must already have successfully parsed/planned the query;
+<span class="lineNum">      96 </span>                :            :  * about all that we do here is copy it into permanent storage.
+<span class="lineNum">      97 </span>                :            :  *
+<span class="lineNum">      98 </span>                :            :  * raw_parse_tree: output of raw_parser()
+<span class="lineNum">      99 </span>                :            :  * query_string: original query text (can be NULL if not available, but
+<span class="lineNum">     100 </span>                :            :  *              that is discouraged because it degrades error message quality)
+<span class="lineNum">     101 </span>                :            :  * commandTag: compile-time-constant tag for query, or NULL if empty query
+<span class="lineNum">     102 </span>                :            :  * param_types: array of parameter type OIDs, or NULL if none
+<span class="lineNum">     103 </span>                :            :  * num_params: number of parameters
+<span class="lineNum">     104 </span>                :            :  * cursor_options: options bitmask that was/will be passed to planner
+<span class="lineNum">     105 </span>                :            :  * stmt_list: list of PlannedStmts/utility stmts, or list of Query trees
+<span class="lineNum">     106 </span>                :            :  * fully_planned: are we caching planner or rewriter output?
+<span class="lineNum">     107 </span>                :            :  * fixed_result: TRUE to disallow changes in result tupdesc
+<a name="108"><span class="lineNum">     108 </span>                :            :  */</a>
+<span class="lineNum">     109 </span>                :            : CachedPlanSource *
+<span class="lineNum">     110 </span>                :            : CreateCachedPlan(Node *raw_parse_tree,
+<span class="lineNum">     111 </span>                :            :                                  const char *query_string,
+<span class="lineNum">     112 </span>                :            :                                  NodeTag sourceTag,
+<span class="lineNum">     113 </span>                :            :                                  const char *commandTag,
+<span class="lineNum">     114 </span>                :            :                                  Oid *param_types,
+<span class="lineNum">     115 </span>                :            :                                  int num_params,
+<span class="lineNum">     116 </span>                :            :                                  int cursor_options,
+<span class="lineNum">     117 </span>                :            :                                  List *stmt_list,
+<span class="lineNum">     118 </span>                :            :                                  bool fully_planned,
+<span class="lineNum">     119 </span>                :            :                                  bool fixed_result)
+<span class="lineNum">     120 </span>                :            : {
+<span class="lineNum">     121 </span>                :            :         CachedPlanSource *plansource;
+<span class="lineNum">     122 </span>                :            :         OverrideSearchPath *search_path;
+<span class="lineNum">     123 </span>                :            :         MemoryContext source_context;
+<span class="lineNum">     124 </span>                :            :         MemoryContext oldcxt;
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>                :            :         /*
+<span class="lineNum">     127 </span>                :            :          * Make a dedicated memory context for the CachedPlanSource and its
+<span class="lineNum">     128 </span>                :            :          * subsidiary data.  We expect it can be pretty small.
+<span class="lineNum">     129 </span>                :            :          */
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         source_context = AllocSetContextCreate(CacheMemoryContext,</span>
+<span class="lineNum">     131 </span>                :            :                                                                                    &quot;CachedPlanSource&quot;,
+<span class="lineNum">     132 </span>                :            :                                                                                    ALLOCSET_SMALL_MINSIZE,
+<span class="lineNum">     133 </span>                :            :                                                                                    ALLOCSET_SMALL_INITSIZE,
+<span class="lineNum">     134 </span>                :            :                                                                                    ALLOCSET_SMALL_MAXSIZE);
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            :         /*
+<span class="lineNum">     137 </span>                :            :          * Fetch current search_path into new context, but do any recalculation
+<span class="lineNum">     138 </span>                :            :          * work required in caller's context.
+<span class="lineNum">     139 </span>                :            :          */
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :         search_path = GetOverrideSearchPath(source_context);</span>
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :            :         /*
+<span class="lineNum">     143 </span>                :            :          * Create and fill the CachedPlanSource struct within the new context.
+<span class="lineNum">     144 </span>                :            :          */
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :         oldcxt = MemoryContextSwitchTo(source_context);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         plansource = (CachedPlanSource *) palloc(sizeof(CachedPlanSource));</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;raw_parse_tree = copyObject(raw_parse_tree);</span>
+<span class="lineNum">     148 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         plansource-&gt;query_string = query_string ? pstrdup(query_string) : NULL;</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;sourceTag = sourceTag;</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;commandTag = commandTag;         /* no copying needed */</span>
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (num_params &gt; 0)</span>
+<span class="lineNum">     152 </span>                :            :         {
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 plansource-&gt;param_types = (Oid *) palloc(num_params * sizeof(Oid));</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                 memcpy(plansource-&gt;param_types, param_types, num_params * sizeof(Oid));</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     156 </span>                :            :         else
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                 plansource-&gt;param_types = NULL;</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;num_params = num_params;</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;cursor_options = cursor_options;</span>
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;fully_planned = fully_planned;</span>
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;fixed_result = fixed_result;</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;search_path = search_path;</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;generation = 0; /* StoreCachedPlan will increment */</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;resultDesc = PlanCacheComputeResultDesc(stmt_list);</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;plan = NULL;</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;context = source_context;</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;orig_plan = NULL;</span>
+<span class="lineNum">     168 </span>                :            : 
+<span class="lineNum">     169 </span>                :            :         /*
+<span class="lineNum">     170 </span>                :            :          * Copy the current output plans into the plancache entry.
+<span class="lineNum">     171 </span>                :            :          */
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         StoreCachedPlan(plansource, stmt_list, NULL);</span>
+<span class="lineNum">     173 </span>                :            : 
+<span class="lineNum">     174 </span>                :            :         /*
+<span class="lineNum">     175 </span>                :            :          * Now we can add the entry to the list of cached plans.  The List nodes
+<span class="lineNum">     176 </span>                :            :          * live in CacheMemoryContext.
+<span class="lineNum">     177 </span>                :            :          */
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(CacheMemoryContext);</span>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :         cached_plans_list = lappend(cached_plans_list, plansource);</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcxt);</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         return plansource;</span>
+<span class="lineNum">     185 </span>                :            : }
+<span class="lineNum">     186 </span>                :            : 
+<span class="lineNum">     187 </span>                :            : /*
+<span class="lineNum">     188 </span>                :            :  * FastCreateCachedPlan: create a plan cache entry with minimal data copying.
+<span class="lineNum">     189 </span>                :            :  *
+<span class="lineNum">     190 </span>                :            :  * For plans that aren't expected to live very long, the copying overhead of
+<span class="lineNum">     191 </span>                :            :  * CreateCachedPlan is annoying.  We provide this variant entry point in which
+<span class="lineNum">     192 </span>                :            :  * the caller has already placed all the data in a suitable memory context.
+<span class="lineNum">     193 </span>                :            :  * The source data and completed plan are in the same context, since this
+<span class="lineNum">     194 </span>                :            :  * avoids extra copy steps during plan construction.  If the query ever does
+<span class="lineNum">     195 </span>                :            :  * need replanning, we'll generate a separate new CachedPlan at that time, but
+<span class="lineNum">     196 </span>                :            :  * the CachedPlanSource and the initial CachedPlan share the caller-provided
+<span class="lineNum">     197 </span>                :            :  * context and go away together when neither is needed any longer.      (Because
+<span class="lineNum">     198 </span>                :            :  * the parser and planner generate extra cruft in addition to their real
+<span class="lineNum">     199 </span>                :            :  * output, this approach means that the context probably contains a bunch of
+<span class="lineNum">     200 </span>                :            :  * useless junk as well as the useful trees.  Hence, this method is a
+<span class="lineNum">     201 </span>                :            :  * space-for-time tradeoff, which is worth making for plans expected to be
+<span class="lineNum">     202 </span>                :            :  * short-lived.)
+<span class="lineNum">     203 </span>                :            :  *
+<span class="lineNum">     204 </span>                :            :  * raw_parse_tree, query_string, param_types, and stmt_list must reside in the
+<span class="lineNum">     205 </span>                :            :  * given context, which must have adequate lifespan (recommendation: make it a
+<span class="lineNum">     206 </span>                :            :  * child of CacheMemoryContext).  Otherwise the API is the same as
+<span class="lineNum">     207 </span>                :            :  * CreateCachedPlan.
+<a name="208"><span class="lineNum">     208 </span>                :            :  */</a>
+<span class="lineNum">     209 </span>                :            : CachedPlanSource *
+<span class="lineNum">     210 </span>                :            : FastCreateCachedPlan(Node *raw_parse_tree,
+<span class="lineNum">     211 </span>                :            :                                          char *query_string,
+<span class="lineNum">     212 </span>                :            :                                          NodeTag sourceTag,
+<span class="lineNum">     213 </span>                :            :                                          const char *commandTag,
+<span class="lineNum">     214 </span>                :            :                                          Oid *param_types,
+<span class="lineNum">     215 </span>                :            :                                          int num_params,
+<span class="lineNum">     216 </span>                :            :                                          int cursor_options,
+<span class="lineNum">     217 </span>                :            :                                          List *stmt_list,
+<span class="lineNum">     218 </span>                :            :                                          bool fully_planned,
+<span class="lineNum">     219 </span>                :            :                                          bool fixed_result,
+<span class="lineNum">     220 </span>                :            :                                          MemoryContext context)
+<span class="lineNum">     221 </span>                :            : {
+<span class="lineNum">     222 </span>                :            :         CachedPlanSource *plansource;
+<span class="lineNum">     223 </span>                :            :         OverrideSearchPath *search_path;
+<span class="lineNum">     224 </span>                :            :         MemoryContext oldcxt;
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :            :         /*
+<span class="lineNum">     227 </span>                :            :          * Fetch current search_path into given context, but do any recalculation
+<span class="lineNum">     228 </span>                :            :          * work required in caller's context.
+<span class="lineNum">     229 </span>                :            :          */
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :         search_path = GetOverrideSearchPath(context);</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :            :         /*
+<span class="lineNum">     233 </span>                :            :          * Create and fill the CachedPlanSource struct within the given context.
+<span class="lineNum">     234 </span>                :            :          */
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :         oldcxt = MemoryContextSwitchTo(context);</span>
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :         plansource = (CachedPlanSource *) palloc(sizeof(CachedPlanSource));</span>
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;raw_parse_tree = raw_parse_tree;</span>
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;query_string = query_string;</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;sourceTag = sourceTag;</span>
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;commandTag = commandTag;         /* no copying needed */</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;param_types = param_types;</span>
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;num_params = num_params;</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;cursor_options = cursor_options;</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;fully_planned = fully_planned;</span>
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;fixed_result = fixed_result;</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;search_path = search_path;</span>
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;generation = 0; /* StoreCachedPlan will increment */</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;resultDesc = PlanCacheComputeResultDesc(stmt_list);</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;plan = NULL;</span>
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;context = context;</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;orig_plan = NULL;</span>
+<span class="lineNum">     252 </span>                :            : 
+<span class="lineNum">     253 </span>                :            :         /*
+<span class="lineNum">     254 </span>                :            :          * Store the current output plans into the plancache entry.
+<span class="lineNum">     255 </span>                :            :          */
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :         StoreCachedPlan(plansource, stmt_list, context);</span>
+<span class="lineNum">     257 </span>                :            : 
+<span class="lineNum">     258 </span>                :            :         /*
+<span class="lineNum">     259 </span>                :            :          * Since the context is owned by the CachedPlan, advance its refcount.
+<span class="lineNum">     260 </span>                :            :          */
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;orig_plan = plansource-&gt;plan;</span>
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;orig_plan-&gt;refcount++;</span>
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :            :         /*
+<span class="lineNum">     265 </span>                :            :          * Now we can add the entry to the list of cached plans.  The List nodes
+<span class="lineNum">     266 </span>                :            :          * live in CacheMemoryContext.
+<span class="lineNum">     267 </span>                :            :          */
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(CacheMemoryContext);</span>
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :         cached_plans_list = lappend(cached_plans_list, plansource);</span>
+<span class="lineNum">     271 </span>                :            : 
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcxt);</span>
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :         return plansource;</span>
+<span class="lineNum">     275 </span>                :            : }
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :            : /*
+<span class="lineNum">     278 </span>                :            :  * StoreCachedPlan: store a built or rebuilt plan into a plancache entry.
+<span class="lineNum">     279 </span>                :            :  *
+<span class="lineNum">     280 </span>                :            :  * Common subroutine for CreateCachedPlan and RevalidateCachedPlan.
+<a name="281"><span class="lineNum">     281 </span>                :            :  */</a>
+<span class="lineNum">     282 </span>                :            : static void
+<span class="lineNum">     283 </span>                :            : StoreCachedPlan(CachedPlanSource *plansource,
+<span class="lineNum">     284 </span>                :            :                                 List *stmt_list,
+<span class="lineNum">     285 </span>                :            :                                 MemoryContext plan_context)
+<span class="lineNum">     286 </span>                :            : {
+<span class="lineNum">     287 </span>                :            :         CachedPlan *plan;
+<span class="lineNum">     288 </span>                :            :         MemoryContext oldcxt;
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plan_context == NULL)</span>
+<span class="lineNum">     291 </span>                :            :         {
+<span class="lineNum">     292 </span>                :            :                 /*
+<span class="lineNum">     293 </span>                :            :                  * Make a dedicated memory context for the CachedPlan and its
+<span class="lineNum">     294 </span>                :            :                  * subsidiary data.  It's probably not going to be large, but just in
+<span class="lineNum">     295 </span>                :            :                  * case, use the default maxsize parameter.
+<span class="lineNum">     296 </span>                :            :                  */
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                 plan_context = AllocSetContextCreate(CacheMemoryContext,</span>
+<span class="lineNum">     298 </span>                :            :                                                                                          &quot;CachedPlan&quot;,
+<span class="lineNum">     299 </span>                :            :                                                                                          ALLOCSET_SMALL_MINSIZE,
+<span class="lineNum">     300 </span>                :            :                                                                                          ALLOCSET_SMALL_INITSIZE,
+<span class="lineNum">     301 </span>                :            :                                                                                          ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     302 </span>                :            : 
+<span class="lineNum">     303 </span>                :            :                 /*
+<span class="lineNum">     304 </span>                :            :                  * Copy supplied data into the new context.
+<span class="lineNum">     305 </span>                :            :                  */
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                 oldcxt = MemoryContextSwitchTo(plan_context);</span>
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                 stmt_list = (List *) copyObject(stmt_list);</span>
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     310 </span>                :            :         else
+<span class="lineNum">     311 </span>                :            :         {
+<span class="lineNum">     312 </span>                :            :                 /* Assume subsidiary data is in the given context */
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                 oldcxt = MemoryContextSwitchTo(plan_context);</span>
+<span class="lineNum">     314 </span>                :            :         }
+<span class="lineNum">     315 </span>                :            : 
+<span class="lineNum">     316 </span>                :            :         /*
+<span class="lineNum">     317 </span>                :            :          * Create and fill the CachedPlan struct within the new context.
+<span class="lineNum">     318 </span>                :            :          */
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :         plan = (CachedPlan *) palloc(sizeof(CachedPlan));</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         plan-&gt;stmt_list = stmt_list;</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :         plan-&gt;fully_planned = plansource-&gt;fully_planned;</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :         plan-&gt;dead = false;</span>
+<span class="lineNum">     323 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plansource-&gt;fully_planned &amp;&amp; plan_list_is_transient(stmt_list))</span>
+<span class="lineNum">     324 </span>                :            :         {
+<span class="lineNum">     325 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(TransactionIdIsNormal(TransactionXmin));</span>
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                 plan-&gt;saved_xmin = TransactionXmin;</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     328 </span>                :            :         else
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :                 plan-&gt;saved_xmin = InvalidTransactionId;</span>
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :         plan-&gt;refcount = 1;                  /* for the parent's link */</span>
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         plan-&gt;generation = ++(plansource-&gt;generation);</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :         plan-&gt;context = plan_context;</span>
+<span class="lineNum">     333 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plansource-&gt;fully_planned)</span>
+<span class="lineNum">     334 </span>                :            :         {
+<span class="lineNum">     335 </span>                :            :                 /* Planner already extracted dependencies, we don't have to */
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                 plan-&gt;relationOids = plan-&gt;invalItems = NIL;</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     338 </span>                :            :         else
+<span class="lineNum">     339 </span>                :            :         {
+<span class="lineNum">     340 </span>                :            :                 /* Use the planner machinery to extract dependencies */
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                 extract_query_dependencies(stmt_list,</span>
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                                                                    &amp;plan-&gt;relationOids,</span>
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                                                                    &amp;plan-&gt;invalItems);</span>
+<span class="lineNum">     344 </span>                :            :         }
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(plansource-&gt;plan == NULL);</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :         plansource-&gt;plan = plan;</span>
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcxt);</span>
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>                :            : /*
+<span class="lineNum">     353 </span>                :            :  * DropCachedPlan: destroy a cached plan.
+<span class="lineNum">     354 </span>                :            :  *
+<span class="lineNum">     355 </span>                :            :  * Actually this only destroys the CachedPlanSource: the referenced CachedPlan
+<span class="lineNum">     356 </span>                :            :  * is released, but not destroyed until its refcount goes to zero.      That
+<span class="lineNum">     357 </span>                :            :  * handles the situation where DropCachedPlan is called while the plan is
+<span class="lineNum">     358 </span>                :            :  * still in use.
+<a name="359"><span class="lineNum">     359 </span>                :            :  */</a>
+<span class="lineNum">     360 </span>                :            : void
+<span class="lineNum">     361 </span>                :            : DropCachedPlan(CachedPlanSource *plansource)
+<span class="lineNum">     362 </span>                :            : {
+<span class="lineNum">     363 </span>                :            :         /* Validity check that we were given a CachedPlanSource */
+<span class="lineNum">     364 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(list_member_ptr(cached_plans_list, plansource));</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :            :         /* Remove it from the list */
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         cached_plans_list = list_delete_ptr(cached_plans_list, plansource);</span>
+<span class="lineNum">     368 </span>                :            : 
+<span class="lineNum">     369 </span>                :            :         /* Decrement child CachePlan's refcount and drop if no longer needed */
+<span class="lineNum">     370 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plansource-&gt;plan)</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 ReleaseCachedPlan(plansource-&gt;plan, false);</span>
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :            :         /*
+<span class="lineNum">     374 </span>                :            :          * If CachedPlanSource has independent storage, just drop it.  Otherwise
+<span class="lineNum">     375 </span>                :            :          * decrement the refcount on the CachePlan that owns the storage.
+<span class="lineNum">     376 </span>                :            :          */
+<span class="lineNum">     377 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plansource-&gt;orig_plan == NULL)</span>
+<span class="lineNum">     378 </span>                :            :         {
+<span class="lineNum">     379 </span>                :            :                 /* Remove the CachedPlanSource and all subsidiary data */
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :                 MemoryContextDelete(plansource-&gt;context);</span>
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     382 </span>                :            :         else
+<span class="lineNum">     383 </span>                :            :         {
+<span class="lineNum">     384 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(plansource-&gt;context == plansource-&gt;orig_plan-&gt;context);</span>
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :                 ReleaseCachedPlan(plansource-&gt;orig_plan, false);</span>
+<span class="lineNum">     386 </span>                :            :         }
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>                :            : /*
+<span class="lineNum">     390 </span>                :            :  * RevalidateCachedPlan: prepare for re-use of a previously cached plan.
+<span class="lineNum">     391 </span>                :            :  *
+<span class="lineNum">     392 </span>                :            :  * What we do here is re-acquire locks and rebuild the plan if necessary.
+<span class="lineNum">     393 </span>                :            :  * On return, the plan is valid and we have sufficient locks to begin
+<span class="lineNum">     394 </span>                :            :  * execution (or planning, if not fully_planned).
+<span class="lineNum">     395 </span>                :            :  *
+<span class="lineNum">     396 </span>                :            :  * On return, the refcount of the plan has been incremented; a later
+<span class="lineNum">     397 </span>                :            :  * ReleaseCachedPlan() call is expected.  The refcount has been reported
+<span class="lineNum">     398 </span>                :            :  * to the CurrentResourceOwner if useResOwner is true.
+<span class="lineNum">     399 </span>                :            :  *
+<span class="lineNum">     400 </span>                :            :  * Note: if any replanning activity is required, the caller's memory context
+<span class="lineNum">     401 </span>                :            :  * is used for that work.
+<span class="lineNum">     402 </span>                :            :  *
+<span class="lineNum">     403 </span>                :            :  * In GPDB, this function has two extra parameters: boundParams and intoClause.
+<span class="lineNum">     404 </span>                :            :  * If boundParams is set, the parameter values are used to generate the plan.
+<span class="lineNum">     405 </span>                :            :  * That makes the plan specific to the given values, and cannot be reused when
+<span class="lineNum">     406 </span>                :            :  * the query is executed with different params (RevalidateCachedPlanWithParams
+<span class="lineNum">     407 </span>                :            :  * will mark the plan so that it will be automatically re-planned on next
+<span class="lineNum">     408 </span>                :            :  * call). If 'intoClause' is given, the plan is to be used as part of a
+<span class="lineNum">     409 </span>                :            :  * CREATE TABLE AS statement. That affects the distribution of the output rows:
+<span class="lineNum">     410 </span>                :            :  * we cannot reuse a generic plan that fetches all the output rows into master.
+<span class="lineNum">     411 </span>                :            :  * They should be distributed to the correct segments according to the
+<span class="lineNum">     412 </span>                :            :  * distribution policy of the target table, instead. A non-NULL intoClause
+<span class="lineNum">     413 </span>                :            :  * therefore also forces the plan to be re-planned on next call.
+<a name="414"><span class="lineNum">     414 </span>                :            :  */</a>
+<span class="lineNum">     415 </span>                :            : CachedPlan *
+<span class="lineNum">     416 </span>                :            : RevalidateCachedPlanWithParams(CachedPlanSource *plansource, bool useResOwner,
+<span class="lineNum">     417 </span>                :            :                                                            ParamListInfo boundParams, IntoClause *intoClause)
+<span class="lineNum">     418 </span>                :            : {
+<span class="lineNum">     419 </span>                :            :         CachedPlan *plan;
+<span class="lineNum">     420 </span>                :            : 
+<span class="lineNum">     421 </span>                :            :         /* Validity check that we were given a CachedPlanSource */
+<span class="lineNum">     422 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(list_member_ptr(cached_plans_list, plansource));</span>
+<span class="lineNum">     423 </span>                :            : 
+<span class="lineNum">     424 </span>                :            :         /*
+<span class="lineNum">     425 </span>                :            :          * If the plan currently appears valid, acquire locks on the referenced
+<span class="lineNum">     426 </span>                :            :          * objects; then check again.  We need to do it this way to cover the race
+<span class="lineNum">     427 </span>                :            :          * condition that an invalidation message arrives before we get the lock.
+<span class="lineNum">     428 </span>                :            :          */
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         plan = plansource-&gt;plan;</span>
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>                :            :         /*
+<span class="lineNum">     432 </span>                :            :          * If we are to use the parameter values in the plan, or this is a
+<span class="lineNum">     433 </span>                :            :          * CREATE TABLE AS EXECUTE, we cannot re-use a generic plan.
+<span class="lineNum">     434 </span>                :            :          */
+<span class="lineNum">     435 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plan &amp;&amp; (boundParams || intoClause))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                 plan-&gt;dead = true;</span>
+<span class="lineNum">     437 </span>                :            : 
+<span class="lineNum">     438 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plan &amp;&amp; !plan-&gt;dead)</span>
+<span class="lineNum">     439 </span>                :            :         {
+<span class="lineNum">     440 </span>                :            :                 /*
+<span class="lineNum">     441 </span>                :            :                  * Plan must have positive refcount because it is referenced by
+<span class="lineNum">     442 </span>                :            :                  * plansource; so no need to fear it disappears under us here.
+<span class="lineNum">     443 </span>                :            :                  */
+<span class="lineNum">     444 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(plan-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     445 </span>                :            : 
+<span class="lineNum">     446 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plan-&gt;fully_planned)</span>
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :                         AcquireExecutorLocks(plan-&gt;stmt_list, true);</span>
+<span class="lineNum">     448 </span>                :            :                 else
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :                         AcquirePlannerLocks(plan-&gt;stmt_list, true);</span>
+<span class="lineNum">     450 </span>                :            : 
+<span class="lineNum">     451 </span>                :            :                 /*
+<span class="lineNum">     452 </span>                :            :                  * If plan was transient, check to see if TransactionXmin has
+<span class="lineNum">     453 </span>                :            :                  * advanced, and if so invalidate it.
+<span class="lineNum">     454 </span>                :            :                  */
+<span class="lineNum">     455 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!plan-&gt;dead &amp;&amp;</span>
+<span class="lineNum">     456 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         TransactionIdIsValid(plan-&gt;saved_xmin) &amp;&amp;</span>
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                         !TransactionIdEquals(plan-&gt;saved_xmin, TransactionXmin))</span>
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :                         plan-&gt;dead = true;</span>
+<span class="lineNum">     459 </span>                :            : 
+<span class="lineNum">     460 </span>                :            :                 /*
+<span class="lineNum">     461 </span>                :            :                  * By now, if any invalidation has happened, the inval callback
+<span class="lineNum">     462 </span>                :            :                  * functions will have marked the plan dead.
+<span class="lineNum">     463 </span>                :            :                  */
+<span class="lineNum">     464 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plan-&gt;dead)</span>
+<span class="lineNum">     465 </span>                :            :                 {
+<span class="lineNum">     466 </span>                :            :                         /* Ooops, the race case happened.  Release useless locks. */
+<span class="lineNum">     467 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (plan-&gt;fully_planned)</span>
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :                                 AcquireExecutorLocks(plan-&gt;stmt_list, false);</span>
+<span class="lineNum">     469 </span>                :            :                         else
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                                 AcquirePlannerLocks(plan-&gt;stmt_list, false);</span>
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     473 </span>                :            : 
+<span class="lineNum">     474 </span>                :            :         /*
+<span class="lineNum">     475 </span>                :            :          * If plan has been invalidated, unlink it from the parent and release it.
+<span class="lineNum">     476 </span>                :            :          */
+<span class="lineNum">     477 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plan &amp;&amp; plan-&gt;dead)</span>
+<span class="lineNum">     478 </span>                :            :         {
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                 plansource-&gt;plan = NULL;</span>
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :                 ReleaseCachedPlan(plan, false);</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                 plan = NULL;</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>                :            :         /*
+<span class="lineNum">     485 </span>                :            :          * Build a new plan if needed.
+<span class="lineNum">     486 </span>                :            :          */
+<span class="lineNum">     487 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!plan)</span>
+<span class="lineNum">     488 </span>                :            :         {
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 :                 Snapshot        saveActiveSnapshot = ActiveSnapshot;</span>
+<span class="lineNum">     490 </span>                :            :                 List       *slist;
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :            :                 /*
+<span class="lineNum">     493 </span>                :            :                  * Restore the search_path that was in use when the plan was made.
+<span class="lineNum">     494 </span>                :            :                  * See comments for PushOverrideSearchPath about limitations of this.
+<span class="lineNum">     495 </span>                :            :                  *
+<span class="lineNum">     496 </span>                :            :                  * (XXX is there anything else we really need to restore?)
+<span class="lineNum">     497 </span>                :            :                  */
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :                 PushOverrideSearchPath(plansource-&gt;search_path);</span>
+<span class="lineNum">     499 </span>                :            : 
+<span class="lineNum">     500 </span>                :            :                 /*
+<span class="lineNum">     501 </span>                :            :                  * If a snapshot is already set (the normal case), we can just use
+<span class="lineNum">     502 </span>                :            :                  * that for parsing/planning.  But if it isn't, install one.  We must
+<span class="lineNum">     503 </span>                :            :                  * arrange to restore ActiveSnapshot afterward, to ensure that
+<span class="lineNum">     504 </span>                :            :                  * RevalidateCachedPlan has no caller-visible effects on the
+<span class="lineNum">     505 </span>                :            :                  * snapshot.  Having to replan is an unusual case, and it seems a
+<span class="lineNum">     506 </span>                :            :                  * really bad idea for RevalidateCachedPlan to affect the snapshot
+<span class="lineNum">     507 </span>                :            :                  * only in unusual cases.  (Besides, the snap might have been created
+<span class="lineNum">     508 </span>                :            :                  * in a short-lived context.)
+<span class="lineNum">     509 </span>                :            :                  */
+<span class="lineNum">     510 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 PG_TRY();</span>
+<span class="lineNum">     511 </span>                :            :                 {
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :                         Snapshot        mySnapshot = NULL;</span>
+<span class="lineNum">     513 </span>                :            :                         TupleDesc       resultDesc;
+<span class="lineNum">     514 </span>                :            :                         Node       *raw_parse_tree;
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (ActiveSnapshot == NULL)</span>
+<span class="lineNum">     517 </span>                :            :                         {
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                                 mySnapshot = CopySnapshot(GetTransactionSnapshot());</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :                                 ActiveSnapshot = mySnapshot;</span>
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     521 </span>                :            : 
+<span class="lineNum">     522 </span>                :            :                         /*
+<span class="lineNum">     523 </span>                :            :                          * If this is a CREATE TABLE AS, pass information about the
+<span class="lineNum">     524 </span>                :            :                          * target table's distribution key to the planner.
+<span class="lineNum">     525 </span>                :            :                          */
+<span class="lineNum">     526 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (intoClause)</span>
+<span class="lineNum">     527 </span>                :            :                         {
+<span class="lineNum">     528 </span>                :            :                                 SelectStmt *select;
+<span class="lineNum">     529 </span>                :            : 
+<span class="lineNum">     530 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!IsA(plansource-&gt;raw_parse_tree, SelectStmt))</span>
+<span class="lineNum">     531 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     532 </span>                :            :                                                         (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+<span class="lineNum">     533 </span>                :            :                                                          errmsg(&quot;prepared statement is not a SELECT&quot;)));
+<span class="lineNum">     534 </span>                :            : 
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :                                 select = (SelectStmt *) copyObject(plansource-&gt;raw_parse_tree);</span>
+<span class="lineNum">     536 </span>                :            : 
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :                                 select-&gt;intoClause = copyObject(intoClause);</span>
+<span class="lineNum">     538 </span>                :            : 
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :                                 raw_parse_tree = (Node *) select;</span>
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     541 </span>                :            :                         else
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :                                 raw_parse_tree = copyObject(plansource-&gt;raw_parse_tree);</span>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            :                         /*
+<span class="lineNum">     545 </span>                :            :                          * Run parse analysis and rule rewriting.  The parser tends to
+<span class="lineNum">     546 </span>                :            :                          * scribble on its input, so we must copy the raw parse tree to
+<span class="lineNum">     547 </span>                :            :                          * prevent corruption of the cache.  Note that we do not use
+<span class="lineNum">     548 </span>                :            :                          * parse_analyze_varparams(), assuming that the caller never wants
+<span class="lineNum">     549 </span>                :            :                          * the parameter types to change from the original values.
+<span class="lineNum">     550 </span>                :            :                          */
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :                         slist = pg_analyze_and_rewrite(raw_parse_tree,</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                                                                                    plansource-&gt;query_string,</span>
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :                                                                                    plansource-&gt;param_types,</span>
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :                                                                                    plansource-&gt;num_params);</span>
+<span class="lineNum">     555 </span>                :            : 
+<span class="lineNum">     556 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (plansource-&gt;fully_planned)</span>
+<span class="lineNum">     557 </span>                :            :                         {
+<span class="lineNum">     558 </span>                :            :                                 /*
+<span class="lineNum">     559 </span>                :            :                                  * Generate plans for queries.
+<span class="lineNum">     560 </span>                :            :                                  *
+<span class="lineNum">     561 </span>                :            :                                  * The planner may try to call SPI-using functions, which
+<span class="lineNum">     562 </span>                :            :                                  * causes a problem if we're already inside one.  Rather than
+<span class="lineNum">     563 </span>                :            :                                  * expect all SPI-using code to do SPI_push whenever a replan
+<span class="lineNum">     564 </span>                :            :                                  * could happen, it seems best to take care of the case here.
+<span class="lineNum">     565 </span>                :            :                                  */
+<span class="lineNum">     566 </span>                :            :                                 bool    pushed;
+<span class="lineNum">     567 </span>                :            : 
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                                 pushed = SPI_push_conditional();</span>
+<span class="lineNum">     569 </span>                :            : 
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :                                 slist = pg_plan_queries(slist, plansource-&gt;cursor_options,</span>
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                                                                                 boundParams, false);</span>
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :<span class="lineNoCov">          0 :                                 SPI_pop_conditional(pushed);</span>
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     575 </span>                :            : 
+<span class="lineNum">     576 </span>                :            :                         /*
+<span class="lineNum">     577 </span>                :            :                          * Check or update the result tupdesc.  XXX should we use a weaker
+<span class="lineNum">     578 </span>                :            :                          * condition than equalTupleDescs() here?
+<span class="lineNum">     579 </span>                :            :                          */
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                         resultDesc = PlanCacheComputeResultDesc(slist);</span>
+<span class="lineNum">     581 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (resultDesc == NULL &amp;&amp; plansource-&gt;resultDesc == NULL)</span>
+<span class="lineNum">     582 </span>                :            :                         {
+<span class="lineNum">     583 </span>                :            :                                 /* OK, doesn't return tuples */
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     585 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (intoClause)</span>
+<span class="lineNum">     586 </span>                :            :                         {
+<span class="lineNum">     587 </span>                :            :                                 /* OK */
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     589 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (resultDesc == NULL || plansource-&gt;resultDesc == NULL ||</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :                                          !equalTupleDescs(resultDesc, plansource-&gt;resultDesc, true))</span>
+<span class="lineNum">     591 </span>                :            :                         {
+<span class="lineNum">     592 </span>                :            :                                 MemoryContext oldcxt;
+<span class="lineNum">     593 </span>                :            : 
+<span class="lineNum">     594 </span>                :            :                                 /* can we give a better error message? */
+<span class="lineNum">     595 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (plansource-&gt;fixed_result)</span>
+<span class="lineNum">     596 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     597 </span>                :            :                                                         (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     598 </span>                :            :                                                          errmsg(&quot;cached plan must not change result type&quot;)));
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                                 oldcxt = MemoryContextSwitchTo(plansource-&gt;context);</span>
+<span class="lineNum">     600 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (resultDesc)</span>
+<span class="lineNum">     601 </span>                :<span class="lineNoCov">          0 :                                         resultDesc = CreateTupleDescCopy(resultDesc);</span>
+<span class="lineNum">     602 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (plansource-&gt;resultDesc)</span>
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                                         FreeTupleDesc(plansource-&gt;resultDesc);</span>
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :                                 plansource-&gt;resultDesc = resultDesc;</span>
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :                                 MemoryContextSwitchTo(oldcxt);</span>
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     607 </span>                :            : 
+<span class="lineNum">     608 </span>                :            :                         /* Done with snapshot */
+<span class="lineNum">     609 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (mySnapshot)</span>
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :                                 FreeSnapshot(mySnapshot);</span>
+<span class="lineNum">     611 </span>                :            :                 }
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                 PG_CATCH();</span>
+<span class="lineNum">     613 </span>                :            :                 {
+<span class="lineNum">     614 </span>                :            :                         /* Restore global vars and propagate error */
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :                         ActiveSnapshot = saveActiveSnapshot;</span>
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :                         PG_RE_THROW();</span>
+<span class="lineNum">     617 </span>                :            :                 }
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :                 PG_END_TRY();</span>
+<span class="lineNum">     619 </span>                :            : 
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 :                 ActiveSnapshot = saveActiveSnapshot;</span>
+<span class="lineNum">     621 </span>                :            : 
+<span class="lineNum">     622 </span>                :            :                 /* Now we can restore current search path */
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :                 PopOverrideSearchPath();</span>
+<span class="lineNum">     624 </span>                :            : 
+<span class="lineNum">     625 </span>                :            :                 /*
+<span class="lineNum">     626 </span>                :            :                  * Store the plans into the plancache entry, advancing the generation
+<span class="lineNum">     627 </span>                :            :                  * count.
+<span class="lineNum">     628 </span>                :            :                  */
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                 StoreCachedPlan(plansource, slist, NULL);</span>
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :                 plan = plansource-&gt;plan;</span>
+<span class="lineNum">     632 </span>                :            : 
+<span class="lineNum">     633 </span>                :            :                 /*
+<span class="lineNum">     634 </span>                :            :                  * If we used the parameter values to create the plan, or this is a
+<span class="lineNum">     635 </span>                :            :                  * CREATE TABLE AS, we cannot re-use this plan on subsequent calls.
+<span class="lineNum">     636 </span>                :            :                  */
+<span class="lineNum">     637 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (boundParams || intoClause)</span>
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :                         plan-&gt;saved_xmin = BootstrapTransactionId;</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     640 </span>                :            : 
+<span class="lineNum">     641 </span>                :            :         /*
+<span class="lineNum">     642 </span>                :            :          * Last step: flag the plan as in use by caller.
+<span class="lineNum">     643 </span>                :            :          */
+<span class="lineNum">     644 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (useResOwner)</span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :                 ResourceOwnerEnlargePlanCacheRefs(CurrentResourceOwner);</span>
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :         plan-&gt;refcount++;</span>
+<span class="lineNum">     647 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (useResOwner)</span>
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :                 ResourceOwnerRememberPlanCacheRef(CurrentResourceOwner, plan);</span>
+<span class="lineNum">     649 </span>                :            : 
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :         return plan;</span>
+<span class="lineNum">     651 </span>                :            : }
+<span class="lineNum">     652 </span>                :            : 
+<span class="lineNum">     653 </span>                :            : /*
+<span class="lineNum">     654 </span>                :            :  * Compatibility version of RevalidateCachedPlanWithParams, for the simple
+<span class="lineNum">     655 </span>                :            :  * case of no params and no CREATE TABLE AS.
+<a name="656"><span class="lineNum">     656 </span>                :            :  */</a>
+<span class="lineNum">     657 </span>                :            : CachedPlan *
+<span class="lineNum">     658 </span>                :            : RevalidateCachedPlan(CachedPlanSource *plansource, bool useResOwner)
+<span class="lineNum">     659 </span>                :            : {
+<span class="lineNum">     660 </span>                :<span class="lineNoCov">          0 :         return RevalidateCachedPlanWithParams(plansource, useResOwner, NULL, NULL);</span>
+<span class="lineNum">     661 </span>                :            : }
+<span class="lineNum">     662 </span>                :            : 
+<span class="lineNum">     663 </span>                :            : /*
+<span class="lineNum">     664 </span>                :            :  * ReleaseCachedPlan: release active use of a cached plan.
+<span class="lineNum">     665 </span>                :            :  *
+<span class="lineNum">     666 </span>                :            :  * This decrements the reference count, and frees the plan if the count
+<span class="lineNum">     667 </span>                :            :  * has thereby gone to zero.  If useResOwner is true, it is assumed that
+<span class="lineNum">     668 </span>                :            :  * the reference count is managed by the CurrentResourceOwner.
+<span class="lineNum">     669 </span>                :            :  *
+<span class="lineNum">     670 </span>                :            :  * Note: useResOwner = false is used for releasing references that are in
+<span class="lineNum">     671 </span>                :            :  * persistent data structures, such as the parent CachedPlanSource or a
+<span class="lineNum">     672 </span>                :            :  * Portal.      Transient references should be protected by a resource owner.
+<a name="673"><span class="lineNum">     673 </span>                :            :  */</a>
+<span class="lineNum">     674 </span>                :            : void
+<span class="lineNum">     675 </span>                :            : ReleaseCachedPlan(CachedPlan *plan, bool useResOwner)
+<span class="lineNum">     676 </span>                :            : {
+<span class="lineNum">     677 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (useResOwner)</span>
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :                 ResourceOwnerForgetPlanCacheRef(CurrentResourceOwner, plan);</span>
+<span class="lineNum">     679 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(plan-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :         plan-&gt;refcount--;</span>
+<span class="lineNum">     681 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plan-&gt;refcount == 0)</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :                 MemoryContextDelete(plan-&gt;context);</span>
+<span class="lineNum">     683 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     684 </span>                :            : 
+<span class="lineNum">     685 </span>                :            : /*
+<span class="lineNum">     686 </span>                :            :  * CachedPlanIsValid: test whether the plan within a CachedPlanSource is
+<span class="lineNum">     687 </span>                :            :  * currently valid (that is, not marked as being in need of revalidation).
+<span class="lineNum">     688 </span>                :            :  *
+<span class="lineNum">     689 </span>                :            :  * This result is only trustworthy (ie, free from race conditions) if
+<span class="lineNum">     690 </span>                :            :  * the caller has acquired locks on all the relations used in the plan.
+<a name="691"><span class="lineNum">     691 </span>                :            :  */</a>
+<span class="lineNum">     692 </span>                :            : bool
+<span class="lineNum">     693 </span>                :            : CachedPlanIsValid(CachedPlanSource *plansource)
+<span class="lineNum">     694 </span>                :            : {
+<span class="lineNum">     695 </span>                :            :         CachedPlan *plan;
+<span class="lineNum">     696 </span>                :            : 
+<span class="lineNum">     697 </span>                :            :         /* Validity check that we were given a CachedPlanSource */
+<span class="lineNum">     698 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(list_member_ptr(cached_plans_list, plansource));</span>
+<span class="lineNum">     699 </span>                :            : 
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :         plan = plansource-&gt;plan;</span>
+<span class="lineNum">     701 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (plan &amp;&amp; !plan-&gt;dead)</span>
+<span class="lineNum">     702 </span>                :            :         {
+<span class="lineNum">     703 </span>                :            :                 /*
+<span class="lineNum">     704 </span>                :            :                  * Plan must have positive refcount because it is referenced by
+<span class="lineNum">     705 </span>                :            :                  * plansource; so no need to fear it disappears under us here.
+<span class="lineNum">     706 </span>                :            :                  */
+<span class="lineNum">     707 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(plan-&gt;refcount &gt; 0);</span>
+<span class="lineNum">     708 </span>                :            : 
+<span class="lineNum">     709 </span>                :            :                 /*
+<span class="lineNum">     710 </span>                :            :                  * Although we don't want to acquire locks here, it still seems
+<span class="lineNum">     711 </span>                :            :                  * useful to check for expiration of a transient plan.
+<span class="lineNum">     712 </span>                :            :                  */
+<span class="lineNum">     713 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (TransactionIdIsValid(plan-&gt;saved_xmin) &amp;&amp;</span>
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :                         !TransactionIdEquals(plan-&gt;saved_xmin, TransactionXmin))</span>
+<span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :                         plan-&gt;dead = true;</span>
+<span class="lineNum">     716 </span>                :            :                 else
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     719 </span>                :            : 
+<span class="lineNum">     720 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     721 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     722 </span>                :            : 
+<span class="lineNum">     723 </span>                :            : /*
+<span class="lineNum">     724 </span>                :            :  * AcquireExecutorLocks: acquire locks needed for execution of a fully-planned
+<span class="lineNum">     725 </span>                :            :  * cached plan; or release them if acquire is false.
+<a name="726"><span class="lineNum">     726 </span>                :            :  */</a>
+<span class="lineNum">     727 </span>                :            : static void
+<span class="lineNum">     728 </span>                :            : AcquireExecutorLocks(List *stmt_list, bool acquire)
+<span class="lineNum">     729 </span>                :            : {
+<span class="lineNum">     730 </span>                :            :         ListCell   *lc1;
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc1, stmt_list)</span>
+<span class="lineNum">     733 </span>                :            :         {
+<span class="lineNum">     734 </span>                :<span class="lineNoCov">          0 :                 PlannedStmt *plannedstmt = (PlannedStmt *) lfirst(lc1);</span>
+<span class="lineNum">     735 </span>                :            :                 int                     rt_index;
+<span class="lineNum">     736 </span>                :            :                 ListCell   *lc2;
+<span class="lineNum">     737 </span>                :            : 
+<span class="lineNum">     738 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!IsA(plannedstmt, Query));</span>
+<span class="lineNum">     739 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!IsA(plannedstmt, PlannedStmt))</span>
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* Ignore utility statements */</span>
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :                 rt_index = 0;</span>
+<span class="lineNum">     743 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(lc2, plannedstmt-&gt;rtable)</span>
+<span class="lineNum">     744 </span>                :            :                 {
+<span class="lineNum">     745 </span>                :<span class="lineNoCov">          0 :                         RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc2);</span>
+<span class="lineNum">     746 </span>                :            :                         LOCKMODE        lockmode;
+<span class="lineNum">     747 </span>                :            : 
+<span class="lineNum">     748 </span>                :<span class="lineNoCov">          0 :                         rt_index++;</span>
+<span class="lineNum">     749 </span>                :            : 
+<span class="lineNum">     750 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (rte-&gt;rtekind != RTE_RELATION)</span>
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :                                 continue;</span>
+<span class="lineNum">     752 </span>                :            : 
+<span class="lineNum">     753 </span>                :            :                         /*
+<span class="lineNum">     754 </span>                :            :                          * Acquire the appropriate type of lock on each relation OID. Note
+<span class="lineNum">     755 </span>                :            :                          * that we don't actually try to open the rel, and hence will not
+<span class="lineNum">     756 </span>                :            :                          * fail if it's been dropped entirely --- we'll just transiently
+<span class="lineNum">     757 </span>                :            :                          * acquire a non-conflicting lock.
+<span class="lineNum">     758 </span>                :            :                          */
+<span class="lineNum">     759 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (list_member_int(plannedstmt-&gt;resultRelations, rt_index))</span>
+<span class="lineNum">     760 </span>                :            :                         {
+<span class="lineNum">     761 </span>                :            :                                 /*
+<span class="lineNum">     762 </span>                :            :                                  * RowExclusiveLock is acquired in PostgreSQL here.  Greenplum
+<span class="lineNum">     763 </span>                :            :                                  * acquires ExclusiveLock to avoid distributed deadlock due to
+<span class="lineNum">     764 </span>                :            :                                  * concurrent UPDATE/DELETE on the same table.  This is in
+<span class="lineNum">     765 </span>                :            :                                  * parity with CdbTryOpenRelation().  Catalog tables are
+<span class="lineNum">     766 </span>                :            :                                  * replicated across cluster and don't suffer from the
+<span class="lineNum">     767 </span>                :            :                                  * deadlock.
+<span class="lineNum">     768 </span>                :            :                                  */
+<span class="lineNum">     769 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (rte-&gt;relid &gt; FirstNormalObjectId)</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                                         lockmode = ExclusiveLock;</span>
+<span class="lineNum">     771 </span>                :            :                                 else
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                                         lockmode = RowExclusiveLock;</span>
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     774 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (rowmark_member(plannedstmt-&gt;rowMarks, rt_index))</span>
+<span class="lineNum">     775 </span>                :<span class="lineNoCov">          0 :                                 lockmode = RowShareLock;</span>
+<span class="lineNum">     776 </span>                :            :                         else
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 :                                 lockmode = AccessShareLock;</span>
+<span class="lineNum">     778 </span>                :            : 
+<span class="lineNum">     779 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (acquire)</span>
+<span class="lineNum">     780 </span>                :<span class="lineNoCov">          0 :                                 LockRelationOid(rte-&gt;relid, lockmode);</span>
+<span class="lineNum">     781 </span>                :            :                         else
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :                                 UnlockRelationOid(rte-&gt;relid, lockmode);</span>
+<span class="lineNum">     783 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     784 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     786 </span>                :            : 
+<span class="lineNum">     787 </span>                :            : /*
+<span class="lineNum">     788 </span>                :            :  * AcquirePlannerLocks: acquire locks needed for planning and execution of a
+<span class="lineNum">     789 </span>                :            :  * not-fully-planned cached plan; or release them if acquire is false.
+<span class="lineNum">     790 </span>                :            :  *
+<span class="lineNum">     791 </span>                :            :  * Note that we don't actually try to open the relations, and hence will not
+<span class="lineNum">     792 </span>                :            :  * fail if one has been dropped entirely --- we'll just transiently acquire
+<span class="lineNum">     793 </span>                :            :  * a non-conflicting lock.
+<a name="794"><span class="lineNum">     794 </span>                :            :  */</a>
+<span class="lineNum">     795 </span>                :            : static void
+<span class="lineNum">     796 </span>                :            : AcquirePlannerLocks(List *stmt_list, bool acquire)
+<span class="lineNum">     797 </span>                :            : {
+<span class="lineNum">     798 </span>                :            :         ListCell   *lc;
+<span class="lineNum">     799 </span>                :            : 
+<span class="lineNum">     800 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, stmt_list)</span>
+<span class="lineNum">     801 </span>                :            :         {
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 :                 Query      *query = (Query *) lfirst(lc);</span>
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(IsA(query, Query));</span>
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 :                 ScanQueryForLocks(query, acquire);</span>
+<span class="lineNum">     806 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     808 </span>                :            : 
+<span class="lineNum">     809 </span>                :            : /*
+<span class="lineNum">     810 </span>                :            :  * ScanQueryForLocks: recursively scan one Query for AcquirePlannerLocks.
+<a name="811"><span class="lineNum">     811 </span>                :            :  */</a>
+<span class="lineNum">     812 </span>                :            : static void
+<span class="lineNum">     813 </span>                :            : ScanQueryForLocks(Query *parsetree, bool acquire)
+<span class="lineNum">     814 </span>                :            : {
+<span class="lineNum">     815 </span>                :            :         ListCell   *lc;
+<span class="lineNum">     816 </span>                :            :         int                     rt_index;
+<span class="lineNum">     817 </span>                :            : 
+<span class="lineNum">     818 </span>                :            :         /*
+<span class="lineNum">     819 </span>                :            :          * First, process RTEs of the current query level.
+<span class="lineNum">     820 </span>                :            :          */
+<span class="lineNum">     821 </span>                :<span class="lineNoCov">          0 :         rt_index = 0;</span>
+<span class="lineNum">     822 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, parsetree-&gt;rtable)</span>
+<span class="lineNum">     823 </span>                :            :         {
+<span class="lineNum">     824 </span>                :<span class="lineNoCov">          0 :                 RangeTblEntry *rte = (RangeTblEntry *) lfirst(lc);</span>
+<span class="lineNum">     825 </span>                :            :                 LOCKMODE        lockmode;
+<span class="lineNum">     826 </span>                :            : 
+<span class="lineNum">     827 </span>                :<span class="lineNoCov">          0 :                 rt_index++;</span>
+<span class="lineNum">     828 </span>     [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 switch (rte-&gt;rtekind)</span>
+<span class="lineNum">     829 </span>                :            :                 {
+<span class="lineNum">     830 </span>                :            :                         case RTE_RELATION:
+<span class="lineNum">     831 </span>                :            :                                 /* Acquire or release the appropriate type of lock */
+<span class="lineNum">     832 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (rt_index == parsetree-&gt;resultRelation)</span>
+<span class="lineNum">     833 </span>                :            :                                 {
+<span class="lineNum">     834 </span>                :            :                                         /*
+<span class="lineNum">     835 </span>                :            :                                          * RowExclusiveLock is acquired in PostgreSQL here.
+<span class="lineNum">     836 </span>                :            :                                          * Greenplum acquires ExclusiveLock to avoid distributed
+<span class="lineNum">     837 </span>                :            :                                          * deadlock due to concurrent UPDATE/DELETE on the same
+<span class="lineNum">     838 </span>                :            :                                          * table.  This is in parity with CdbTryOpenRelation().
+<span class="lineNum">     839 </span>                :            :                                          * Catalog tables are replicated across cluster and don't
+<span class="lineNum">     840 </span>                :            :                                          * suffer from the deadlock.
+<span class="lineNum">     841 </span>                :            :                                          */
+<span class="lineNum">     842 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (rte-&gt;relid &gt; FirstNormalObjectId)</span>
+<span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :                                                 lockmode = ExclusiveLock;</span>
+<span class="lineNum">     844 </span>                :            :                                         else
+<span class="lineNum">     845 </span>                :<span class="lineNoCov">          0 :                                                 lockmode = RowExclusiveLock;</span>
+<span class="lineNum">     846 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     847 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (rowmark_member(parsetree-&gt;rowMarks, rt_index))</span>
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :                                         lockmode = RowShareLock;</span>
+<span class="lineNum">     849 </span>                :            :                                 else
+<span class="lineNum">     850 </span>                :<span class="lineNoCov">          0 :                                         lockmode = AccessShareLock;</span>
+<span class="lineNum">     851 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (acquire)</span>
+<span class="lineNum">     852 </span>                :<span class="lineNoCov">          0 :                                         LockRelationOid(rte-&gt;relid, lockmode);</span>
+<span class="lineNum">     853 </span>                :            :                                 else
+<span class="lineNum">     854 </span>                :<span class="lineNoCov">          0 :                                         UnlockRelationOid(rte-&gt;relid, lockmode);</span>
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     856 </span>                :            : 
+<span class="lineNum">     857 </span>                :            :                         case RTE_SUBQUERY:
+<span class="lineNum">     858 </span>                :            :                                 /* Recurse into subquery-in-FROM */
+<span class="lineNum">     859 </span>                :<span class="lineNoCov">          0 :                                 ScanQueryForLocks(rte-&gt;subquery, acquire);</span>
+<span class="lineNum">     860 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     861 </span>                :            : 
+<span class="lineNum">     862 </span>                :            :                         default:
+<span class="lineNum">     863 </span>                :            :                                 /* ignore other types of RTEs */
+<span class="lineNum">     864 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     865 </span>                :            :                 }
+<span class="lineNum">     866 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     867 </span>                :            : 
+<span class="lineNum">     868 </span>                :            :         /* Recurse into subquery-in-WITH */
+<span class="lineNum">     869 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, parsetree-&gt;cteList)</span>
+<span class="lineNum">     870 </span>                :            :         {
+<span class="lineNum">     871 </span>                :<span class="lineNoCov">          0 :                 CommonTableExpr *cte = (CommonTableExpr *) lfirst(lc);</span>
+<span class="lineNum">     872 </span>                :            : 
+<span class="lineNum">     873 </span>                :<span class="lineNoCov">          0 :                 ScanQueryForLocks((Query *) cte-&gt;ctequery, acquire);</span>
+<span class="lineNum">     874 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     875 </span>                :            : 
+<span class="lineNum">     876 </span>                :            :         /*
+<span class="lineNum">     877 </span>                :            :          * Recurse into sublink subqueries, too.  But we already did the ones in
+<span class="lineNum">     878 </span>                :            :          * the rtable and cteList.
+<span class="lineNum">     879 </span>                :            :          */
+<span class="lineNum">     880 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (parsetree-&gt;hasSubLinks)</span>
+<span class="lineNum">     881 </span>                :            :         {
+<span class="lineNum">     882 </span>                :<span class="lineNoCov">          0 :                 query_tree_walker(parsetree, ScanQueryWalker,</span>
+<span class="lineNum">     883 </span>                :            :                                                   (void *) &amp;acquire,
+<span class="lineNum">     884 </span>                :            :                                                   QTW_IGNORE_RC_SUBQUERIES);
+<span class="lineNum">     885 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     886 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     887 </span>                :            : 
+<span class="lineNum">     888 </span>                :            : /*
+<span class="lineNum">     889 </span>                :            :  * Walker to find sublink subqueries for ScanQueryForLocks
+<a name="890"><span class="lineNum">     890 </span>                :            :  */</a>
+<span class="lineNum">     891 </span>                :            : static bool
+<span class="lineNum">     892 </span>                :            : ScanQueryWalker(Node *node, bool *acquire)
+<span class="lineNum">     893 </span>                :            : {
+<span class="lineNum">     894 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     896 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, SubLink))</span>
+<span class="lineNum">     897 </span>                :            :         {
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :                 SubLink    *sub = (SubLink *) node;</span>
+<span class="lineNum">     899 </span>                :            : 
+<span class="lineNum">     900 </span>                :            :                 /* Do what we came for */
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                 ScanQueryForLocks((Query *) sub-&gt;subselect, *acquire);</span>
+<span class="lineNum">     902 </span>                :            :                 /* Fall through to process lefthand args of SubLink */
+<span class="lineNum">     903 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     904 </span>                :            : 
+<span class="lineNum">     905 </span>                :            :         /*
+<span class="lineNum">     906 </span>                :            :          * Do NOT recurse into Query nodes, because ScanQueryForLocks already
+<span class="lineNum">     907 </span>                :            :          * processed subselects of subselects for us.
+<span class="lineNum">     908 </span>                :            :          */
+<span class="lineNum">     909 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node, ScanQueryWalker,</span>
+<span class="lineNum">     910 </span>                :<span class="lineNoCov">          0 :                                                                   (void *) acquire);</span>
+<span class="lineNum">     911 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     912 </span>                :            : 
+<span class="lineNum">     913 </span>                :            : /*
+<span class="lineNum">     914 </span>                :            :  * rowmark_member: check whether an RT index appears in a RowMarkClause list.
+<a name="915"><span class="lineNum">     915 </span>                :            :  */</a>
+<span class="lineNum">     916 </span>                :            : static bool
+<span class="lineNum">     917 </span>                :            : rowmark_member(List *rowMarks, int rt_index)
+<span class="lineNum">     918 </span>                :            : {
+<span class="lineNum">     919 </span>                :            :         ListCell   *l;
+<span class="lineNum">     920 </span>                :            : 
+<span class="lineNum">     921 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, rowMarks)</span>
+<span class="lineNum">     922 </span>                :            :         {
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :                 RowMarkClause *rc = (RowMarkClause *) lfirst(l);</span>
+<span class="lineNum">     924 </span>                :            : 
+<span class="lineNum">     925 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rc-&gt;rti == rt_index)</span>
+<span class="lineNum">     926 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     927 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     928 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     929 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     930 </span>                :            : 
+<span class="lineNum">     931 </span>                :            : /*
+<span class="lineNum">     932 </span>                :            :  * plan_list_is_transient: check if any of the plans in the list are transient.
+<a name="933"><span class="lineNum">     933 </span>                :            :  */</a>
+<span class="lineNum">     934 </span>                :            : static bool
+<span class="lineNum">     935 </span>                :            : plan_list_is_transient(List *stmt_list)
+<span class="lineNum">     936 </span>                :            : {
+<span class="lineNum">     937 </span>                :            :         ListCell   *lc;
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, stmt_list)</span>
+<span class="lineNum">     940 </span>                :            :         {
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :                 PlannedStmt *plannedstmt = (PlannedStmt *) lfirst(lc);</span>
+<span class="lineNum">     942 </span>                :            : 
+<span class="lineNum">     943 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!IsA(plannedstmt, PlannedStmt))</span>
+<span class="lineNum">     944 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* Ignore utility statements */</span>
+<span class="lineNum">     945 </span>                :            : 
+<span class="lineNum">     946 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannedstmt-&gt;transientPlan)</span>
+<span class="lineNum">     947 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     949 </span>                :            : 
+<span class="lineNum">     950 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     951 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     952 </span>                :            : 
+<span class="lineNum">     953 </span>                :            : /*
+<span class="lineNum">     954 </span>                :            :  * PlanCacheComputeResultDesc: given a list of either fully-planned statements
+<span class="lineNum">     955 </span>                :            :  * or Queries, determine the result tupledesc it will produce.  Returns NULL
+<span class="lineNum">     956 </span>                :            :  * if the execution will not return tuples.
+<span class="lineNum">     957 </span>                :            :  *
+<span class="lineNum">     958 </span>                :            :  * Note: the result is created or copied into current memory context.
+<a name="959"><span class="lineNum">     959 </span>                :            :  */</a>
+<span class="lineNum">     960 </span>                :            : TupleDesc
+<span class="lineNum">     961 </span>                :            : PlanCacheComputeResultDesc(List *stmt_list)
+<span class="lineNum">     962 </span>                :            : {
+<span class="lineNum">     963 </span>                :            :         Node       *node;
+<span class="lineNum">     964 </span>                :            :         Query      *query;
+<span class="lineNum">     965 </span>                :            :         PlannedStmt *pstmt;
+<span class="lineNum">     966 </span>                :            : 
+<span class="lineNum">     967 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (ChoosePortalStrategy(stmt_list))</span>
+<span class="lineNum">         </span>            <span class="branchNoExec" title="Branch 4 was not executed"> # </span>]
+<span class="lineNum">     968 </span>                :            :         {
+<span class="lineNum">     969 </span>                :            :                 case PORTAL_ONE_SELECT:
+<span class="lineNum">     970 </span>                :<span class="lineNoCov">          0 :                         node = (Node *) linitial(stmt_list);</span>
+<span class="lineNum">     971 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsA(node, Query))</span>
+<span class="lineNum">     972 </span>                :            :                         {
+<span class="lineNum">     973 </span>                :<span class="lineNoCov">          0 :                                 query = (Query *) node;</span>
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :                                 return ExecCleanTypeFromTL(query-&gt;targetList, false);</span>
+<span class="lineNum">     975 </span>                :            :                         }
+<span class="lineNum">     976 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsA(node, PlannedStmt))</span>
+<span class="lineNum">     977 </span>                :            :                         {
+<span class="lineNum">     978 </span>                :<span class="lineNoCov">          0 :                                 pstmt = (PlannedStmt *) node;</span>
+<span class="lineNum">     979 </span>                :<span class="lineNoCov">          0 :                                 return ExecCleanTypeFromTL(pstmt-&gt;planTree-&gt;targetlist, false);</span>
+<span class="lineNum">     980 </span>                :            :                         }
+<span class="lineNum">     981 </span>                :            :                         /* other cases shouldn't happen, but return NULL */
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     983 </span>                :            : 
+<span class="lineNum">     984 </span>                :            :                 case PORTAL_ONE_RETURNING:
+<span class="lineNum">     985 </span>                :<span class="lineNoCov">          0 :                         node = PortalListGetPrimaryStmt(stmt_list);</span>
+<span class="lineNum">     986 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsA(node, Query))</span>
+<span class="lineNum">     987 </span>                :            :                         {
+<span class="lineNum">     988 </span>                :<span class="lineNoCov">          0 :                                 query = (Query *) node;</span>
+<span class="lineNum">     989 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(query-&gt;returningList);</span>
+<span class="lineNum">     990 </span>                :<span class="lineNoCov">          0 :                                 return ExecCleanTypeFromTL(query-&gt;returningList, false);</span>
+<span class="lineNum">     991 </span>                :            :                         }
+<span class="lineNum">     992 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsA(node, PlannedStmt))</span>
+<span class="lineNum">     993 </span>                :            :                         {
+<span class="lineNum">     994 </span>                :<span class="lineNoCov">          0 :                                 pstmt = (PlannedStmt *) node;</span>
+<span class="lineNum">     995 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(pstmt-&gt;returningLists);</span>
+<span class="lineNum">     996 </span>                :<span class="lineNoCov">          0 :                                 return ExecCleanTypeFromTL((List *) linitial(pstmt-&gt;returningLists), false);</span>
+<span class="lineNum">     997 </span>                :            :                         }
+<span class="lineNum">     998 </span>                :            :                         /* other cases shouldn't happen, but return NULL */
+<span class="lineNum">     999 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1000 </span>                :            : 
+<span class="lineNum">    1001 </span>                :            :                 case PORTAL_UTIL_SELECT:
+<span class="lineNum">    1002 </span>                :<span class="lineNoCov">          0 :                         node = (Node *) linitial(stmt_list);</span>
+<span class="lineNum">    1003 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsA(node, Query))</span>
+<span class="lineNum">    1004 </span>                :            :                         {
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                                 query = (Query *) node;</span>
+<span class="lineNum">    1006 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(query-&gt;utilityStmt);</span>
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 :                                 return UtilityTupleDescriptor(query-&gt;utilityStmt);</span>
+<span class="lineNum">    1008 </span>                :            :                         }
+<span class="lineNum">    1009 </span>                :            :                         /* else it's a bare utility statement */
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :                         return UtilityTupleDescriptor(node);</span>
+<span class="lineNum">    1011 </span>                :            : 
+<span class="lineNum">    1012 </span>                :            :                 case PORTAL_MULTI_QUERY:
+<span class="lineNum">    1013 </span>                :            :                         /* will not return tuples */
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1015 </span>                :            :         }
+<span class="lineNum">    1016 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">    1017 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1018 </span>                :            : 
+<span class="lineNum">    1019 </span>                :            : /*
+<span class="lineNum">    1020 </span>                :            :  * PlanCacheRelCallback
+<span class="lineNum">    1021 </span>                :            :  *              Relcache inval callback function
+<span class="lineNum">    1022 </span>                :            :  *
+<span class="lineNum">    1023 </span>                :            :  * Invalidate all plans mentioning the given rel, or all plans mentioning
+<span class="lineNum">    1024 </span>                :            :  * any rel at all if relid == InvalidOid.
+<a name="1025"><span class="lineNum">    1025 </span>                :            :  */</a>
+<span class="lineNum">    1026 </span>                :            : static void
+<span class="lineNum">    1027 </span>                :            : PlanCacheRelCallback(Datum arg, Oid relid)
+<span class="lineNum">    1028 </span>                :            : {
+<span class="lineNum">    1029 </span>                :            :         ListCell   *lc1;
+<span class="lineNum">    1030 </span>                :            : 
+<span class="lineNum">    1031 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc1, cached_plans_list)</span>
+<span class="lineNum">    1032 </span>                :            :         {
+<span class="lineNum">    1033 </span>                :<span class="lineNoCov">          0 :                 CachedPlanSource *plansource = (CachedPlanSource *) lfirst(lc1);</span>
+<span class="lineNum">    1034 </span>                :<span class="lineNoCov">          0 :                 CachedPlan *plan = plansource-&gt;plan;</span>
+<span class="lineNum">    1035 </span>                :            : 
+<span class="lineNum">    1036 </span>                :            :                 /* No work if it's already invalidated */
+<span class="lineNum">    1037 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!plan || plan-&gt;dead)</span>
+<span class="lineNum">    1038 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">    1039 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plan-&gt;fully_planned)</span>
+<span class="lineNum">    1040 </span>                :            :                 {
+<span class="lineNum">    1041 </span>                :            :                         /* Have to check the per-PlannedStmt relid lists */
+<span class="lineNum">    1042 </span>                :            :                         ListCell   *lc2;
+<span class="lineNum">    1043 </span>                :            : 
+<span class="lineNum">    1044 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(lc2, plan-&gt;stmt_list)</span>
+<span class="lineNum">    1045 </span>                :            :                         {
+<span class="lineNum">    1046 </span>                :<span class="lineNoCov">          0 :                                 PlannedStmt *plannedstmt = (PlannedStmt *) lfirst(lc2);</span>
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(!IsA(plannedstmt, Query));</span>
+<span class="lineNum">    1049 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!IsA(plannedstmt, PlannedStmt))</span>
+<span class="lineNum">    1050 </span>                :<span class="lineNoCov">          0 :                                         continue;       /* Ignore utility statements */</span>
+<span class="lineNum">    1051 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if ((relid == InvalidOid) ? plannedstmt-&gt;relationOids != NIL :</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1052 </span>                :<span class="lineNoCov">          0 :                                         list_member_oid(plannedstmt-&gt;relationOids, relid))</span>
+<span class="lineNum">    1053 </span>                :            :                                 {
+<span class="lineNum">    1054 </span>                :            :                                         /* Invalidate the plan! */
+<span class="lineNum">    1055 </span>                :<span class="lineNoCov">          0 :                                         plan-&gt;dead = true;</span>
+<span class="lineNum">    1056 </span>                :<span class="lineNoCov">          0 :                                         break;          /* out of stmt_list scan */</span>
+<span class="lineNum">    1057 </span>                :            :                                 }
+<span class="lineNum">    1058 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1059 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1060 </span>                :            :                 else
+<span class="lineNum">    1061 </span>                :            :                 {
+<span class="lineNum">    1062 </span>                :            :                         /* Otherwise check the single list we built ourselves */
+<span class="lineNum">    1063 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ((relid == InvalidOid) ? plan-&gt;relationOids != NIL :</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1064 </span>                :<span class="lineNoCov">          0 :                                 list_member_oid(plan-&gt;relationOids, relid))</span>
+<span class="lineNum">    1065 </span>                :<span class="lineNoCov">          0 :                                 plan-&gt;dead = true;</span>
+<span class="lineNum">    1066 </span>                :            :                 }
+<span class="lineNum">    1067 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1068 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1069 </span>                :            : 
+<span class="lineNum">    1070 </span>                :            : /*
+<span class="lineNum">    1071 </span>                :            :  * PlanCacheFuncCallback
+<span class="lineNum">    1072 </span>                :            :  *              Syscache inval callback function for PROCOID cache
+<span class="lineNum">    1073 </span>                :            :  *
+<span class="lineNum">    1074 </span>                :            :  * Invalidate all plans mentioning the given catalog entry, or all plans
+<span class="lineNum">    1075 </span>                :            :  * mentioning any member of this cache if tuplePtr == NULL.
+<span class="lineNum">    1076 </span>                :            :  *
+<span class="lineNum">    1077 </span>                :            :  * Note that the coding would support use for multiple caches, but right
+<span class="lineNum">    1078 </span>                :            :  * now only user-defined functions are tracked this way.
+<a name="1079"><span class="lineNum">    1079 </span>                :            :  */</a>
+<span class="lineNum">    1080 </span>                :            : static void
+<span class="lineNum">    1081 </span>                :            : PlanCacheFuncCallback(Datum arg, int cacheid, ItemPointer tuplePtr)
+<span class="lineNum">    1082 </span>                :            : {
+<span class="lineNum">    1083 </span>                :            :         ListCell   *lc1;
+<span class="lineNum">    1084 </span>                :            : 
+<span class="lineNum">    1085 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc1, cached_plans_list)</span>
+<span class="lineNum">    1086 </span>                :            :         {
+<span class="lineNum">    1087 </span>                :<span class="lineNoCov">          0 :                 CachedPlanSource *plansource = (CachedPlanSource *) lfirst(lc1);</span>
+<span class="lineNum">    1088 </span>                :<span class="lineNoCov">          0 :                 CachedPlan *plan = plansource-&gt;plan;</span>
+<span class="lineNum">    1089 </span>                :            : 
+<span class="lineNum">    1090 </span>                :            :                 /* No work if it's already invalidated */
+<span class="lineNum">    1091 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!plan || plan-&gt;dead)</span>
+<span class="lineNum">    1092 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">    1093 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plan-&gt;fully_planned)</span>
+<span class="lineNum">    1094 </span>                :            :                 {
+<span class="lineNum">    1095 </span>                :            :                         /* Have to check the per-PlannedStmt inval-item lists */
+<span class="lineNum">    1096 </span>                :            :                         ListCell   *lc2;
+<span class="lineNum">    1097 </span>                :            : 
+<span class="lineNum">    1098 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(lc2, plan-&gt;stmt_list)</span>
+<span class="lineNum">    1099 </span>                :            :                         {
+<span class="lineNum">    1100 </span>                :<span class="lineNoCov">          0 :                                 PlannedStmt *plannedstmt = (PlannedStmt *) lfirst(lc2);</span>
+<span class="lineNum">    1101 </span>                :            :                                 ListCell   *lc3;
+<span class="lineNum">    1102 </span>                :            : 
+<span class="lineNum">    1103 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(!IsA(plannedstmt, Query));</span>
+<span class="lineNum">    1104 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!IsA(plannedstmt, PlannedStmt))</span>
+<span class="lineNum">    1105 </span>                :<span class="lineNoCov">          0 :                                         continue;       /* Ignore utility statements */</span>
+<span class="lineNum">    1106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 foreach(lc3, plannedstmt-&gt;invalItems)</span>
+<span class="lineNum">    1107 </span>                :            :                                 {
+<span class="lineNum">    1108 </span>                :<span class="lineNoCov">          0 :                                         PlanInvalItem *item = (PlanInvalItem *) lfirst(lc3);</span>
+<span class="lineNum">    1109 </span>                :            : 
+<span class="lineNum">    1110 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (item-&gt;cacheId != cacheid)</span>
+<span class="lineNum">    1111 </span>                :<span class="lineNoCov">          0 :                                                 continue;</span>
+<span class="lineNum">    1112 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (tuplePtr == NULL ||</span>
+<span class="lineNum">    1113 </span>                :<span class="lineNoCov">          0 :                                                 ItemPointerEquals(tuplePtr, &amp;item-&gt;tupleId))</span>
+<span class="lineNum">    1114 </span>                :            :                                         {
+<span class="lineNum">    1115 </span>                :            :                                                 /* Invalidate the plan! */
+<span class="lineNum">    1116 </span>                :<span class="lineNoCov">          0 :                                                 plan-&gt;dead = true;</span>
+<span class="lineNum">    1117 </span>                :<span class="lineNoCov">          0 :                                                 break;          /* out of invalItems scan */</span>
+<span class="lineNum">    1118 </span>                :            :                                         }
+<span class="lineNum">    1119 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">    1120 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (plan-&gt;dead)</span>
+<span class="lineNum">    1121 </span>                :<span class="lineNoCov">          0 :                                         break;          /* out of stmt_list scan */</span>
+<span class="lineNum">    1122 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1123 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1124 </span>                :            :                 else
+<span class="lineNum">    1125 </span>                :            :                 {
+<span class="lineNum">    1126 </span>                :            :                         /* Otherwise check the single list we built ourselves */
+<span class="lineNum">    1127 </span>                :            :                         ListCell   *lc2;
+<span class="lineNum">    1128 </span>                :            : 
+<span class="lineNum">    1129 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(lc2, plan-&gt;invalItems)</span>
+<span class="lineNum">    1130 </span>                :            :                         {
+<span class="lineNum">    1131 </span>                :<span class="lineNoCov">          0 :                                 PlanInvalItem *item = (PlanInvalItem *) lfirst(lc2);</span>
+<span class="lineNum">    1132 </span>                :            : 
+<span class="lineNum">    1133 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (item-&gt;cacheId != cacheid)</span>
+<span class="lineNum">    1134 </span>                :<span class="lineNoCov">          0 :                                         continue;</span>
+<span class="lineNum">    1135 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (tuplePtr == NULL ||</span>
+<span class="lineNum">    1136 </span>                :<span class="lineNoCov">          0 :                                         ItemPointerEquals(tuplePtr, &amp;item-&gt;tupleId))</span>
+<span class="lineNum">    1137 </span>                :            :                                 {
+<span class="lineNum">    1138 </span>                :            :                                         /* Invalidate the plan! */
+<span class="lineNum">    1139 </span>                :<span class="lineNoCov">          0 :                                         plan-&gt;dead = true;</span>
+<span class="lineNum">    1140 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">    1141 </span>                :            :                                 }
+<span class="lineNum">    1142 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1143 </span>                :            :                 }
+<span class="lineNum">    1144 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1145 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1146 </span>                :            : 
+<span class="lineNum">    1147 </span>                :            : /*
+<span class="lineNum">    1148 </span>                :            :  * PlanCacheSysCallback
+<span class="lineNum">    1149 </span>                :            :  *              Syscache inval callback function for other caches
+<span class="lineNum">    1150 </span>                :            :  *
+<span class="lineNum">    1151 </span>                :            :  * Just invalidate everything...
+<a name="1152"><span class="lineNum">    1152 </span>                :            :  */</a>
+<span class="lineNum">    1153 </span>                :            : static void
+<span class="lineNum">    1154 </span>                :            : PlanCacheSysCallback(Datum arg, int cacheid, ItemPointer tuplePtr)
+<span class="lineNum">    1155 </span>                :            : {
+<span class="lineNum">    1156 </span>                :<span class="lineNoCov">          0 :         ResetPlanCache();</span>
+<span class="lineNum">    1157 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1158 </span>                :            : 
+<span class="lineNum">    1159 </span>                :            : /*
+<span class="lineNum">    1160 </span>                :            :  * ResetPlanCache: drop all cached plans.
+<a name="1161"><span class="lineNum">    1161 </span>                :            :  */</a>
+<span class="lineNum">    1162 </span>                :            : void
+<span class="lineNum">    1163 </span>                :            : ResetPlanCache(void)
+<span class="lineNum">    1164 </span>                :            : {
+<span class="lineNum">    1165 </span>                :            :         ListCell   *lc;
+<span class="lineNum">    1166 </span>                :            : 
+<span class="lineNum">    1167 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, cached_plans_list)</span>
+<span class="lineNum">    1168 </span>                :            :         {
+<span class="lineNum">    1169 </span>                :<span class="lineNoCov">          0 :                 CachedPlanSource *plansource = (CachedPlanSource *) lfirst(lc);</span>
+<span class="lineNum">    1170 </span>                :<span class="lineNoCov">          0 :                 CachedPlan *plan = plansource-&gt;plan;</span>
+<span class="lineNum">    1171 </span>                :            : 
+<span class="lineNum">    1172 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plan)</span>
+<span class="lineNum">    1173 </span>                :<span class="lineNoCov">          0 :                         plan-&gt;dead = true;</span>
+<span class="lineNum">    1174 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1175 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

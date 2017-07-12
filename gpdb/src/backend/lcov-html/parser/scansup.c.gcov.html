@@ -1,0 +1,313 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - parser/scansup.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">parser</a> - scansup.c<span style="font-size: 80%;"> (source / <a href="scansup.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntry">70</td>
+            <td class="headerCovTableEntryLo">18.6 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">50.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntry">58</td>
+            <td class="headerCovTableEntryLo">15.5 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * scansup.c
+<span class="lineNum">       4 </span>                :            :  *        support routines for the lex/flex scanner, used by both the normal
+<span class="lineNum">       5 </span>                :            :  * backend as well as the bootstrap backend
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/parser/scansup.c,v 1.37 2009/01/01 17:23:46 momjian Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &lt;ctype.h&gt;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : #include &quot;parser/scansup.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;mb/pg_wchar.h&quot;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : /* ----------------
+<span class="lineNum">      25 </span>                :            :  *              scanstr
+<span class="lineNum">      26 </span>                :            :  *
+<span class="lineNum">      27 </span>                :            :  * if the string passed in has escaped codes, map the escape codes to actual
+<span class="lineNum">      28 </span>                :            :  * chars
+<span class="lineNum">      29 </span>                :            :  *
+<span class="lineNum">      30 </span>                :            :  * the string returned is palloc'd and should eventually be pfree'd by the
+<span class="lineNum">      31 </span>                :            :  * caller!
+<span class="lineNum">      32 </span>                :            :  * ----------------
+<span class="lineNum">      33 </span>                :            :  */
+<a name="34"><span class="lineNum">      34 </span>                :            : </a>
+<span class="lineNum">      35 </span>                :            : char *
+<span class="lineNum">      36 </span>                :            : scanstr(const char *s)
+<span class="lineNum">      37 </span>                :            : {
+<span class="lineNum">      38 </span>                :            :         char       *newStr;
+<span class="lineNum">      39 </span>                :            :         int                     len,
+<span class="lineNum">      40 </span>                :            :                                 i,
+<span class="lineNum">      41 </span>                :            :                                 j;
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (s == NULL || s[0] == '\0')</span>
+<span class="lineNum">      44 </span>                :<span class="lineNoCov">          0 :                 return pstrdup(&quot;&quot;);</span>
+<span class="lineNum">      45 </span>                :            : 
+<span class="lineNum">      46 </span>                :<span class="lineNoCov">          0 :         len = strlen(s);</span>
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :<span class="lineNoCov">          0 :         newStr = palloc(len + 1);       /* string cannot get longer */</span>
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0, j = 0; i &lt; len; i++)</span>
+<span class="lineNum">      51 </span>                :            :         {
+<span class="lineNum">      52 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (s[i] == '\'')</span>
+<span class="lineNum">      53 </span>                :            :                 {
+<span class="lineNum">      54 </span>                :            :                         /*
+<span class="lineNum">      55 </span>                :            :                          * Note: if scanner is working right, unescaped quotes can only
+<span class="lineNum">      56 </span>                :            :                          * appear in pairs, so there should be another character.
+<span class="lineNum">      57 </span>                :            :                          */
+<span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :                         i++;</span>
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :                         newStr[j] = s[i];</span>
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">      61 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (s[i] == '\\')</span>
+<span class="lineNum">      62 </span>                :            :                 {
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :                         i++;</span>
+<span class="lineNum">      64 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :                         switch (s[i])</span>
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span><span class="branchNoExec" title="Branch 8 was not executed"> # </span> 
+<span class="lineNum">         </span>   <span class="branchNoExec" title="Branch 9 was not executed"> # </span><span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span><span class="branchNoExec" title="Branch 12 was not executed"> # </span> 
+<span class="lineNum">         </span>            <span class="branchNoExec" title="Branch 13 was not executed"> # </span>]
+<span class="lineNum">      65 </span>                :            :                         {
+<span class="lineNum">      66 </span>                :            :                                 case 'b':
+<span class="lineNum">      67 </span>                :<span class="lineNoCov">          0 :                                         newStr[j] = '\b';</span>
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">      69 </span>                :            :                                 case 'f':
+<span class="lineNum">      70 </span>                :<span class="lineNoCov">          0 :                                         newStr[j] = '\f';</span>
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">      72 </span>                :            :                                 case 'n':
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :                                         newStr[j] = '\n';</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">      75 </span>                :            :                                 case 'r':
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :                                         newStr[j] = '\r';</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">      78 </span>                :            :                                 case 't':
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :                                         newStr[j] = '\t';</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">      81 </span>                :            :                                 case '0':
+<span class="lineNum">      82 </span>                :            :                                 case '1':
+<span class="lineNum">      83 </span>                :            :                                 case '2':
+<span class="lineNum">      84 </span>                :            :                                 case '3':
+<span class="lineNum">      85 </span>                :            :                                 case '4':
+<span class="lineNum">      86 </span>                :            :                                 case '5':
+<span class="lineNum">      87 </span>                :            :                                 case '6':
+<span class="lineNum">      88 </span>                :            :                                 case '7':
+<span class="lineNum">      89 </span>                :            :                                         {
+<span class="lineNum">      90 </span>                :            :                                                 int                     k;
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :                                                 long            octVal = 0;</span>
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 for (k = 0;</span>
+<span class="lineNum">      94 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                          s[i + k] &gt;= '0' &amp;&amp; s[i + k] &lt;= '7' &amp;&amp; k &lt; 3;</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                                                          k++)</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :                                                         octVal = (octVal &lt;&lt; 3) + (s[i + k] - '0');</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :                                                 i += k - 1;</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                                                 newStr[j] = ((char) octVal);</span>
+<span class="lineNum">      99 </span>                :            :                                         }
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     101 </span>                :            :                                 default:
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                                         newStr[j] = s[i];</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     104 </span>                :            :                         }                                       /* switch */
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 }                                               /* s[i] == '\\' */</span>
+<span class="lineNum">     106 </span>                :            :                 else
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :                         newStr[j] = s[i];</span>
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :                 j++;</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :         newStr[j] = '\0';</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :         return newStr;</span>
+<span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            : /*
+<span class="lineNum">     116 </span>                :            :  * downcase_truncate_identifier() --- do appropriate downcasing and
+<span class="lineNum">     117 </span>                :            :  * truncation of an unquoted identifier.  Optionally warn of truncation.
+<span class="lineNum">     118 </span>                :            :  *
+<span class="lineNum">     119 </span>                :            :  * Returns a palloc'd string containing the adjusted identifier.
+<span class="lineNum">     120 </span>                :            :  *
+<span class="lineNum">     121 </span>                :            :  * Note: in some usages the passed string is not null-terminated.
+<span class="lineNum">     122 </span>                :            :  *
+<span class="lineNum">     123 </span>                :            :  * Note: the API of this function is designed to allow for downcasing
+<span class="lineNum">     124 </span>                :            :  * transformations that increase the string length, but we don't yet
+<span class="lineNum">     125 </span>                :            :  * support that.  If you want to implement it, you'll need to fix
+<span class="lineNum">     126 </span>                :            :  * SplitIdentifierString() in utils/adt/varlena.c.
+<a name="127"><span class="lineNum">     127 </span>                :            :  */</a>
+<span class="lineNum">     128 </span>                :            : char *
+<span class="lineNum">     129 </span>                :            : downcase_truncate_identifier(const char *ident, int len, bool warn)
+<span class="lineNum">     130 </span>                :            : {
+<span class="lineNum">     131 </span>                :            :         char       *result;
+<span class="lineNum">     132 </span>                :            :         int                     i;
+<span class="lineNum">     133 </span>                :            : 
+<span class="lineNum">     134 </span>                :<span class="lineCov">        486 :         result = palloc(len + 1);</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            :         /*
+<span class="lineNum">     137 </span>                :            :          * SQL99 specifies Unicode-aware case normalization, which we don't yet
+<span class="lineNum">     138 </span>                :            :          * have the infrastructure for.  Instead we use tolower() to provide a
+<span class="lineNum">     139 </span>                :            :          * locale-aware translation.  However, there are some locales where this
+<span class="lineNum">     140 </span>                :            :          * is not right either (eg, Turkish may do strange things with 'i' and
+<span class="lineNum">     141 </span>                :            :          * 'I').  Our current compromise is to use tolower() for characters with
+<span class="lineNum">     142 </span>                :            :          * the high bit set, and use an ASCII-only downcasing for 7-bit
+<span class="lineNum">     143 </span>                :            :          * characters.
+<span class="lineNum">     144 </span>                :            :          */
+<span class="lineNum">     145 </span>        [<span class="branchCov" title="Branch 0 was taken 1674 times"> + </span><span class="branchCov" title="Branch 1 was taken 486 times"> + </span>]:<span class="lineCov">       2160 :         for (i = 0; i &lt; len; i++)</span>
+<span class="lineNum">     146 </span>                :            :         {
+<span class="lineNum">     147 </span>                :<span class="lineCov">       1674 :                 unsigned char ch = (unsigned char) ident[i];</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>[<span class="branchCov" title="Branch 0 was taken 1620 times"> + </span><span class="branchCov" title="Branch 1 was taken 54 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 324 times"> + </span><span class="branchCov" title="Branch 3 was taken 1296 times"> + </span>]:<span class="lineCov">       1674 :                 if (ch &gt;= 'A' &amp;&amp; ch &lt;= 'Z')</span>
+<span class="lineNum">     150 </span>                :<span class="lineCov">        324 :                         ch += 'a' - 'A';</span>
+<span class="lineNum">     151 </span>[<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1350 times"> + </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">       1350 :                 else if (IS_HIGHBIT_SET(ch) &amp;&amp; isupper(ch))</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                         ch = tolower(ch);</span>
+<span class="lineNum">     153 </span>                :<span class="lineCov">       1674 :                 result[i] = (char) ch;</span>
+<span class="lineNum">     154 </span>                :<span class="lineCov">       1674 :         }</span>
+<span class="lineNum">     155 </span>                :<span class="lineCov">        486 :         result[i] = '\0';</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 486 times"> + </span>]:<span class="lineCov">        486 :         if (i &gt;= NAMEDATALEN)</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                 truncate_identifier(result, i, warn);</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :<span class="lineCov">        486 :         return result;</span>
+<span class="lineNum">     161 </span>                :            : }
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :            : /*
+<span class="lineNum">     164 </span>                :            :  * truncate_identifier() --- truncate an identifier to NAMEDATALEN-1 bytes.
+<span class="lineNum">     165 </span>                :            :  *
+<span class="lineNum">     166 </span>                :            :  * The given string is modified in-place, if necessary.  A warning is
+<span class="lineNum">     167 </span>                :            :  * issued if requested.
+<span class="lineNum">     168 </span>                :            :  *
+<span class="lineNum">     169 </span>                :            :  * We require the caller to pass in the string length since this saves a
+<span class="lineNum">     170 </span>                :            :  * strlen() call in some common usages.
+<a name="171"><span class="lineNum">     171 </span>                :            :  */</a>
+<span class="lineNum">     172 </span>                :            : void
+<span class="lineNum">     173 </span>                :            : truncate_identifier(char *ident, int len, bool warn)
+<span class="lineNum">     174 </span>                :            : {
+<span class="lineNum">     175 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 540 times"> + </span>]:<span class="lineCov">        540 :         if (len &gt;= NAMEDATALEN)</span>
+<span class="lineNum">     176 </span>                :            :         {
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                 len = pg_mbcliplen(ident, len, NAMEDATALEN - 1);</span>
+<span class="lineNum">     178 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (warn)</span>
+<span class="lineNum">     179 </span>                :            :                 {
+<span class="lineNum">     180 </span>                :            :                         /*
+<span class="lineNum">     181 </span>                :            :                          * Cannot use %.*s here because some machines interpret %s's
+<span class="lineNum">     182 </span>                :            :                          * precision in characters, others in bytes.
+<span class="lineNum">     183 </span>                :            :                          */
+<span class="lineNum">     184 </span>                :            :                         char    buf[NAMEDATALEN];
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                         memcpy(buf, ident, len);</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                         buf[len] = '\0';</span>
+<span class="lineNum">     188 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(NOTICE,</span>
+<span class="lineNum">     189 </span>                :            :                                         (errcode(ERRCODE_NAME_TOO_LONG),
+<span class="lineNum">     190 </span>                :            :                                          errmsg(&quot;identifier \&quot;%s\&quot; will be truncated to \&quot;%s\&quot;&quot;,
+<span class="lineNum">     191 </span>                :            :                                                         ident, buf)));
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                 ident[len] = '\0';</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     195 </span>                :<span class="lineCov">        540 : }</span>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :            : /*
+<span class="lineNum">     198 </span>                :            :  * scanner_isspace() --- return TRUE if flex scanner considers char whitespace
+<span class="lineNum">     199 </span>                :            :  *
+<span class="lineNum">     200 </span>                :            :  * This should be used instead of the potentially locale-dependent isspace()
+<span class="lineNum">     201 </span>                :            :  * function when it's important to match the lexer's behavior.
+<span class="lineNum">     202 </span>                :            :  *
+<span class="lineNum">     203 </span>                :            :  * In principle we might need similar functions for isalnum etc, but for the
+<span class="lineNum">     204 </span>                :            :  * moment only isspace seems needed.
+<a name="205"><span class="lineNum">     205 </span>                :            :  */</a>
+<span class="lineNum">     206 </span>                :            : bool
+<span class="lineNum">     207 </span>                :            : scanner_isspace(char ch)
+<span class="lineNum">     208 </span>                :            : {
+<span class="lineNum">     209 </span>                :            :         /* This must match scan.l's list of {space} characters */
+<span class="lineNum">     210 </span>                :            :         /* and plpgsql's scan.l as well */
+<span class="lineNum">     211 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ch == ' ' ||</span>
+<span class="lineNum">     212 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ch == '\t' ||</span>
+<span class="lineNum">     213 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ch == '\n' ||</span>
+<span class="lineNum">     214 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ch == '\r' ||</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                 ch == '\f')</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

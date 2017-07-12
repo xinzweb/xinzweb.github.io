@@ -1,0 +1,398 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - storage/ipc/procsignal.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">storage/ipc</a> - procsignal.c<span style="font-size: 80%;"> (source / <a href="procsignal.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntry">67</td>
+            <td class="headerCovTableEntryLo">10.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryLo">22.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">58</td>
+            <td class="headerCovTableEntryLo">8.6 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * procsignal.c
+<span class="lineNum">       4 </span>                :            :  *        Routines for interprocess signalling
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        src/backend/storage/ipc/procsignal.c
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &lt;signal.h&gt;
+<span class="lineNum">      18 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;commands/async.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;storage/latch.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;storage/proc.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;storage/procsignal.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;storage/sinval.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : /*
+<span class="lineNum">      32 </span>                :            :  * The SIGUSR1 signal is multiplexed to support signalling multiple event
+<span class="lineNum">      33 </span>                :            :  * types. The specific reason is communicated via flags in shared memory.
+<span class="lineNum">      34 </span>                :            :  * We keep a boolean flag for each possible &quot;reason&quot;, so that different
+<span class="lineNum">      35 </span>                :            :  * reasons can be signaled to a process concurrently.  (However, if the same
+<span class="lineNum">      36 </span>                :            :  * reason is signaled more than once nearly simultaneously, the process may
+<span class="lineNum">      37 </span>                :            :  * observe it only once.)
+<span class="lineNum">      38 </span>                :            :  *
+<span class="lineNum">      39 </span>                :            :  * Each process that wants to receive signals registers its process ID
+<span class="lineNum">      40 </span>                :            :  * in the ProcSignalSlots array. The array is indexed by backend ID to make
+<span class="lineNum">      41 </span>                :            :  * slot allocation simple, and to avoid having to search the array when you
+<span class="lineNum">      42 </span>                :            :  * know the backend ID of the process you're signalling.  (We do support
+<span class="lineNum">      43 </span>                :            :  * signalling without backend ID, but it's a bit less efficient.)
+<span class="lineNum">      44 </span>                :            :  *
+<span class="lineNum">      45 </span>                :            :  * The flags are actually declared as &quot;volatile sig_atomic_t&quot; for maximum
+<span class="lineNum">      46 </span>                :            :  * portability.  This should ensure that loads and stores of the flag
+<span class="lineNum">      47 </span>                :            :  * values are atomic, allowing us to dispense with any explicit locking.
+<span class="lineNum">      48 </span>                :            :  */
+<span class="lineNum">      49 </span>                :            : typedef struct
+<span class="lineNum">      50 </span>                :            : {
+<span class="lineNum">      51 </span>                :            :         pid_t           pss_pid;
+<span class="lineNum">      52 </span>                :            :         sig_atomic_t pss_signalFlags[NUM_PROCSIGNALS];
+<span class="lineNum">      53 </span>                :            : } ProcSignalSlot;
+<span class="lineNum">      54 </span>                :            : 
+<span class="lineNum">      55 </span>                :            : /*
+<span class="lineNum">      56 </span>                :            :  * We reserve a slot for each possible BackendId, plus one for each
+<span class="lineNum">      57 </span>                :            :  * possible auxiliary process type.  (This scheme assumes there is not
+<span class="lineNum">      58 </span>                :            :  * more than one of any auxiliary process type at a time.)
+<span class="lineNum">      59 </span>                :            :  */
+<span class="lineNum">      60 </span>                :            : #define NumProcSignalSlots      (MaxBackends + NUM_AUXILIARY_PROCS)
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :            : static ProcSignalSlot *ProcSignalSlots = NULL;
+<span class="lineNum">      63 </span>                :            : static volatile ProcSignalSlot *MyProcSignalSlot = NULL;
+<span class="lineNum">      64 </span>                :            : static volatile bool InSIGUSR1Handler = false;
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : static bool CheckProcSignal(ProcSignalReason reason);
+<span class="lineNum">      67 </span>                :            : static void CleanupProcSignalState(int status, Datum arg);
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :            : /*
+<span class="lineNum">      70 </span>                :            :  * ProcSignalShmemSize
+<span class="lineNum">      71 </span>                :            :  *              Compute space needed for procsignal's shared memory
+<a name="72"><span class="lineNum">      72 </span>                :            :  */</a>
+<span class="lineNum">      73 </span>                :            : Size
+<span class="lineNum">      74 </span>                :            : ProcSignalShmemSize(void)
+<span class="lineNum">      75 </span>                :            : {
+<span class="lineNum">      76 </span>                :<span class="lineCov">        108 :         return NumProcSignalSlots * sizeof(ProcSignalSlot);</span>
+<span class="lineNum">      77 </span>                :            : }
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :            : /*
+<span class="lineNum">      80 </span>                :            :  * ProcSignalShmemInit
+<span class="lineNum">      81 </span>                :            :  *              Allocate and initialize procsignal's shared memory
+<a name="82"><span class="lineNum">      82 </span>                :            :  */</a>
+<span class="lineNum">      83 </span>                :            : void
+<span class="lineNum">      84 </span>                :            : ProcSignalShmemInit(void)
+<span class="lineNum">      85 </span>                :            : {
+<span class="lineNum">      86 </span>                :<span class="lineCov">         54 :         Size            size = ProcSignalShmemSize();</span>
+<span class="lineNum">      87 </span>                :            :         bool            found;
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :<span class="lineCov">         54 :         ProcSignalSlots = (ProcSignalSlot *)</span>
+<span class="lineNum">      90 </span>                :<span class="lineCov">         54 :                 ShmemInitStruct(&quot;ProcSignalSlots&quot;, size, &amp;found);</span>
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :            :         /* If we're first, set everything to zeroes */
+<span class="lineNum">      93 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (!found)</span>
+<span class="lineNum">      94 </span>[<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         54 :                 MemSet(ProcSignalSlots, 0, size);</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchNoCov" title="Branch 6 was not taken"> - </span><span class="branchCov" title="Branch 7 was taken 54 times"> + </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">      95 </span>                :<span class="lineCov">         54 : }</span>
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            : /*
+<span class="lineNum">      98 </span>                :            :  * ProcSignalInit
+<span class="lineNum">      99 </span>                :            :  *              Register the current process in the procsignal array
+<span class="lineNum">     100 </span>                :            :  *
+<span class="lineNum">     101 </span>                :            :  * The passed index should be my BackendId if the process has one,
+<span class="lineNum">     102 </span>                :            :  * or MaxBackends + aux process type if not.
+<a name="103"><span class="lineNum">     103 </span>                :            :  */</a>
+<span class="lineNum">     104 </span>                :            : void
+<span class="lineNum">     105 </span>                :            : ProcSignalInit(int pss_idx)
+<span class="lineNum">     106 </span>                :            : {
+<span class="lineNum">     107 </span>                :            :         volatile ProcSignalSlot *slot;
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(pss_idx &gt;= 1 &amp;&amp; pss_idx &lt;= NumProcSignalSlots);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :         slot = &amp;ProcSignalSlots[pss_idx - 1];</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :            :         /* sanity check */
+<span class="lineNum">     114 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (slot-&gt;pss_pid != 0)</span>
+<span class="lineNum">     115 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;process %d taking over ProcSignal slot %d, but it's not empty&quot;,</span>
+<span class="lineNum">     116 </span>                :            :                          MyProcPid, pss_idx);
+<span class="lineNum">     117 </span>                :            : 
+<span class="lineNum">     118 </span>                :            :         /* Clear out any leftover signal reasons */
+<span class="lineNum">     119 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(slot-&gt;pss_signalFlags, 0, NUM_PROCSIGNALS * sizeof(sig_atomic_t));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :            :         /* Mark slot with my PID */
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :         slot-&gt;pss_pid = MyProcPid;</span>
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :            :         /* Remember slot location for CheckProcSignal */
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :         MyProcSignalSlot = slot;</span>
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>                :            :         /* Set up to release the slot on process exit */
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :         on_shmem_exit(CleanupProcSignalState, Int32GetDatum(pss_idx));</span>
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :            : /*
+<span class="lineNum">     132 </span>                :            :  * CleanupProcSignalState
+<span class="lineNum">     133 </span>                :            :  *              Remove current process from ProcSignalSlots
+<span class="lineNum">     134 </span>                :            :  *
+<span class="lineNum">     135 </span>                :            :  * This function is called via on_shmem_exit() during backend shutdown.
+<a name="136"><span class="lineNum">     136 </span>                :            :  */</a>
+<span class="lineNum">     137 </span>                :            : static void
+<span class="lineNum">     138 </span>                :            : CleanupProcSignalState(int status, Datum arg)
+<span class="lineNum">     139 </span>                :            : {
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :         int                     pss_idx = DatumGetInt32(arg);</span>
+<span class="lineNum">     141 </span>                :            :         volatile ProcSignalSlot *slot;
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         slot = &amp;ProcSignalSlots[pss_idx - 1];</span>
+<span class="lineNum">     144 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(slot == MyProcSignalSlot);</span>
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>                :            :         /* sanity check */
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (slot-&gt;pss_pid != MyProcPid)</span>
+<span class="lineNum">     148 </span>                :            :         {
+<span class="lineNum">     149 </span>                :            :                 /*
+<span class="lineNum">     150 </span>                :            :                  * don't ERROR here. We're exiting anyway, and don't want to get into
+<span class="lineNum">     151 </span>                :            :                  * infinite loop trying to exit
+<span class="lineNum">     152 </span>                :            :                  */
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;process %d releasing ProcSignal slot %d, but it contains %d&quot;,</span>
+<span class="lineNum">     154 </span>                :            :                          MyProcPid, pss_idx, (int) slot-&gt;pss_pid);
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :                 return;                                 /* XXX better to zero the slot anyway? */</span>
+<span class="lineNum">     156 </span>                :            :         }
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         slot-&gt;pss_pid = 0;</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :            : /*
+<span class="lineNum">     162 </span>                :            :  * SendProcSignal
+<span class="lineNum">     163 </span>                :            :  *              Send a signal to a Postgres process
+<span class="lineNum">     164 </span>                :            :  *
+<span class="lineNum">     165 </span>                :            :  * Providing backendId is optional, but it will speed up the operation.
+<span class="lineNum">     166 </span>                :            :  *
+<span class="lineNum">     167 </span>                :            :  * On success (a signal was sent), zero is returned.
+<span class="lineNum">     168 </span>                :            :  * On error, -1 is returned, and errno is set (typically to ESRCH or EPERM).
+<span class="lineNum">     169 </span>                :            :  *
+<span class="lineNum">     170 </span>                :            :  * Not to be confused with ProcSendSignal
+<a name="171"><span class="lineNum">     171 </span>                :            :  */</a>
+<span class="lineNum">     172 </span>                :            : int
+<span class="lineNum">     173 </span>                :            : SendProcSignal(pid_t pid, ProcSignalReason reason, BackendId backendId)
+<span class="lineNum">     174 </span>                :            : {
+<span class="lineNum">     175 </span>                :            :         volatile ProcSignalSlot *slot;
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (backendId != InvalidBackendId)</span>
+<span class="lineNum">     178 </span>                :            :         {
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :                 slot = &amp;ProcSignalSlots[backendId - 1];</span>
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :            :                 /*
+<span class="lineNum">     182 </span>                :            :                  * Note: Since there's no locking, it's possible that the target
+<span class="lineNum">     183 </span>                :            :                  * process detaches from shared memory and exits right after this
+<span class="lineNum">     184 </span>                :            :                  * test, before we set the flag and send signal. And the signal slot
+<span class="lineNum">     185 </span>                :            :                  * might even be recycled by a new process, so it's remotely possible
+<span class="lineNum">     186 </span>                :            :                  * that we set a flag for a wrong process. That's OK, all the signals
+<span class="lineNum">     187 </span>                :            :                  * are such that no harm is done if they're mistakenly fired.
+<span class="lineNum">     188 </span>                :            :                  */
+<span class="lineNum">     189 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (slot-&gt;pss_pid == pid)</span>
+<span class="lineNum">     190 </span>                :            :                 {
+<span class="lineNum">     191 </span>                :            :                         /* Atomically set the proper flag */
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                         slot-&gt;pss_signalFlags[reason] = true;</span>
+<span class="lineNum">     193 </span>                :            :                         /* Send signal */
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                         return kill(pid, SIGUSR1);</span>
+<span class="lineNum">     195 </span>                :            :                 }
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     197 </span>                :            :         else
+<span class="lineNum">     198 </span>                :            :         {
+<span class="lineNum">     199 </span>                :            :                 /*
+<span class="lineNum">     200 </span>                :            :                  * BackendId not provided, so search the array using pid.  We search
+<span class="lineNum">     201 </span>                :            :                  * the array back to front so as to reduce search overhead.  Passing
+<span class="lineNum">     202 </span>                :            :                  * InvalidBackendId means that the target is most likely an auxiliary
+<span class="lineNum">     203 </span>                :            :                  * process, which will have a slot near the end of the array.
+<span class="lineNum">     204 </span>                :            :                  */
+<span class="lineNum">     205 </span>                :            :                 int                     i;
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = NumProcSignalSlots - 1; i &gt;= 0; i--)</span>
+<span class="lineNum">     208 </span>                :            :                 {
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                         slot = &amp;ProcSignalSlots[i];</span>
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (slot-&gt;pss_pid == pid)</span>
+<span class="lineNum">     212 </span>                :            :                         {
+<span class="lineNum">     213 </span>                :            :                                 /* the above note about race conditions applies here too */
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>                :            :                                 /* Atomically set the proper flag */
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                                 slot-&gt;pss_signalFlags[reason] = true;</span>
+<span class="lineNum">     217 </span>                :            :                                 /* Send signal */
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                                 return kill(pid, SIGUSR1);</span>
+<span class="lineNum">     219 </span>                :            :                         }
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     221 </span>                :            :         }
+<span class="lineNum">     222 </span>                :            : 
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :         errno = ESRCH;</span>
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :         return -1;</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>                :            : /*
+<span class="lineNum">     228 </span>                :            :  * CheckProcSignal - check to see if a particular reason has been
+<span class="lineNum">     229 </span>                :            :  * signaled, and clear the signal flag.  Should be called after receiving
+<span class="lineNum">     230 </span>                :            :  * SIGUSR1.
+<a name="231"><span class="lineNum">     231 </span>                :            :  */</a>
+<span class="lineNum">     232 </span>                :            : static bool
+<span class="lineNum">     233 </span>                :            : CheckProcSignal(ProcSignalReason reason)
+<span class="lineNum">     234 </span>                :            : {
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :         volatile ProcSignalSlot *slot = MyProcSignalSlot;</span>
+<span class="lineNum">     236 </span>                :            : 
+<span class="lineNum">     237 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (slot != NULL)</span>
+<span class="lineNum">     238 </span>                :            :         {
+<span class="lineNum">     239 </span>                :            :                 /* Careful here --- don't clear flag if we haven't seen it set */
+<span class="lineNum">     240 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (slot-&gt;pss_signalFlags[reason])</span>
+<span class="lineNum">     241 </span>                :            :                 {
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                         slot-&gt;pss_signalFlags[reason] = false;</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     244 </span>                :            :                 }
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="249"><span class="lineNum">     249 </span>                :            : </a>
+<span class="lineNum">     250 </span>                :            : bool
+<span class="lineNum">     251 </span>                :            : AmIInSIGUSR1Handler(void)
+<span class="lineNum">     252 </span>                :            : {
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :         return InSIGUSR1Handler;</span>
+<span class="lineNum">     254 </span>                :            : }
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :            : /*
+<span class="lineNum">     257 </span>                :            :  * Query-finish signal from QD.  The executor will deliverately try
+<span class="lineNum">     258 </span>                :            :  * to finish execution as quickly as possible.
+<a name="259"><span class="lineNum">     259 </span>                :            :  */</a>
+<span class="lineNum">     260 </span>                :            : static void
+<span class="lineNum">     261 </span>                :            : QueryFinishHandler(void)
+<span class="lineNum">     262 </span>                :            : {
+<span class="lineNum">     263 </span>                :            :         /*
+<span class="lineNum">     264 </span>                :            :          * It might be too much to check Gp_role but just in case.
+<span class="lineNum">     265 </span>                :            :          */
+<span class="lineNum">     266 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!proc_exit_inprogress &amp;&amp; Gp_role == GP_ROLE_EXECUTE)</span>
+<span class="lineNum">     267 </span>                :            :         {
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                 QueryFinishPending = true;</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     271 </span>                :            : 
+<span class="lineNum">     272 </span>                :            : /*
+<span class="lineNum">     273 </span>                :            :  * procsignal_sigusr1_handler - handle SIGUSR1 signal.
+<a name="274"><span class="lineNum">     274 </span>                :            :  */</a>
+<span class="lineNum">     275 </span>                :            : void
+<span class="lineNum">     276 </span>                :            : procsignal_sigusr1_handler(SIGNAL_ARGS)
+<span class="lineNum">     277 </span>                :            : {
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :         int save_errno = errno;</span>
+<span class="lineNum">     279 </span>                :            : 
+<span class="lineNum">     280 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_TRY();</span>
+<span class="lineNum">     281 </span>                :            :         {
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                 InSIGUSR1Handler = true;</span>
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (CheckProcSignal(PROCSIG_CATCHUP_INTERRUPT))</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                         HandleCatchupInterrupt();</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (CheckProcSignal(PROCSIG_QUERY_FINISH))</span>
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :                         QueryFinishHandler();</span>
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :                 latch_sigusr1_handler();</span>
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :                 InSIGUSR1Handler = false;</span>
+<span class="lineNum">     292 </span>                :            :         }
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :         PG_CATCH();</span>
+<span class="lineNum">     294 </span>                :            :         {
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                 InSIGUSR1Handler = false;</span>
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :                 PG_RE_THROW();</span>
+<span class="lineNum">     297 </span>                :            :         }
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         PG_END_TRY();</span>
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :         errno = save_errno;</span>
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

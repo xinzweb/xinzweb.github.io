@@ -1,0 +1,995 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - catalog/oid_dispatch.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">catalog</a> - oid_dispatch.c<span style="font-size: 80%;"> (source / <a href="oid_dispatch.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">276</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">150</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * oid_dispatch.c
+<span class="lineNum">       4 </span>                :            :  *              Functions to ensure that QD and QEs use same OIDs for catalog objects.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * In Greenplum, it's important that most objects, like relations,
+<span class="lineNum">       8 </span>                :            :  * functions, operators, have the same OIDs in the master and all QE nodes.
+<span class="lineNum">       9 </span>                :            :  * Otherwise query plans generated in the master will not work on the QE
+<span class="lineNum">      10 </span>                :            :  * nodes, because they use the master's OIDs to refer to objects.
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  * Whenever a CREATE statement, or any other command that creates new
+<span class="lineNum">      13 </span>                :            :  * objects, is dispatched, the master also needs to tell the QE servers which
+<span class="lineNum">      14 </span>                :            :  * OIDs to use for the new objects. Before GPDB 5.0, that was done by
+<span class="lineNum">      15 </span>                :            :  * modifying all the structs representing DDL statements, like DefineStmt,
+<span class="lineNum">      16 </span>                :            :  * CreateOpClassStmt, and so forth, by adding a new OID field to them.
+<span class="lineNum">      17 </span>                :            :  * However, that was annoying when merging with the upstream, because it
+<span class="lineNum">      18 </span>                :            :  * required scattered changes to all the structs, and the accompanying
+<span class="lineNum">      19 </span>                :            :  * routines to copy and serialize them. Moreover, for more complicated object
+<span class="lineNum">      20 </span>                :            :  * types, like a table, a single OID was not enough, as CREATE TABLE not only
+<span class="lineNum">      21 </span>                :            :  * creates the entry in pg_class, it also creates a composite type, an array
+<span class="lineNum">      22 </span>                :            :  * type for the composite type, and possibly the same for the associated
+<span class="lineNum">      23 </span>                :            :  * toast table.
+<span class="lineNum">      24 </span>                :            :  *
+<span class="lineNum">      25 </span>                :            :  * Starting with GPDB 5.0, we take a different tact. Whenever an OID is
+<span class="lineNum">      26 </span>                :            :  * assigned for a system table in the QD node, the OID is recorded in private
+<span class="lineNum">      27 </span>                :            :  * memory, in the 'dispatch_oids' list, along with the key for that object.
+<span class="lineNum">      28 </span>                :            :  * AddDispatchOidFromTuple() function does that, and it's called from
+<span class="lineNum">      29 </span>                :            :  * heap_insert(). For example, when a new type is created, the OID of the new
+<span class="lineNum">      30 </span>                :            :  * type, and the namespace and the type name of the new type, are recorded in
+<span class="lineNum">      31 </span>                :            :  * the 'dispatch_oids' list.  When the command is dispatched to the QE
+<span class="lineNum">      32 </span>                :            :  * servers, all the recorded OIDs are included in the dispatched request, and
+<span class="lineNum">      33 </span>                :            :  * the QE processes in turn stash the list into backend-private memory. This
+<span class="lineNum">      34 </span>                :            :  * is the 'preassigned_oids' list.
+<span class="lineNum">      35 </span>                :            :  *
+<span class="lineNum">      36 </span>                :            :  * In a QE node, when we are about to create a new object, and assign an OID
+<span class="lineNum">      37 </span>                :            :  * for it, we look into the 'preassigned_oids' list to see if we had received
+<span class="lineNum">      38 </span>                :            :  * an OID to use for the named object from the master. Under normal
+<span class="lineNum">      39 </span>                :            :  * circumstances, we should have a pre-assigned OID for all objects created
+<span class="lineNum">      40 </span>                :            :  * in QEs, and the GetPreassigned*() functions will throw an error if we
+<span class="lineNum">      41 </span>                :            :  * don't.
+<span class="lineNum">      42 </span>                :            :  *
+<span class="lineNum">      43 </span>                :            :  * All in all, this provides a generic mechanism for DDL commands, to record
+<span class="lineNum">      44 </span>                :            :  * OIDs that are assigned for new objects in the master, transfer them to QE
+<span class="lineNum">      45 </span>                :            :  * nodes when the DDL command is dispatched, and for the QE nodes to use the
+<span class="lineNum">      46 </span>                :            :  * same, pre-assigned, OIDs for the objects.
+<span class="lineNum">      47 </span>                :            :  *
+<span class="lineNum">      48 </span>                :            :  * This same mechanism can be used to preserve OIDs during pg_upgrade. In
+<span class="lineNum">      49 </span>                :            :  * PostgreSQL, pg_upgrade only needs to preserve the OIDs of a few objects,
+<span class="lineNum">      50 </span>                :            :  * like types, but in GPDB we need to preserve most OIDs, because they need
+<span class="lineNum">      51 </span>                :            :  * to be kept in sync between the nodes. (Strictly speaking, we only need to
+<span class="lineNum">      52 </span>                :            :  * ensure that all the nodes use the same OIDs in the upgraded clusters, but
+<span class="lineNum">      53 </span>                :            :  * they wouldn't need to be the same as before upgrade. However, the most
+<span class="lineNum">      54 </span>                :            :  * straightforward way to achieve that is to use the same OIDs as before
+<span class="lineNum">      55 </span>                :            :  * upgrade.)
+<span class="lineNum">      56 </span>                :            :  *
+<span class="lineNum">      57 </span>                :            :  * pg_upgrade has its own mechanism to record the OIDs from the old cluster
+<span class="lineNum">      58 </span>                :            :  * but when restoring the schema in the new cluster, it uses the same
+<span class="lineNum">      59 </span>                :            :  * 'preassigned_oids' list to restore them, that we use to assign specific
+<span class="lineNum">      60 </span>                :            :  * OIDs in a QE node at dispatch.
+<span class="lineNum">      61 </span>                :            :  *
+<span class="lineNum">      62 </span>                :            :  * (XXX: All the pg_upgrade code described above is to-be-done, as of
+<span class="lineNum">      63 </span>                :            :  * this writing),
+<span class="lineNum">      64 </span>                :            :  *
+<span class="lineNum">      65 </span>                :            :  * Portions Copyright 2016 Pivotal Software, Inc.
+<span class="lineNum">      66 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">      67 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      68 </span>                :            :  *
+<span class="lineNum">      69 </span>                :            :  *
+<span class="lineNum">      70 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      71 </span>                :            :  *        src/backend/catalog/oid_dispatch.c
+<span class="lineNum">      72 </span>                :            :  *
+<span class="lineNum">      73 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      74 </span>                :            :  */
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :            : #include &quot;catalog/pg_amop.h&quot;
+<span class="lineNum">      79 </span>                :            : #include &quot;catalog/pg_amproc.h&quot;
+<span class="lineNum">      80 </span>                :            : #include &quot;catalog/pg_attrdef.h&quot;
+<span class="lineNum">      81 </span>                :            : #include &quot;catalog/pg_authid.h&quot;
+<span class="lineNum">      82 </span>                :            : #include &quot;catalog/pg_cast.h&quot;
+<span class="lineNum">      83 </span>                :            : #include &quot;catalog/pg_constraint.h&quot;
+<span class="lineNum">      84 </span>                :            : #include &quot;catalog/pg_conversion.h&quot;
+<span class="lineNum">      85 </span>                :            : #include &quot;catalog/pg_database.h&quot;
+<span class="lineNum">      86 </span>                :            : #include &quot;catalog/pg_enum.h&quot;
+<span class="lineNum">      87 </span>                :            : #include &quot;catalog/pg_extension.h&quot;
+<span class="lineNum">      88 </span>                :            : #include &quot;catalog/pg_extprotocol.h&quot;
+<span class="lineNum">      89 </span>                :            : #include &quot;catalog/pg_filespace.h&quot;
+<span class="lineNum">      90 </span>                :            : #include &quot;catalog/pg_language.h&quot;
+<span class="lineNum">      91 </span>                :            : #include &quot;catalog/pg_namespace.h&quot;
+<span class="lineNum">      92 </span>                :            : #include &quot;catalog/pg_opclass.h&quot;
+<span class="lineNum">      93 </span>                :            : #include &quot;catalog/pg_operator.h&quot;
+<span class="lineNum">      94 </span>                :            : #include &quot;catalog/pg_opfamily.h&quot;
+<span class="lineNum">      95 </span>                :            : #include &quot;catalog/pg_partition.h&quot;
+<span class="lineNum">      96 </span>                :            : #include &quot;catalog/pg_partition_rule.h&quot;
+<span class="lineNum">      97 </span>                :            : #include &quot;catalog/pg_proc.h&quot;
+<span class="lineNum">      98 </span>                :            : #include &quot;catalog/pg_resqueue.h&quot;
+<span class="lineNum">      99 </span>                :            : #include &quot;catalog/pg_resgroup.h&quot;
+<span class="lineNum">     100 </span>                :            : #include &quot;catalog/pg_rewrite.h&quot;
+<span class="lineNum">     101 </span>                :            : #include &quot;catalog/pg_tablespace.h&quot;
+<span class="lineNum">     102 </span>                :            : #include &quot;catalog/pg_trigger.h&quot;
+<span class="lineNum">     103 </span>                :            : #include &quot;catalog/pg_ts_config.h&quot;
+<span class="lineNum">     104 </span>                :            : #include &quot;catalog/pg_ts_dict.h&quot;
+<span class="lineNum">     105 </span>                :            : #include &quot;catalog/pg_ts_parser.h&quot;
+<span class="lineNum">     106 </span>                :            : #include &quot;catalog/pg_ts_template.h&quot;
+<span class="lineNum">     107 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">     108 </span>                :            : #include &quot;catalog/oid_dispatch.h&quot;
+<span class="lineNum">     109 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">     110 </span>                :            : #include &quot;nodes/pg_list.h&quot;
+<span class="lineNum">     111 </span>                :            : #include &quot;executor/execdesc.h&quot;
+<span class="lineNum">     112 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">     113 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            : /* #define OID_DISPATCH_DEBUG */
+<span class="lineNum">     116 </span>                :            : 
+<span class="lineNum">     117 </span>                :            : /*
+<span class="lineNum">     118 </span>                :            :  * These were received from the QD, and should be consumed by the current
+<span class="lineNum">     119 </span>                :            :  * statement.
+<span class="lineNum">     120 </span>                :            :  */
+<span class="lineNum">     121 </span>                :            : static List *preassigned_oids = NIL;
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :            : /*
+<span class="lineNum">     124 </span>                :            :  * These will be sent to the QEs on next CdbDispatchUtilityStatement call.
+<span class="lineNum">     125 </span>                :            :  */
+<span class="lineNum">     126 </span>                :            : static List *dispatch_oids = NIL;
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :            : /*
+<span class="lineNum">     130 </span>                :            :  * Create an OidAssignment struct, for a catalog table tuple.
+<span class="lineNum">     131 </span>                :            :  *
+<span class="lineNum">     132 </span>                :            :  * When a new tuple is inserted in the master, this is used to construct the
+<span class="lineNum">     133 </span>                :            :  * OidAssignment struct to dispatch to the QEs. In the QEs, this is used to
+<span class="lineNum">     134 </span>                :            :  * construct a search key, in the GetPreassignedOidForXXX() functions.
+<span class="lineNum">     135 </span>                :            :  *
+<span class="lineNum">     136 </span>                :            :  * On return, those &quot;key&quot; fields in the returned OidAssignment struct are
+<span class="lineNum">     137 </span>                :            :  * filled in that are applicable for this type of object. Others are reset to
+<span class="lineNum">     138 </span>                :            :  * 0. If the catalog table does not require OID synchronization, *exempt is
+<span class="lineNum">     139 </span>                :            :  * set to true. If the catalog table is not recognized, *recognized is set to
+<span class="lineNum">     140 </span>                :            :  * false.
+<a name="141"><span class="lineNum">     141 </span>                :            :  */</a>
+<span class="lineNum">     142 </span>                :            : static OidAssignment
+<span class="lineNum">     143 </span>                :            : CreateKeyFromCatalogTuple(Relation catalogrel, HeapTuple tuple,
+<span class="lineNum">     144 </span>                :            :                                                   bool *recognized, bool *exempt)
+<span class="lineNum">     145 </span>                :            : {
+<span class="lineNum">     146 </span>                :            :         OidAssignment key;
+<span class="lineNum">     147 </span>                :            : 
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :         *recognized = true;</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :         *exempt = false;</span>
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :         memset(&amp;key, 0, sizeof(OidAssignment));</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         key.type = T_OidAssignment;</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         key.catalog = catalogrel-&gt;rd_id;</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch(catalogrel-&gt;rd_id)</span>
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span><span class="branchNoExec" title="Branch 8 was not executed"> # </span> 
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span><span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span><span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span> 
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span><span class="branchNoExec" title="Branch 16 was not executed"> # </span><span class="branchNoExec" title="Branch 17 was not executed"> # </span><span class="branchNoExec" title="Branch 18 was not executed"> # </span> 
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 19 was not executed"> # </span><span class="branchNoExec" title="Branch 20 was not executed"> # </span><span class="branchNoExec" title="Branch 21 was not executed"> # </span><span class="branchNoExec" title="Branch 22 was not executed"> # </span><span class="branchNoExec" title="Branch 23 was not executed"> # </span> 
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 24 was not executed"> # </span><span class="branchNoExec" title="Branch 25 was not executed"> # </span><span class="branchNoExec" title="Branch 26 was not executed"> # </span><span class="branchNoExec" title="Branch 27 was not executed"> # </span><span class="branchNoExec" title="Branch 28 was not executed"> # </span> 
+<span class="lineNum">         </span>   <span class="branchNoExec" title="Branch 29 was not executed"> # </span><span class="branchNoExec" title="Branch 30 was not executed"> # </span><span class="branchNoExec" title="Branch 31 was not executed"> # </span><span class="branchNoExec" title="Branch 32 was not executed"> # </span> 
+<span class="lineNum">         </span>            <span class="branchNoExec" title="Branch 33 was not executed"> # </span>]
+<span class="lineNum">     156 </span>                :            :         {
+<span class="lineNum">     157 </span>                :            :                 case AccessMethodOperatorRelationId:
+<span class="lineNum">     158 </span>                :            :                         {
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_amop amopForm = (Form_pg_amop) GETSTRUCT(tuple);</span>
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = amopForm-&gt;amopmethod;</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     163 </span>                :            :                         }
+<span class="lineNum">     164 </span>                :            :                 case AttrDefaultRelationId:
+<span class="lineNum">     165 </span>                :            :                         {
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_attrdef adForm = (Form_pg_attrdef) GETSTRUCT(tuple);</span>
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = adForm-&gt;adrelid;</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid2 = (Oid) adForm-&gt;adnum;</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     171 </span>                :            :                         }
+<span class="lineNum">     172 </span>                :            :                 case AuthIdRelationId:
+<span class="lineNum">     173 </span>                :            :                         {
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_authid rolForm = (Form_pg_authid) GETSTRUCT(tuple);</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :                                 key.objname = (char *) NameStr(rolForm-&gt;rolname);</span>
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     178 </span>                :            :                         }
+<span class="lineNum">     179 </span>                :            :                 case CastRelationId:
+<span class="lineNum">     180 </span>                :            :                         {
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_cast castForm = (Form_pg_cast) GETSTRUCT(tuple);</span>
+<span class="lineNum">     182 </span>                :            : 
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = castForm-&gt;castsource;</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid2 = castForm-&gt;casttarget;</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     186 </span>                :            :                         }
+<span class="lineNum">     187 </span>                :            :                 case ConstraintRelationId:
+<span class="lineNum">     188 </span>                :            :                         {
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_constraint conForm = (Form_pg_constraint) GETSTRUCT(tuple);</span>
+<span class="lineNum">     190 </span>                :            : 
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = conForm-&gt;connamespace;</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(conForm-&gt;conname);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = conForm-&gt;conrelid;</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid2 = conForm-&gt;contypid;</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     196 </span>                :            :                         }
+<span class="lineNum">     197 </span>                :            :                 case ConversionRelationId:
+<span class="lineNum">     198 </span>                :            :                         {
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_conversion conForm = (Form_pg_conversion) GETSTRUCT(tuple);</span>
+<span class="lineNum">     200 </span>                :            : 
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = conForm-&gt;connamespace;</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(conForm-&gt;conname);</span>
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     204 </span>                :            :                         }
+<span class="lineNum">     205 </span>                :            :                 case DatabaseRelationId:
+<span class="lineNum">     206 </span>                :            :                         {
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_database datForm = (Form_pg_database) GETSTRUCT(tuple);</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                                 key.objname = (char *) NameStr(datForm-&gt;datname);</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     211 </span>                :            :                         }
+<span class="lineNum">     212 </span>                :            :                 case EnumRelationId:
+<span class="lineNum">     213 </span>                :            :                         {
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_enum enumForm = (Form_pg_enum) GETSTRUCT(tuple);</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = enumForm-&gt;enumtypid;</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(enumForm-&gt;enumlabel);</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     219 </span>                :            :                         }
+<span class="lineNum">     220 </span>                :            :                 case ExtensionRelationId:
+<span class="lineNum">     221 </span>                :            :                         {
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_extension extForm = (Form_pg_extension) GETSTRUCT(tuple);</span>
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :            :                                 /*
+<span class="lineNum">     225 </span>                :            :                                  * Note that unlike most catalogs with a &quot;namespace&quot; column,
+<span class="lineNum">     226 </span>                :            :                                  * extnamespace is not meant to imply that the extension
+<span class="lineNum">     227 </span>                :            :                                  * belongs to that schema.
+<span class="lineNum">     228 </span>                :            :                                  */
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(extForm-&gt;extname);</span>
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     231 </span>                :            :                         }
+<span class="lineNum">     232 </span>                :            :                 case ExtprotocolRelationId:
+<span class="lineNum">     233 </span>                :            :                         {
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_extprotocol protForm = (Form_pg_extprotocol) GETSTRUCT(tuple);</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(protForm-&gt;ptcname);</span>
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     238 </span>                :            :                         }
+<span class="lineNum">     239 </span>                :            :                 case FileSpaceRelationId:
+<span class="lineNum">     240 </span>                :            :                         {
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_filespace fsForm = (Form_pg_filespace) GETSTRUCT(tuple);</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(fsForm-&gt;fsname);</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     245 </span>                :            :                         }
+<span class="lineNum">     246 </span>                :            :                 case LanguageRelationId:
+<span class="lineNum">     247 </span>                :            :                         {
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_language lanForm = (Form_pg_language) GETSTRUCT(tuple);</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(lanForm-&gt;lanname);</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     252 </span>                :            :                         }
+<span class="lineNum">     253 </span>                :            :                 case NamespaceRelationId:
+<span class="lineNum">     254 </span>                :            :                         {
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_namespace nspForm = (Form_pg_namespace) GETSTRUCT(tuple);</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(nspForm-&gt;nspname);</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     259 </span>                :            :                         }
+<span class="lineNum">     260 </span>                :            : 
+<span class="lineNum">     261 </span>                :            :                 case OperatorRelationId:
+<span class="lineNum">     262 </span>                :            :                         {
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_operator oprForm = (Form_pg_operator) GETSTRUCT(tuple);</span>
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = oprForm-&gt;oprnamespace;</span>
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(oprForm-&gt;oprname);</span>
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     268 </span>                :            :                         }
+<span class="lineNum">     269 </span>                :            :                 case OperatorClassRelationId:
+<span class="lineNum">     270 </span>                :            :                         {
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_opclass opcForm = (Form_pg_opclass) GETSTRUCT(tuple);</span>
+<span class="lineNum">     272 </span>                :            : 
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = opcForm-&gt;opcnamespace;</span>
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(opcForm-&gt;opcname);</span>
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     276 </span>                :            :                         }
+<span class="lineNum">     277 </span>                :            :                 case OperatorFamilyRelationId:
+<span class="lineNum">     278 </span>                :            :                         {
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_opfamily opfForm = (Form_pg_opfamily) GETSTRUCT(tuple);</span>
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = opfForm-&gt;opfnamespace;</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(opfForm-&gt;opfname);</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     284 </span>                :            :                         }
+<span class="lineNum">     285 </span>                :            :                 case ProcedureRelationId:
+<span class="lineNum">     286 </span>                :            :                         {
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_proc proForm = (Form_pg_proc) GETSTRUCT(tuple);</span>
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = proForm-&gt;pronamespace;</span>
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(proForm-&gt;proname);</span>
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     292 </span>                :            :                         }
+<span class="lineNum">     293 </span>                :            :                 case RelationRelationId:
+<span class="lineNum">     294 </span>                :            :                         {
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_class relForm = (Form_pg_class) GETSTRUCT(tuple);</span>
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = relForm-&gt;relnamespace;</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(relForm-&gt;relname);</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     300 </span>                :            :                         }
+<span class="lineNum">     301 </span>                :            :                 case ResQueueRelationId:
+<span class="lineNum">     302 </span>                :            :                         {
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_resqueue rsqForm = (Form_pg_resqueue) GETSTRUCT(tuple);</span>
+<span class="lineNum">     304 </span>                :            : 
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(rsqForm-&gt;rsqname);</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     307 </span>                :            :                         }
+<span class="lineNum">     308 </span>                :            :                 case ResQueueCapabilityRelationId:
+<span class="lineNum">     309 </span>                :            :                         {
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_resqueuecapability rqcForm = (Form_pg_resqueuecapability) GETSTRUCT(tuple);</span>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = rqcForm-&gt;resqueueid;</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid2 = (Oid) rqcForm-&gt;restypid;</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     315 </span>                :            :                         }
+<span class="lineNum">     316 </span>                :            :                 case RewriteRelationId:
+<span class="lineNum">     317 </span>                :            :                         {
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_rewrite rewriteForm = (Form_pg_rewrite) GETSTRUCT(tuple);</span>
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = rewriteForm-&gt;ev_class;</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(rewriteForm-&gt;rulename);</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     323 </span>                :            :                         }
+<span class="lineNum">     324 </span>                :            :                 case TableSpaceRelationId:
+<span class="lineNum">     325 </span>                :            :                         {
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_tablespace spcForm = (Form_pg_tablespace) GETSTRUCT(tuple);</span>
+<span class="lineNum">     327 </span>                :            : 
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(spcForm-&gt;spcname);</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     330 </span>                :            :                         }
+<span class="lineNum">     331 </span>                :            :                 case TSParserRelationId:
+<span class="lineNum">     332 </span>                :            :                         {
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_ts_parser prsForm = (Form_pg_ts_parser) GETSTRUCT(tuple);</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = prsForm-&gt;prsnamespace;</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(prsForm-&gt;prsname);</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     338 </span>                :            :                         }
+<span class="lineNum">     339 </span>                :            :                 case TSDictionaryRelationId:
+<span class="lineNum">     340 </span>                :            :                         {
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_ts_dict dictForm = (Form_pg_ts_dict) GETSTRUCT(tuple);</span>
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = dictForm-&gt;dictnamespace;</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(dictForm-&gt;dictname);</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     346 </span>                :            :                         }
+<span class="lineNum">     347 </span>                :            :                 case TSTemplateRelationId:
+<span class="lineNum">     348 </span>                :            :                         {
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_ts_template tmplForm = (Form_pg_ts_template) GETSTRUCT(tuple);</span>
+<span class="lineNum">     350 </span>                :            : 
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = tmplForm-&gt;tmplnamespace;</span>
+<span class="lineNum">     352 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(tmplForm-&gt;tmplname);</span>
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     354 </span>                :            :                         }
+<span class="lineNum">     355 </span>                :            :                 case TSConfigRelationId:
+<span class="lineNum">     356 </span>                :            :                         {
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_ts_config cfgForm = (Form_pg_ts_config) GETSTRUCT(tuple);</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = cfgForm-&gt;cfgnamespace;</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(cfgForm-&gt;cfgname);</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     362 </span>                :            :                         }
+<span class="lineNum">     363 </span>                :            :                 case TypeRelationId:
+<span class="lineNum">     364 </span>                :            :                         {
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_type typForm = (Form_pg_type) GETSTRUCT(tuple);</span>
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                                 key.namespaceOid = typForm-&gt;typnamespace;</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(typForm-&gt;typname);</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     370 </span>                :            :                         }
+<span class="lineNum">     371 </span>                :            : 
+<span class="lineNum">     372 </span>                :            :                 case ResGroupRelationId:
+<span class="lineNum">     373 </span>                :            :                         {
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_resgroup rsgForm = (Form_pg_resgroup) GETSTRUCT(tuple);</span>
+<span class="lineNum">     375 </span>                :            : 
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :                                 key.objname = NameStr(rsgForm-&gt;rsgname);</span>
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     378 </span>                :            :                         }
+<span class="lineNum">     379 </span>                :            :                 case ResGroupCapabilityRelationId:
+<span class="lineNum">     380 </span>                :            :                         {
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :                                 Form_pg_resgroupcapability rsgCapForm = (Form_pg_resgroupcapability) GETSTRUCT(tuple);</span>
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid1 = rsgCapForm-&gt;resgroupid;</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                                 key.keyOid2 = (Oid) rsgCapForm-&gt;reslimittype;</span>
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     386 </span>                :            :                         }
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>                :            :                 /* These tables don't need to have their OIDs synchronized. */
+<span class="lineNum">     389 </span>                :            :                 case AccessMethodProcedureRelationId:
+<span class="lineNum">     390 </span>                :            :                 case PartitionRelationId:
+<span class="lineNum">     391 </span>                :            :                 case PartitionRuleRelationId:
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :                         *exempt = true;</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :                          break;</span>
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :            :                  /*
+<span class="lineNum">     396 </span>                :            :                   * These objects need to have their OIDs synchronized, but there is bespoken
+<span class="lineNum">     397 </span>                :            :                   * code to deal with it.
+<span class="lineNum">     398 </span>                :            :                   */
+<span class="lineNum">     399 </span>                :            :                 case TriggerRelationId:
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :                         *exempt = true;</span>
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :                          break;</span>
+<span class="lineNum">     402 </span>                :            : 
+<span class="lineNum">     403 </span>                :            :                 default:
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                         *recognized = false;</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     406 </span>                :            :         }
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :         return key;</span>
+<span class="lineNum">     408 </span>                :            : }
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     411 </span>                :            :  * Functions for use in QE.
+<span class="lineNum">     412 </span>                :            :  * ----------------------------------------------------------------
+<span class="lineNum">     413 </span>                :            :  */
+<span class="lineNum">     414 </span>                :            : 
+<span class="lineNum">     415 </span>                :            : /*
+<span class="lineNum">     416 </span>                :            :  * Remember a list of pre-assigned OIDs, to be consumed later in the
+<span class="lineNum">     417 </span>                :            :  * transaction, when those system objects are created.
+<a name="418"><span class="lineNum">     418 </span>                :            :  */</a>
+<span class="lineNum">     419 </span>                :            : void
+<span class="lineNum">     420 </span>                :            : AddPreassignedOids(List *l)
+<span class="lineNum">     421 </span>                :            : {
+<span class="lineNum">     422 </span>                :            :         ListCell *lc;
+<span class="lineNum">     423 </span>                :            :         MemoryContext old_context;
+<span class="lineNum">     424 </span>                :            : 
+<span class="lineNum">     425 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsBinaryUpgrade)</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;AddPreassignedOids called during binary upgrade&quot;);</span>
+<span class="lineNum">     427 </span>                :            : 
+<span class="lineNum">     428 </span>                :            :         /*
+<span class="lineNum">     429 </span>                :            :          * In the master, the OID-assignment-list is usually included in the next
+<span class="lineNum">     430 </span>                :            :          * command that is dispatched, after an OID was assigned. In almost all
+<span class="lineNum">     431 </span>                :            :          * cases, the dispatched command is the same CREATE command for which the
+<span class="lineNum">     432 </span>                :            :          * oid was assigned. But I'm not sure if that's true for *all* commands,
+<span class="lineNum">     433 </span>                :            :          * and so we don't require it. It is OK if an OID assignment is included
+<span class="lineNum">     434 </span>                :            :          * in one dispatched command, but the command that needs the OID is only
+<span class="lineNum">     435 </span>                :            :          * dispatched later in the same transaction. Therefore, keep the
+<span class="lineNum">     436 </span>                :            :          * 'preassigned_oids' list in TopTransactionContext.
+<span class="lineNum">     437 </span>                :            :          */
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :         old_context = MemoryContextSwitchTo(TopTransactionContext);</span>
+<span class="lineNum">     439 </span>                :            : 
+<span class="lineNum">     440 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, l)</span>
+<span class="lineNum">     441 </span>                :            :         {
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                 OidAssignment *p = (OidAssignment *) lfirst(lc);</span>
+<span class="lineNum">     443 </span>                :            : 
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                 p = copyObject(p);</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :                 preassigned_oids = lappend(preassigned_oids, p);</span>
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :            : #ifdef OID_DISPATCH_DEBUG
+<span class="lineNum">     448 </span>                :            :                 elog(NOTICE, &quot;received OID assignment: catalog %u, namespace: %u, name: \&quot;%s\&quot;: %u&quot;,
+<span class="lineNum">     449 </span>                :            :                          p-&gt;catalog, p-&gt;namespaceOid, p-&gt;objname ? p-&gt;objname : &quot;&quot;, p-&gt;oid);
+<span class="lineNum">     450 </span>                :            : #endif
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     452 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(old_context);</span>
+<span class="lineNum">     453 </span>                :            : 
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            : /*
+<span class="lineNum">     457 </span>                :            :  * For pg_upgrade_support functions, created during a binary upgrade, use OIDs
+<span class="lineNum">     458 </span>                :            :  * from a special reserved block of OIDs. We cannot use &quot;normal&quot; OIDs for these,
+<span class="lineNum">     459 </span>                :            :  * as they may collide with actual user objects restored later in the upgrade
+<span class="lineNum">     460 </span>                :            :  * process.
+<span class="lineNum">     461 </span>                :            :  */
+<span class="lineNum">     462 </span>                :            : static Oid BinaryUpgradeSchemaReservedOid = FirstBinaryUpgradeReservedObjectId;
+<span class="lineNum">     463 </span>                :            : static Oid NextBinaryUpgradeReservedOid = FirstBinaryUpgradeReservedObjectId + 1;
+<a name="464"><span class="lineNum">     464 </span>                :            : </a>
+<span class="lineNum">     465 </span>                :            : static Oid
+<span class="lineNum">     466 </span>                :            : AssignBinaryUpgradeReservedOid()
+<span class="lineNum">     467 </span>                :            : {
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :         Oid             result = NextBinaryUpgradeReservedOid;</span>
+<span class="lineNum">     469 </span>                :            : 
+<span class="lineNum">     470 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result &gt; LastBinaryUpgradeReservedObjectId)</span>
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;out of OIDs reserved for binary-upgrade&quot;);</span>
+<span class="lineNum">     472 </span>                :            : 
+<span class="lineNum">     473 </span>                :<span class="lineNoCov">          0 :         NextBinaryUpgradeReservedOid++;</span>
+<span class="lineNum">     474 </span>                :            : 
+<span class="lineNum">     475 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     476 </span>                :            : }
+<span class="lineNum">     477 </span>                :            : 
+<span class="lineNum">     478 </span>                :            : /*
+<span class="lineNum">     479 </span>                :            :  * Helper routine for GetPreassignedOidFor*() functions. Finds an entry in the
+<span class="lineNum">     480 </span>                :            :  * 'preassigned_oids' list with the given search key.
+<span class="lineNum">     481 </span>                :            :  *
+<span class="lineNum">     482 </span>                :            :  * If found, removes the entry from the list, and returns the OID. If not
+<span class="lineNum">     483 </span>                :            :  * found, returns InvalidOid.
+<a name="484"><span class="lineNum">     484 </span>                :            :  */</a>
+<span class="lineNum">     485 </span>                :            : static Oid
+<span class="lineNum">     486 </span>                :            : GetPreassignedOid(OidAssignment *searchkey)
+<span class="lineNum">     487 </span>                :            : {
+<span class="lineNum">     488 </span>                :            :         ListCell   *cur_item;
+<span class="lineNum">     489 </span>                :            :         ListCell   *prev_item;
+<span class="lineNum">     490 </span>                :            :         Oid                     oid;
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :            :         /*
+<span class="lineNum">     493 </span>                :            :          * For binary_upgrade schema, and any functions in it, use OIDs
+<span class="lineNum">     494 </span>                :            :          * from the reserved block.
+<span class="lineNum">     495 </span>                :            :          */
+<span class="lineNum">     496 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsBinaryUpgrade)</span>
+<span class="lineNum">     497 </span>                :            :         {
+<span class="lineNum">     498 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (searchkey-&gt;catalog == NamespaceRelationId &amp;&amp;</span>
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                         strcmp(searchkey-&gt;objname, &quot;binary_upgrade&quot;) == 0)</span>
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                         return BinaryUpgradeSchemaReservedOid;</span>
+<span class="lineNum">     501 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (searchkey-&gt;catalog == ProcedureRelationId &amp;&amp;</span>
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :                         searchkey-&gt;namespaceOid == BinaryUpgradeSchemaReservedOid)</span>
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :                         return AssignBinaryUpgradeReservedOid();</span>
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     505 </span>                :            : 
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :         prev_item = NULL;</span>
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :         cur_item = list_head(preassigned_oids);</span>
+<span class="lineNum">     508 </span>                :            : 
+<span class="lineNum">     509 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (cur_item != NULL)</span>
+<span class="lineNum">     510 </span>                :            :         {
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                 OidAssignment *p = (OidAssignment *) lfirst(cur_item);</span>
+<span class="lineNum">     512 </span>                :            : 
+<span class="lineNum">     513 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (searchkey-&gt;catalog == p-&gt;catalog &amp;&amp;</span>
+<span class="lineNum">     514 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         (searchkey-&gt;objname == NULL ||</span>
+<span class="lineNum">     515 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                          (p-&gt;objname != NULL &amp;&amp; strcmp(searchkey-&gt;objname, p-&gt;objname) == 0)) &amp;&amp;</span>
+<span class="lineNum">     516 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         searchkey-&gt;namespaceOid == p-&gt;namespaceOid &amp;&amp;</span>
+<span class="lineNum">     517 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         searchkey-&gt;keyOid1 == p-&gt;keyOid1 &amp;&amp;</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                         searchkey-&gt;keyOid2 == p-&gt;keyOid2)</span>
+<span class="lineNum">     519 </span>                :            :                 {
+<span class="lineNum">     520 </span>                :            : #ifdef OID_DISPATCH_DEBUG
+<span class="lineNum">     521 </span>                :            :                         elog(NOTICE, &quot;using OID assignment: catalog %u, namespace: %u, name: \&quot;%s\&quot;: %u&quot;,
+<span class="lineNum">     522 </span>                :            :                                  p-&gt;catalog, p-&gt;namespaceOid, p-&gt;objname ? p-&gt;objname : &quot;&quot;, p-&gt;oid);
+<span class="lineNum">     523 </span>                :            : #endif
+<span class="lineNum">     524 </span>                :            : 
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :                         oid = p-&gt;oid;</span>
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :                         preassigned_oids = list_delete_cell(preassigned_oids, cur_item, prev_item);</span>
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :                         pfree(p);</span>
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 :                         return oid;</span>
+<span class="lineNum">     529 </span>                :            :                 }
+<span class="lineNum">     530 </span>                :<span class="lineNoCov">          0 :                 prev_item = cur_item;</span>
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                 cur_item = lnext(cur_item);</span>
+<span class="lineNum">     532 </span>                :            :         }
+<span class="lineNum">     533 </span>                :            : 
+<span class="lineNum">     534 </span>                :<span class="lineNoCov">          0 :         return InvalidOid;</span>
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     536 </span>                :            : 
+<span class="lineNum">     537 </span>                :            : /*
+<span class="lineNum">     538 </span>                :            :  * Get a pre-assigned OID for a tuple that's being inserted to a system catalog.
+<span class="lineNum">     539 </span>                :            :  *
+<span class="lineNum">     540 </span>                :            :  * If the catalog table doesn't need OID synchronization across nodes, returns
+<span class="lineNum">     541 </span>                :            :  * InvalidOid. (The caller should assign a new OID, with GetNewOid(), in that
+<span class="lineNum">     542 </span>                :            :  * case). If the table requires synchronized OIDs, but no pre-assigned OID for
+<span class="lineNum">     543 </span>                :            :  * the given object is found, throws an error.
+<a name="544"><span class="lineNum">     544 </span>                :            :  */</a>
+<span class="lineNum">     545 </span>                :            : Oid
+<span class="lineNum">     546 </span>                :            : GetPreassignedOidForTuple(Relation catalogrel, HeapTuple tuple)
+<span class="lineNum">     547 </span>                :            : {
+<span class="lineNum">     548 </span>                :            :         OidAssignment searchkey;
+<span class="lineNum">     549 </span>                :            :         bool            found;
+<span class="lineNum">     550 </span>                :            :         bool            exempt;
+<span class="lineNum">     551 </span>                :            :         Oid                     oid;
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :         searchkey = CreateKeyFromCatalogTuple(catalogrel, tuple, &amp;found, &amp;exempt);</span>
+<span class="lineNum">     554 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (exempt)</span>
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                 return InvalidOid;</span>
+<span class="lineNum">     556 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!found)</span>
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;pre-assigned OID requested for unrecognized system catalog \&quot;%s\&quot;&quot;,</span>
+<span class="lineNum">     558 </span>                :            :                          RelationGetRelationName(catalogrel));
+<span class="lineNum">     559 </span>                :            : 
+<span class="lineNum">     560 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((oid = GetPreassignedOid(&amp;searchkey)) == InvalidOid)</span>
+<span class="lineNum">     561 </span>                :            :         {
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                 bool            missing_ok = false;</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            :                 /*
+<span class="lineNum">     565 </span>                :            :                  * When binary-upgrading the QD node, we must preserve the OIDs of types,
+<span class="lineNum">     566 </span>                :            :                  * relations from the old cluster, so we should have pre-assigned OIDs for
+<span class="lineNum">     567 </span>                :            :                  * them.
+<span class="lineNum">     568 </span>                :            :                  *
+<span class="lineNum">     569 </span>                :            :                  * When binary-upgrading a QE node, we should have pre-assigned OIDs for
+<span class="lineNum">     570 </span>                :            :                  * all objects, to ensure that the same OIDs are used for all objects
+<span class="lineNum">     571 </span>                :            :                  * between the QD and the QEs.
+<span class="lineNum">     572 </span>                :            :                  */
+<span class="lineNum">     573 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsBinaryUpgrade &amp;&amp; !IsBinaryUpgradeQE())</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     574 </span>                :            :                 {
+<span class="lineNum">     575 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (RelationGetRelid(catalogrel) == NamespaceRelationId)</span>
+<span class="lineNum">     576 </span>                :            :                         {
+<span class="lineNum">     577 </span>                :            :                                 /*
+<span class="lineNum">     578 </span>                :            :                                  * OIDs of schemas must be preserved. (Only because namespace
+<span class="lineNum">     579 </span>                :            :                                  * OIDs are part of the key of types and relations.)
+<span class="lineNum">     580 </span>                :            :                                  */
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                                 missing_ok = false;</span>
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     583 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (RelationGetRelid(catalogrel) == TypeRelationId)</span>
+<span class="lineNum">     584 </span>                :            :                         {
+<span class="lineNum">     585 </span>                :            :                                 /* No need to preserve the rowtype OIDs of these special relations. */
+<span class="lineNum">     586 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (searchkey.namespaceOid == PG_BITMAPINDEX_NAMESPACE)</span>
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :                                         missing_ok = true;</span>
+<span class="lineNum">     588 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (searchkey.namespaceOid == PG_TOAST_NAMESPACE)</span>
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :                                         missing_ok = true;</span>
+<span class="lineNum">     590 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (searchkey.namespaceOid == PG_AOSEGMENT_NAMESPACE)</span>
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                                         missing_ok = true;</span>
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     593 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (RelationGetRelid(catalogrel) == RelationRelationId)</span>
+<span class="lineNum">     594 </span>                :            :                         {
+<span class="lineNum">     595 </span>                :            :                                 /* pg_upgrading indexes is currently not supported, so this is OK */
+<span class="lineNum">     596 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (searchkey.namespaceOid == PG_BITMAPINDEX_NAMESPACE)</span>
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :                                         missing_ok = true;</span>
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     599 </span>                :            :                         else
+<span class="lineNum">     600 </span>                :            :                         {
+<span class="lineNum">     601 </span>                :<span class="lineNoCov">          0 :                                 missing_ok = true;</span>
+<span class="lineNum">     602 </span>                :            :                         }
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     604 </span>                :            : 
+<span class="lineNum">     605 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!missing_ok)</span>
+<span class="lineNum">     606 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         elog(ERROR, &quot;no pre-assigned OID for %s tuple \&quot;%s\&quot; (namespace:%u keyOid1:%u keyOid2:%u)&quot;,</span>
+<span class="lineNum">     607 </span>                :            :                                  RelationGetRelationName(catalogrel), searchkey.objname ? searchkey.objname : &quot;&quot;,
+<span class="lineNum">     608 </span>                :            :                                  searchkey.namespaceOid, searchkey.keyOid1, searchkey.keyOid2);
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :         return oid;</span>
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     612 </span>                :            : 
+<span class="lineNum">     613 </span>                :            : /*
+<span class="lineNum">     614 </span>                :            :  * A specialized version of GetPreassignedOidForTuple(). To be used when we don't
+<span class="lineNum">     615 </span>                :            :  * have a whole pg_database tuple yet.
+<a name="616"><span class="lineNum">     616 </span>                :            :  */</a>
+<span class="lineNum">     617 </span>                :            : Oid
+<span class="lineNum">     618 </span>                :            : GetPreassignedOidForDatabase(const char *datname)
+<span class="lineNum">     619 </span>                :            : {
+<span class="lineNum">     620 </span>                :            :         OidAssignment searchkey;
+<span class="lineNum">     621 </span>                :            :         Oid                     oid;
+<span class="lineNum">     622 </span>                :            : 
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :         memset(&amp;searchkey, 0, sizeof(OidAssignment));</span>
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :         searchkey.catalog = DatabaseRelationId;</span>
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :         searchkey.objname = (char *) datname;</span>
+<span class="lineNum">     626 </span>                :            : 
+<span class="lineNum">     627 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((oid = GetPreassignedOid(&amp;searchkey)) == InvalidOid)</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;no pre-assigned OID for database \&quot;%s\&quot;&quot;, datname);</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :         return oid;</span>
+<span class="lineNum">     630 </span>                :            : }
+<span class="lineNum">     631 </span>                :            : 
+<span class="lineNum">     632 </span>                :            : /*
+<span class="lineNum">     633 </span>                :            :  * A specialized version of GetPreassignedOidForTuple(). To be used when we don't
+<span class="lineNum">     634 </span>                :            :  * have a whole pg_class tuple yet.
+<a name="635"><span class="lineNum">     635 </span>                :            :  */</a>
+<span class="lineNum">     636 </span>                :            : Oid
+<span class="lineNum">     637 </span>                :            : GetPreassignedOidForRelation(Oid namespaceOid, const char *relname)
+<span class="lineNum">     638 </span>                :            : {
+<span class="lineNum">     639 </span>                :            :         OidAssignment searchkey;
+<span class="lineNum">     640 </span>                :            :         Oid                     oid;
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :         memset(&amp;searchkey, 0, sizeof(OidAssignment));</span>
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :         searchkey.catalog = RelationRelationId;</span>
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :         searchkey.namespaceOid = namespaceOid;</span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :         searchkey.objname = (char *) relname;</span>
+<span class="lineNum">     646 </span>                :            : 
+<span class="lineNum">     647 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((oid = GetPreassignedOid(&amp;searchkey)) == InvalidOid)</span>
+<span class="lineNum">     648 </span>                :            :         {
+<span class="lineNum">     649 </span>                :            :                 /*
+<span class="lineNum">     650 </span>                :            :                  * Special handling for binary upgrading the QD node. See
+<span class="lineNum">     651 </span>                :            :                  * GetPreassignedOidForTuple().
+<span class="lineNum">     652 </span>                :            :                  */
+<span class="lineNum">     653 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsBinaryUpgrade &amp;&amp; !IsBinaryUpgradeQE())</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     654 </span>                :            :                 {
+<span class="lineNum">     655 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (namespaceOid == PG_BITMAPINDEX_NAMESPACE)</span>
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :                                 return InvalidOid;</span>
+<span class="lineNum">     657 </span>                :            : 
+<span class="lineNum">     658 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (namespaceOid == PG_AOSEGMENT_NAMESPACE)</span>
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :                                 return InvalidOid;</span>
+<span class="lineNum">     660 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     661 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;no pre-assigned OID for relation \&quot;%s\&quot;&quot;, relname);</span>
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :         return oid;</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     665 </span>                :            : 
+<span class="lineNum">     666 </span>                :            : /*
+<span class="lineNum">     667 </span>                :            :  * A specialized version of GetPreassignedOidForTuple(). To be used when we don't
+<span class="lineNum">     668 </span>                :            :  * have a whole pg_type tuple yet.
+<a name="669"><span class="lineNum">     669 </span>                :            :  */</a>
+<span class="lineNum">     670 </span>                :            : Oid
+<span class="lineNum">     671 </span>                :            : GetPreassignedOidForType(Oid namespaceOid, const char *typname)
+<span class="lineNum">     672 </span>                :            : {
+<span class="lineNum">     673 </span>                :            :         OidAssignment searchkey;
+<span class="lineNum">     674 </span>                :            :         Oid                     oid;
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :         memset(&amp;searchkey, 0, sizeof(OidAssignment));</span>
+<span class="lineNum">     677 </span>                :<span class="lineNoCov">          0 :         searchkey.catalog = TypeRelationId;</span>
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :         searchkey.namespaceOid = namespaceOid;</span>
+<span class="lineNum">     679 </span>                :<span class="lineNoCov">          0 :         searchkey.objname = (char *) typname;</span>
+<span class="lineNum">     680 </span>                :            : 
+<span class="lineNum">     681 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((oid = GetPreassignedOid(&amp;searchkey)) == InvalidOid)</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;no pre-assigned OID for type \&quot;%s\&quot;&quot;, typname);</span>
+<span class="lineNum">     683 </span>                :<span class="lineNoCov">          0 :         return oid;</span>
+<span class="lineNum">     684 </span>                :            : }
+<span class="lineNum">     685 </span>                :            : 
+<span class="lineNum">     686 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     687 </span>                :            :  * Functions for use in binary-upgrade mode
+<span class="lineNum">     688 </span>                :            :  * ----------------------------------------------------------------
+<span class="lineNum">     689 </span>                :            :  */
+<span class="lineNum">     690 </span>                :            : 
+<span class="lineNum">     691 </span>                :            : /*
+<span class="lineNum">     692 </span>                :            :  * Remember an OID which is set from loading a database dump performed
+<span class="lineNum">     693 </span>                :            :  * using the binary-upgrade flag.
+<a name="694"><span class="lineNum">     694 </span>                :            :  */</a>
+<span class="lineNum">     695 </span>                :            : void
+<span class="lineNum">     696 </span>                :            : AddPreassignedOidFromBinaryUpgrade(Oid oid, Oid catalog, char *objname,
+<span class="lineNum">     697 </span>                :            :                                                                    Oid namespaceOid, Oid keyOid1, Oid keyOid2)
+<span class="lineNum">     698 </span>                :            : {
+<span class="lineNum">     699 </span>                :            :         OidAssignment assignment;
+<span class="lineNum">     700 </span>                :            :         MemoryContext oldcontext;
+<span class="lineNum">     701 </span>                :            : 
+<span class="lineNum">     702 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsBinaryUpgrade)</span>
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;AddPreassignedOidFromBinaryUpgrade called, but not in binary upgrade mode&quot;);</span>
+<span class="lineNum">     704 </span>                :            : 
+<span class="lineNum">     705 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (catalog == InvalidOid)</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;AddPreassignedOidFromBinaryUpgrade called with Invalid catalog relation Oid&quot;);</span>
+<span class="lineNum">     707 </span>                :            : 
+<span class="lineNum">     708 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role != GP_ROLE_UTILITY)</span>
+<span class="lineNum">     709 </span>                :            :         {
+<span class="lineNum">     710 </span>                :            :                 /* Perhaps we should error out and shut down here? */
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     712 </span>                :            :         }
+<span class="lineNum">     713 </span>                :            : 
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :         memset(&amp;assignment, 0, sizeof(OidAssignment));</span>
+<span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :         assignment.type = T_OidAssignment;</span>
+<span class="lineNum">     716 </span>                :            : 
+<span class="lineNum">     717 </span>                :            :         /*
+<span class="lineNum">     718 </span>                :            :          * This is essentially mimicking CreateKeyFromCatalogTuple except we set
+<span class="lineNum">     719 </span>                :            :          * the members directly from the binary_upgrade function
+<span class="lineNum">     720 </span>                :            :          */
+<span class="lineNum">     721 </span>                :<span class="lineNoCov">          0 :         assignment.oid = oid;</span>
+<span class="lineNum">     722 </span>                :<span class="lineNoCov">          0 :         assignment.catalog = catalog;</span>
+<span class="lineNum">     723 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (objname != NULL)</span>
+<span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 :                 assignment.objname = objname;</span>
+<span class="lineNum">     725 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (namespaceOid != InvalidOid)</span>
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :                 assignment.namespaceOid = namespaceOid;</span>
+<span class="lineNum">     727 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (keyOid1)</span>
+<span class="lineNum">     728 </span>                :<span class="lineNoCov">          0 :                 assignment.keyOid1 = keyOid1;</span>
+<span class="lineNum">     729 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (keyOid2)</span>
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                 assignment.keyOid2 = keyOid2;</span>
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>                :            :         /*
+<span class="lineNum">     733 </span>                :            :          * Note that in binary-upgrade mode, the OID pre-assign calls are not done in
+<span class="lineNum">     734 </span>                :            :          * the same transactions as the DDL commands that consume the OIDs. Hence they
+<span class="lineNum">     735 </span>                :            :          * need to survive end-of-xact.
+<span class="lineNum">     736 </span>                :            :          */
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :         oldcontext = MemoryContextSwitchTo(TopMemoryContext);</span>
+<span class="lineNum">     738 </span>                :            : 
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :         preassigned_oids = lappend(preassigned_oids, copyObject(&amp;assignment));</span>
+<span class="lineNum">     740 </span>                :            : 
+<span class="lineNum">     741 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            : #ifdef OID_DISPATCH_DEBUG
+<span class="lineNum">     744 </span>                :            :         elog(WARNING, &quot;adding OID assignment: catalog \&quot;%u\&quot;, namespace: %u, name: \&quot;%s\&quot;: %u&quot;,
+<span class="lineNum">     745 </span>                :            :                  assignment.catalog,
+<span class="lineNum">     746 </span>                :            :                  assignment.namespaceOid,
+<span class="lineNum">     747 </span>                :            :                  assignment.objname ? assignment.objname : &quot;&quot;,
+<span class="lineNum">     748 </span>                :            :                  assignment.oid);
+<span class="lineNum">     749 </span>                :            : #endif
+<span class="lineNum">     750 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     751 </span>                :            : 
+<span class="lineNum">     752 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     753 </span>                :            :  * Functions for use in the master node.
+<span class="lineNum">     754 </span>                :            :  * ----------------------------------------------------------------
+<span class="lineNum">     755 </span>                :            :  */
+<span class="lineNum">     756 </span>                :            : 
+<span class="lineNum">     757 </span>                :            : /*
+<span class="lineNum">     758 </span>                :            :  * Remember a newly assigned OID, to be included in the next command
+<span class="lineNum">     759 </span>                :            :  * that's dispatched to QEs.
+<a name="760"><span class="lineNum">     760 </span>                :            :  */</a>
+<span class="lineNum">     761 </span>                :            : void
+<span class="lineNum">     762 </span>                :            : AddDispatchOidFromTuple(Relation catalogrel, HeapTuple tuple)
+<span class="lineNum">     763 </span>                :            : {
+<span class="lineNum">     764 </span>                :            :         OidAssignment assignment;
+<span class="lineNum">     765 </span>                :            :         MemoryContext oldcontext;
+<span class="lineNum">     766 </span>                :            :         bool            found;
+<span class="lineNum">     767 </span>                :            :         bool            exempt;
+<span class="lineNum">     768 </span>                :            : 
+<span class="lineNum">     769 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_EXECUTE || IsBootstrapProcessingMode())</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     771 </span>                :            : 
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :         assignment = CreateKeyFromCatalogTuple(catalogrel, tuple, &amp;found, &amp;exempt);</span>
+<span class="lineNum">     773 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (exempt)</span>
+<span class="lineNum">     774 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     775 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!found)</span>
+<span class="lineNum">     776 </span>                :            :         {
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 :                 elog(WARNING, &quot;OID assigned for tuple in unrecognized system catalog \&quot;%s\&quot;&quot;,</span>
+<span class="lineNum">     778 </span>                :            :                          RelationGetRelationName(catalogrel));
+<span class="lineNum">     779 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     780 </span>                :            :         }
+<span class="lineNum">     781 </span>                :            : 
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :         oldcontext = MemoryContextSwitchTo(TopTransactionContext);</span>
+<span class="lineNum">     783 </span>                :            : 
+<span class="lineNum">     784 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         assignment.oid = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :         dispatch_oids = lappend(dispatch_oids, copyObject(&amp;assignment));</span>
+<span class="lineNum">     786 </span>                :            : 
+<span class="lineNum">     787 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>                :            : #ifdef OID_DISPATCH_DEBUG
+<span class="lineNum">     790 </span>                :            :         elog(NOTICE, &quot;adding OID assignment: catalog \&quot;%s\&quot;, namespace: %u, name: \&quot;%s\&quot;: %u&quot;,
+<span class="lineNum">     791 </span>                :            :                  RelationGetRelationName(catalogrel),
+<span class="lineNum">     792 </span>                :            :                  assignment.namespaceOid,
+<span class="lineNum">     793 </span>                :            :                  assignment.objname ? assignment.objname : &quot;&quot;,
+<span class="lineNum">     794 </span>                :            :                  assignment.oid);
+<span class="lineNum">     795 </span>                :            : #endif
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>                :            : /*
+<span class="lineNum">     799 </span>                :            :  * Get list of OIDs assigned in this transaction, since the last call.
+<a name="800"><span class="lineNum">     800 </span>                :            :  */</a>
+<span class="lineNum">     801 </span>                :            : List *
+<span class="lineNum">     802 </span>                :            : GetAssignedOidsForDispatch(void)
+<span class="lineNum">     803 </span>                :            : {
+<span class="lineNum">     804 </span>                :            :         List       *l;
+<span class="lineNum">     805 </span>                :            : 
+<span class="lineNum">     806 </span>                :<span class="lineNoCov">          0 :         l = dispatch_oids;</span>
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :         dispatch_oids = NIL;</span>
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :         return l;</span>
+<span class="lineNum">     809 </span>                :            : }
+<span class="lineNum">     810 </span>                :            : 
+<span class="lineNum">     811 </span>                :            : /*
+<span class="lineNum">     812 </span>                :            :  * Called at end-of-transaction. There is normally nothing to do,
+<span class="lineNum">     813 </span>                :            :  * but we perform some sanity checks.
+<a name="814"><span class="lineNum">     814 </span>                :            :  */</a>
+<span class="lineNum">     815 </span>                :            : void
+<span class="lineNum">     816 </span>                :            : AtEOXact_DispatchOids(bool isCommit)
+<span class="lineNum">     817 </span>                :            : {
+<span class="lineNum">     818 </span>                :            :         /*
+<span class="lineNum">     819 </span>                :            :          * Reset the list of to-be-dispatched OIDs. (in QD)
+<span class="lineNum">     820 </span>                :            :          *
+<span class="lineNum">     821 </span>                :            :          * All the OID assignments should've been dispatched before end of
+<span class="lineNum">     822 </span>                :            :          * transaction. Unless we're aborting.
+<span class="lineNum">     823 </span>                :            :          */
+<span class="lineNum">     824 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (isCommit &amp;&amp; dispatch_oids)</span>
+<span class="lineNum">     825 </span>                :            :         {
+<span class="lineNum">     826 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (dispatch_oids)</span>
+<span class="lineNum">     827 </span>                :            :                 {
+<span class="lineNum">     828 </span>                :<span class="lineNoCov">          0 :                         OidAssignment *p = (OidAssignment *) linitial(dispatch_oids);</span>
+<span class="lineNum">     829 </span>                :            : 
+<span class="lineNum">     830 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         elog(WARNING, &quot;OID assignment not dispatched: catalog %u, namespace: %u, name: \&quot;%s\&quot;&quot;,</span>
+<span class="lineNum">     831 </span>                :            :                                  p-&gt;catalog, p-&gt;namespaceOid, p-&gt;objname ? p-&gt;objname : &quot;&quot;);
+<span class="lineNum">     832 </span>                :<span class="lineNoCov">          0 :                         dispatch_oids = list_delete_first(dispatch_oids);</span>
+<span class="lineNum">     833 </span>                :            :                 }
+<span class="lineNum">     834 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;oids were assigned, but not dispatched to QEs&quot;);</span>
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     836 </span>                :            :         else
+<span class="lineNum">     837 </span>                :            :         {
+<span class="lineNum">     838 </span>                :            :                 /* The list will be free'd with the memory context. */
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                 dispatch_oids = NIL;</span>
+<span class="lineNum">     840 </span>                :            :         }
+<span class="lineNum">     841 </span>                :            : 
+<span class="lineNum">     842 </span>                :            :         /*
+<span class="lineNum">     843 </span>                :            :          * Reset the list of pre-assigned OIDs (in QE).
+<span class="lineNum">     844 </span>                :            :          *
+<span class="lineNum">     845 </span>                :            :          * Normally, at commit, all the pre-assigned OIDs should be consumed
+<span class="lineNum">     846 </span>                :            :          * already. But there are some corner cases where they're not. For
+<span class="lineNum">     847 </span>                :            :          * example, when running a CREATE TABLE AS SELECT query, the command
+<span class="lineNum">     848 </span>                :            :          * might be dispatched to multiple slices, but only the QE writer
+<span class="lineNum">     849 </span>                :            :          * processes create the table. In the other processes, the OIDs will
+<span class="lineNum">     850 </span>                :            :          * go unused.
+<span class="lineNum">     851 </span>                :            :          *
+<span class="lineNum">     852 </span>                :            :          * In binary-upgrade mode, however, the OID pre-assign calls are not
+<span class="lineNum">     853 </span>                :            :          * done in the same transactions as the DDL commands that consume
+<span class="lineNum">     854 </span>                :            :          * the OIDs. Hence they need to survive end-of-xact.
+<span class="lineNum">     855 </span>                :            :          */
+<span class="lineNum">     856 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsBinaryUpgrade)</span>
+<span class="lineNum">     857 </span>                :            :         {
+<span class="lineNum">     858 </span>                :            : #ifdef OID_DISPATCH_DEBUG
+<span class="lineNum">     859 </span>                :            :                 while (preassigned_oids)
+<span class="lineNum">     860 </span>                :            :                 {
+<span class="lineNum">     861 </span>                :            :                         OidAssignment *p = (OidAssignment *) linitial(preassigned_oids);
+<span class="lineNum">     862 </span>                :            : 
+<span class="lineNum">     863 </span>                :            :                         elog(NOTICE, &quot;unused pre-assigned OID: catalog %u, namespace: %u, name: \&quot;%s\&quot;&quot;,
+<span class="lineNum">     864 </span>                :            :                                  p-&gt;catalog, p-&gt;namespaceOid, p-&gt;objname);
+<span class="lineNum">     865 </span>                :            :                         preassigned_oids = list_delete_first(preassigned_oids);
+<span class="lineNum">     866 </span>                :            :                 }
+<span class="lineNum">     867 </span>                :            : #endif
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :                 preassigned_oids = NIL;</span>
+<span class="lineNum">     869 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     870 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     871 </span>                :            : 
+<span class="lineNum">     872 </span>                :            : 
+<span class="lineNum">     873 </span>                :            : /*
+<span class="lineNum">     874 </span>                :            :  * Is the given OID reserved for some other object?
+<span class="lineNum">     875 </span>                :            :  *
+<span class="lineNum">     876 </span>                :            :  * This is mainly of concern during binary upgrade, where we preassign
+<span class="lineNum">     877 </span>                :            :  * all the OIDs at the beginning of a restore. During normal operation,
+<span class="lineNum">     878 </span>                :            :  * there should be no clashes anyway.
+<a name="879"><span class="lineNum">     879 </span>                :            :  */</a>
+<span class="lineNum">     880 </span>                :            : bool
+<span class="lineNum">     881 </span>                :            : IsOidAcceptable(Oid oid)
+<span class="lineNum">     882 </span>                :            : {
+<span class="lineNum">     883 </span>                :            :         ListCell *lc;
+<span class="lineNum">     884 </span>                :            : 
+<span class="lineNum">     885 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, preassigned_oids)</span>
+<span class="lineNum">     886 </span>                :            :         {
+<span class="lineNum">     887 </span>                :<span class="lineNoCov">          0 :                 OidAssignment *p = (OidAssignment *) lfirst(lc);</span>
+<span class="lineNum">     888 </span>                :            : 
+<span class="lineNum">     889 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (p-&gt;oid == oid)</span>
+<span class="lineNum">     890 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     892 </span>                :            : 
+<span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

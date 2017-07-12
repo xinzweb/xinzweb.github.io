@@ -1,0 +1,372 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/cache/syncrefhashtable.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/cache</a> - syncrefhashtable.c<span style="font-size: 80%;"> (source / <a href="syncrefhashtable.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntry">92</td>
+            <td class="headerCovTableEntryLo">28.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryLo">11.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntry">104</td>
+            <td class="headerCovTableEntryLo">10.6 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * syncrefhashtable.c
+<span class="lineNum">       4 </span>                :            :  *  A synchronized, ref-counted hashtable in shared memory,
+<span class="lineNum">       5 </span>                :            :  *  built on top of dynahash.c
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Copyright (c) 2012, EMC Corp.
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      10 </span>                :            :  */
+<span class="lineNum">      11 </span>                :            : 
+<span class="lineNum">      12 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;utils/syncrefhashtable.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;port/atomics.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;storage/shmem.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : /*
+<span class="lineNum">      18 </span>                :            :  * A synchronized ref-counted hashtable descriptor
+<span class="lineNum">      19 </span>                :            :  */
+<span class="lineNum">      20 </span>                :            : struct SyncHT
+<span class="lineNum">      21 </span>                :            : {
+<span class="lineNum">      22 </span>                :            :         HTAB *ht; /* The underlying unsynchronized hashtable */
+<span class="lineNum">      23 </span>                :            :         long numPartitions; /* number of partitions the hashtable is divided into */
+<span class="lineNum">      24 </span>                :            :         LWLockId baseLWLockId; /* LockId of the first LW Lock to be used for locking partitions */
+<span class="lineNum">      25 </span>                :            :         ptrdiff_t keyOffset; /* offset in the payload where the key is located */
+<span class="lineNum">      26 </span>                :            :         ptrdiff_t pinCountOffset; /* offset in the payload where the pincount is located */
+<span class="lineNum">      27 </span>                :            :         SyncHTEntryIsEmptyFunc isEmptyEntry; /* callback to determine if an entry can be deleted */
+<span class="lineNum">      28 </span>                :            :         SyncHTEntryInitFunc initEntry; /* callback to initialize an empty entry before returning it to caller */
+<span class="lineNum">      29 </span>                :            : };
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : static LWLockId SyncHTPartLockId(SyncHT *syncHT, void *key);
+<span class="lineNum">      32 </span>                :            : static int32 SyncHTAddRef(SyncHT *syncHT, void *entry);
+<span class="lineNum">      33 </span>                :            : static int32 SyncHTDecRef(SyncHT *syncHT, void *entry);
+<span class="lineNum">      34 </span>                :            : 
+<span class="lineNum">      35 </span>                :            : /*
+<span class="lineNum">      36 </span>                :            :  * Creates a new synchronized refcounted hashtable object. The new SyncHT
+<span class="lineNum">      37 </span>                :            :  * instance is palloc-ed in the current memory context.
+<span class="lineNum">      38 </span>                :            :  *
+<span class="lineNum">      39 </span>                :            :  * All fields in syncHTCtl are required.
+<span class="lineNum">      40 </span>                :            :  *
+<span class="lineNum">      41 </span>                :            :  * Returns NULL if it could not create or attach to a hashtable.
+<a name="42"><span class="lineNum">      42 </span>                :            :  */</a>
+<span class="lineNum">      43 </span>                :            : SyncHT *
+<span class="lineNum">      44 </span>                :            : SyncHTCreate(SyncHTCtl *syncHTCtl)
+<span class="lineNum">      45 </span>                :            : {
+<span class="lineNum">      46 </span>[<span class="branchCov" title="Branch 0 was taken 48 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 48 times"> + </span>]:<span class="lineCov">         48 :         Assert(NULL != syncHTCtl);</span>
+<span class="lineNum">      47 </span>[<span class="branchCov" title="Branch 0 was taken 48 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 48 times"> + </span>]:<span class="lineCov">         48 :         Assert(NULL != syncHTCtl-&gt;isEmptyEntry);</span>
+<span class="lineNum">      48 </span>[<span class="branchCov" title="Branch 0 was taken 48 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 48 times"> + </span>]:<span class="lineCov">         48 :         Assert(NULL != syncHTCtl-&gt;initEntry);</span>
+<span class="lineNum">      49 </span>[<span class="branchCov" title="Branch 0 was taken 48 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 48 times"> + </span>]:<span class="lineCov">         48 :         Assert(NullLock != syncHTCtl-&gt;baseLWLockId);</span>
+<span class="lineNum">      50 </span>[<span class="branchCov" title="Branch 0 was taken 48 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 48 times"> + </span>]:<span class="lineCov">         48 :         Assert(0 != syncHTCtl-&gt;numPartitions);</span>
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :<span class="lineCov">         48 :         SyncHT *syncHT = (SyncHT *) palloc(sizeof(SyncHT));</span>
+<span class="lineNum">      53 </span>                :            : 
+<span class="lineNum">      54 </span>                :            :         /* Initialize underlying hashtable control structure with provided values */
+<span class="lineNum">      55 </span>                :            :         HASHCTL hctl;
+<span class="lineNum">      56 </span>                :<span class="lineCov">         48 :         hctl.keysize = syncHTCtl-&gt;keySize;</span>
+<span class="lineNum">      57 </span>                :<span class="lineCov">         48 :         hctl.entrysize = syncHTCtl-&gt;entrySize;</span>
+<span class="lineNum">      58 </span>                :<span class="lineCov">         48 :         hctl.hash = syncHTCtl-&gt;hash;</span>
+<span class="lineNum">      59 </span>                :<span class="lineCov">         48 :         hctl.keycopy = syncHTCtl-&gt;keyCopy;</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">         48 :         hctl.match = syncHTCtl-&gt;match;</span>
+<span class="lineNum">      61 </span>                :<span class="lineCov">         48 :         hctl.num_partitions = syncHTCtl-&gt;numPartitions;</span>
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :<span class="lineCov">         48 :         int hashFlags = HASH_ELEM | HASH_FUNCTION | HASH_PARTITION | HASH_COMPARE | HASH_KEYCOPY;</span>
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            :         /* Create underlying hashtable in shared memory (or attach to an existing one) */
+<span class="lineNum">      66 </span>                :<span class="lineCov">         48 :         syncHT-&gt;ht = ShmemInitHash(syncHTCtl-&gt;tabName,</span>
+<span class="lineNum">      67 </span>                :<span class="lineCov">         48 :                         syncHTCtl-&gt;numElements, /* init_size */</span>
+<span class="lineNum">      68 </span>                :<span class="lineCov">         48 :                         syncHTCtl-&gt;numElements, /* max_size */</span>
+<span class="lineNum">      69 </span>                :<span class="lineCov">         48 :                         &amp;hctl, hashFlags);</span>
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 48 times"> + </span>]:<span class="lineCov">         48 :         if (syncHT-&gt;ht == NULL)</span>
+<span class="lineNum">      72 </span>                :            :         {
+<span class="lineNum">      73 </span>                :            :                 /* Could not initialize the underlying hashtable */
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :                 pfree(syncHT);</span>
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">      76 </span>                :            :         }
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :<span class="lineCov">         48 :         syncHT-&gt;numPartitions = syncHTCtl-&gt;numPartitions;</span>
+<span class="lineNum">      79 </span>                :<span class="lineCov">         48 :         syncHT-&gt;baseLWLockId = syncHTCtl-&gt;baseLWLockId;</span>
+<span class="lineNum">      80 </span>                :<span class="lineCov">         48 :         syncHT-&gt;pinCountOffset = syncHTCtl-&gt;pinCountOffset;</span>
+<span class="lineNum">      81 </span>                :<span class="lineCov">         48 :         syncHT-&gt;keyOffset = syncHTCtl-&gt;keyOffset;</span>
+<span class="lineNum">      82 </span>                :<span class="lineCov">         48 :         syncHT-&gt;isEmptyEntry = syncHTCtl-&gt;isEmptyEntry;</span>
+<span class="lineNum">      83 </span>                :<span class="lineCov">         48 :         syncHT-&gt;initEntry = syncHTCtl-&gt;initEntry;</span>
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :<span class="lineCov">         48 :         return syncHT;</span>
+<span class="lineNum">      86 </span>                :<span class="lineCov">         48 : }</span>
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :            : /*
+<span class="lineNum">      89 </span>                :            :  * Free up memory used by the hashtable.
+<span class="lineNum">      90 </span>                :            :  *
+<span class="lineNum">      91 </span>                :            :  * Only structures allocated in the client's memory context are freed up,
+<span class="lineNum">      92 </span>                :            :  * actual entries and hashtable structure remains valid in shared memory.
+<a name="93"><span class="lineNum">      93 </span>                :            :  */</a>
+<span class="lineNum">      94 </span>                :            : void
+<span class="lineNum">      95 </span>                :            : SyncHTDestroy(SyncHT *syncHT)
+<span class="lineNum">      96 </span>                :            : {
+<span class="lineNum">      97 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT);</span>
+<span class="lineNum">      98 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT-&gt;ht);</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :         pfree(syncHT-&gt;ht);</span>
+<span class="lineNum">     101 </span>                :<span class="lineNoCov">          0 :         pfree(syncHT);</span>
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :            : /*
+<span class="lineNum">     105 </span>                :            :  * Returns the number of elements in the hashtable.
+<span class="lineNum">     106 </span>                :            :  *
+<span class="lineNum">     107 </span>                :            :  * This function is not synchronized.
+<a name="108"><span class="lineNum">     108 </span>                :            :  */</a>
+<span class="lineNum">     109 </span>                :            : long
+<span class="lineNum">     110 </span>                :            : SyncHTNumEntries(SyncHT *syncHT)
+<span class="lineNum">     111 </span>                :            : {
+<span class="lineNum">     112 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT);</span>
+<span class="lineNum">     113 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT-&gt;ht);</span>
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :<span class="lineNoCov">          0 :         return hash_get_num_entries(syncHT-&gt;ht);</span>
+<span class="lineNum">     116 </span>                :            : }
+<span class="lineNum">     117 </span>                :            : 
+<span class="lineNum">     118 </span>                :            : /*
+<span class="lineNum">     119 </span>                :            :  * For a given key, compute the hash value and return the id of the lock
+<span class="lineNum">     120 </span>                :            :  * protecting the corresponding partition.
+<a name="121"><span class="lineNum">     121 </span>                :            :  */</a>
+<span class="lineNum">     122 </span>                :            : static LWLockId
+<span class="lineNum">     123 </span>                :            : SyncHTPartLockId(SyncHT *syncHT, void *key)
+<span class="lineNum">     124 </span>                :            : {
+<span class="lineNum">     125 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT);</span>
+<span class="lineNum">     126 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT-&gt;ht);</span>
+<span class="lineNum">     127 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != key);</span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         uint32 hashValue = get_hash_value(syncHT-&gt;ht, key);</span>
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         return (syncHT-&gt;baseLWLockId + (hashValue % syncHT-&gt;numPartitions));</span>
+<span class="lineNum">     131 </span>                :            : }
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :            : /*
+<span class="lineNum">     134 </span>                :            :  * Inserts a new entry with a given key in the hashtable.
+<span class="lineNum">     135 </span>                :            :  *
+<span class="lineNum">     136 </span>                :            :  * Returns pointer to newly added entry when successful.
+<span class="lineNum">     137 </span>                :            :  *
+<span class="lineNum">     138 </span>                :            :  * If entry with given key already existed in the hashtable, set existing flag
+<span class="lineNum">     139 </span>                :            :  * to true and return existing entry.
+<span class="lineNum">     140 </span>                :            :  *
+<span class="lineNum">     141 </span>                :            :  * If hashtable is full, return NULL.
+<span class="lineNum">     142 </span>                :            :  *
+<span class="lineNum">     143 </span>                :            :  * This function is synchronized. Returned entry is AddRef'ed and needs to be
+<span class="lineNum">     144 </span>                :            :  * released.
+<a name="145"><span class="lineNum">     145 </span>                :            :  */</a>
+<span class="lineNum">     146 </span>                :            : void *
+<span class="lineNum">     147 </span>                :            : SyncHTInsert(SyncHT *syncHT, void *key, bool *existing)
+<span class="lineNum">     148 </span>                :            : {
+<span class="lineNum">     149 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT);</span>
+<span class="lineNum">     150 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT-&gt;ht);</span>
+<span class="lineNum">     151 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != key);</span>
+<span class="lineNum">     152 </span>                :            : 
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         LWLockId partitionLock = SyncHTPartLockId(syncHT, key);</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(partitionLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :         *existing = false;</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         void *entry = hash_search(syncHT-&gt;ht, key, HASH_ENTER_NULL, existing);</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (entry == NULL)</span>
+<span class="lineNum">     161 </span>                :            :         {
+<span class="lineNum">     162 </span>                :            :                 /* Hashtable ran out of memory and could not insert */
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(partitionLock);</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     165 </span>                :            :         }
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (! *existing)</span>
+<span class="lineNum">     168 </span>                :            :         {
+<span class="lineNum">     169 </span>                :            :                 /* Newly inserted entry, initialize the contents before touching */
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                 syncHT-&gt;initEntry(entry);</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :            :         /* AddRef the entry, even if an existing one was found */
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :         SyncHTAddRef(syncHT, entry);</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(partitionLock);</span>
+<span class="lineNum">     177 </span>                :            : 
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         return entry;</span>
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :            : /*
+<span class="lineNum">     182 </span>                :            :  * Looks up an entry with a given key in the hashtable.
+<span class="lineNum">     183 </span>                :            :  * Returns pointer to the entry if found, NULL otherwise.
+<span class="lineNum">     184 </span>                :            :  *
+<span class="lineNum">     185 </span>                :            :  * This function is synchronized. Returned entry is AddRef'ed and needs to
+<span class="lineNum">     186 </span>                :            :  * be released.
+<a name="187"><span class="lineNum">     187 </span>                :            :  */</a>
+<span class="lineNum">     188 </span>                :            : void *
+<span class="lineNum">     189 </span>                :            : SyncHTLookup(SyncHT *syncHT, void *key)
+<span class="lineNum">     190 </span>                :            : {
+<span class="lineNum">     191 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT);</span>
+<span class="lineNum">     192 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != key);</span>
+<span class="lineNum">     193 </span>                :            : 
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         LWLockId partitionLock = SyncHTPartLockId(syncHT, key);</span>
+<span class="lineNum">     195 </span>                :            : 
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(partitionLock, LW_SHARED);</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :         bool existing = false;</span>
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         void *entry = hash_search(syncHT-&gt;ht, key, HASH_FIND, &amp;existing);</span>
+<span class="lineNum">     200 </span>                :            : 
+<span class="lineNum">     201 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         AssertImply(entry != NULL, existing);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            :         /* AddRef the entry if found */
+<span class="lineNum">     204 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (entry != NULL)</span>
+<span class="lineNum">     205 </span>                :            :         {
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                 SyncHTAddRef(syncHT, entry);</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(partitionLock);</span>
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         return entry;</span>
+<span class="lineNum">     212 </span>                :            : }
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>                :            : /*
+<span class="lineNum">     215 </span>                :            :  * Releases a previously looked-up or inserted element.
+<span class="lineNum">     216 </span>                :            :  *
+<span class="lineNum">     217 </span>                :            :  * Returns true if the element is actually removed from the hashtable, false otherwise.
+<a name="218"><span class="lineNum">     218 </span>                :            :  */</a>
+<span class="lineNum">     219 </span>                :            : bool
+<span class="lineNum">     220 </span>                :            : SyncHTRelease(SyncHT *syncHT, void *entry)
+<span class="lineNum">     221 </span>                :            : {
+<span class="lineNum">     222 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != syncHT);</span>
+<span class="lineNum">     223 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != entry);</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            :         /* Point to key in the entry */
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :         void *key = (void *) ((char *) entry + syncHT-&gt;keyOffset);</span>
+<span class="lineNum">     227 </span>                :            : 
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :         LWLockId partitionLock = SyncHTPartLockId(syncHT, key);</span>
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(partitionLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         int32 pinCount = SyncHTDecRef(syncHT, entry);</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(pinCount &gt;= 0 &amp;&amp; &quot;Attempting to release hashtable entry not owned&quot;);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :         bool deleted = false;</span>
+<span class="lineNum">     237 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pinCount == 0 &amp;&amp; syncHT-&gt;isEmptyEntry(entry))</span>
+<span class="lineNum">     238 </span>                :            :         {
+<span class="lineNum">     239 </span>                :            :                 /* This element is safe for deleting from the hashtable */
+<span class="lineNum">     240 </span>                :            : 
+<span class="lineNum">     241 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                 void *deletedEntry =</span>
+<span class="lineNum">     243 </span>                :            : #endif
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 hash_search(syncHT-&gt;ht, key, HASH_REMOVE, NULL /* foundPtr */);</span>
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(deletedEntry == entry);</span>
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                 deleted = true;</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     250 </span>                :            : 
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(partitionLock);</span>
+<span class="lineNum">     252 </span>                :            : 
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :         return deleted;</span>
+<span class="lineNum">     254 </span>                :            : }
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :            : /*
+<span class="lineNum">     257 </span>                :            :  * Atomically increments the pincount on a given entry.
+<span class="lineNum">     258 </span>                :            :  * Returns the value of the pincount after the increment.
+<a name="259"><span class="lineNum">     259 </span>                :            :  */</a>
+<span class="lineNum">     260 </span>                :            : static int32
+<span class="lineNum">     261 </span>                :            : SyncHTAddRef(SyncHT *syncHT, void *entry)
+<span class="lineNum">     262 </span>                :            : {
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :         int32 *pinCountPtr = (int32 *) ((char *) entry + syncHT-&gt;pinCountOffset);</span>
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :         pg_atomic_add_fetch_u32((pg_atomic_uint32 *)pinCountPtr,1);</span>
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :         return *pinCountPtr;</span>
+<span class="lineNum">     266 </span>                :            : }
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :            : /*
+<span class="lineNum">     269 </span>                :            :  * Atomically decrements the pincount on a given entry.
+<span class="lineNum">     270 </span>                :            :  * Returns the value of the pincount after the decrement.
+<a name="271"><span class="lineNum">     271 </span>                :            :  */</a>
+<span class="lineNum">     272 </span>                :            : static int32
+<span class="lineNum">     273 </span>                :            : SyncHTDecRef(SyncHT *syncHT, void *entry)
+<span class="lineNum">     274 </span>                :            : {
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :         int32 *pinCountPtr = (int32 *) ((char *) entry + syncHT-&gt;pinCountOffset);</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :         pg_atomic_sub_fetch_u32((pg_atomic_uint32 *)pinCountPtr,1);</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :         return *pinCountPtr;</span>
+<span class="lineNum">     278 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,479 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mmgr/test/memprot_test.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">utils/mmgr/test</a> - memprot_test.c<span style="font-size: 80%;"> (source / <a href="memprot_test.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">126</td>
+            <td class="headerCovTableEntry">140</td>
+            <td class="headerCovTableEntryHi">90.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">40</td>
+            <td class="headerCovTableEntry">56</td>
+            <td class="headerCovTableEntryLo">71.4 %</td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #include &lt;stdarg.h&gt;</a>
+<span class="lineNum">       2 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">       3 </span>                :            : #include &lt;setjmp.h&gt;
+<span class="lineNum">       4 </span>                :            : #include &quot;cmockery.h&quot;
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : #define free our_free
+<span class="lineNum">       7 </span>                :            : 
+<span class="lineNum">       8 </span>                :            : static void our_free(void* ptr);
+<span class="lineNum">       9 </span>                :            : 
+<span class="lineNum">      10 </span>                :            : #include &quot;../memprot.c&quot;
+<span class="lineNum">      11 </span>                :            : 
+<span class="lineNum">      12 </span>                :            : static bool is_assert_checking =
+<span class="lineNum">      13 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">      14 </span>                :            :                 true;
+<span class="lineNum">      15 </span>                :            : #else
+<span class="lineNum">      16 </span>                :            :                 false;
+<span class="lineNum">      17 </span>                :            : #endif
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : #define EXPECT_EXCEPTION()     \
+<span class="lineNum">      20 </span>                :            :         expect_any(ExceptionalCondition,conditionName); \
+<span class="lineNum">      21 </span>                :            :         expect_any(ExceptionalCondition,errorType); \
+<span class="lineNum">      22 </span>                :            :         expect_any(ExceptionalCondition,fileName); \
+<span class="lineNum">      23 </span>                :            :         expect_any(ExceptionalCondition,lineNumber); \
+<span class="lineNum">      24 </span>                :            :     will_be_called_with_sideeffect(ExceptionalCondition, &amp;_ExceptionalCondition, NULL);\
+<span class="lineNum">      25 </span>                :            : 
+<span class="lineNum">      26 </span>                :            : #define PG_RE_THROW() siglongjmp(*PG_exception_stack, 1)
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :            : /*
+<span class="lineNum">      29 </span>                :            :  * Saves the expected input of our_free function to check if we correctly free
+<span class="lineNum">      30 </span>                :            :  * vmem pointer, instead of the user pointer
+<span class="lineNum">      31 </span>                :            :  */
+<span class="lineNum">      32 </span>                :            : static void* our_free_expected_pointer = NULL;
+<span class="lineNum">      33 </span>                :            : /* Facilitates verification that gp_free actually called free */
+<span class="lineNum">      34 </span>                :            : static void* our_free_input_pointer = NULL;
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : /*
+<span class="lineNum">      37 </span>                :            :  * An overriden method for &quot;free&quot; (using macro substitution) to verify if free was called
+<a name="38"><span class="lineNum">      38 </span>                :            :  * with proper vmem pointer</a>
+<span class="lineNum">      39 </span>                :            :  */
+<span class="lineNum">      40 </span>                :            : static void our_free(void* ptr)
+<span class="lineNum">      41 </span>                :            : {
+<span class="lineNum">      42 </span>                :<span class="lineCov">         36 :         our_free_input_pointer = ptr;</span>
+<span class="lineNum">      43 </span>                :<span class="lineCov">         36 :         assert_true(ptr == our_free_expected_pointer);</span>
+<span class="lineNum">      44 </span>                :<span class="lineCov">         36 : }</span>
+<span class="lineNum">      45 </span>                :            : 
+<span class="lineNum">      46 </span>                :            : /*
+<span class="lineNum">      47 </span>                :            :  * This method will emulate the real ExceptionalCondition
+<span class="lineNum">      48 </span>                :            :  * function by re-throwing the exception, essentially falling
+<span class="lineNum">      49 </span>                :            :  * back to the next available PG_CATCH();
+<a name="50"><span class="lineNum">      50 </span>                :            :  */</a>
+<span class="lineNum">      51 </span>                :            : void
+<span class="lineNum">      52 </span>                :            : _ExceptionalCondition()
+<span class="lineNum">      53 </span>                :            : {
+<span class="lineNum">      54 </span>                :<span class="lineCov">         14 :      PG_RE_THROW();</span>
+<span class="lineNum">      55 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      56 </span>                :            : 
+<span class="lineNum">      57 </span>                :            : /*
+<a name="58"><span class="lineNum">      58 </span>                :            :  * This method sets up memprot.</a>
+<span class="lineNum">      59 </span>                :            :  */
+<span class="lineNum">      60 </span>                :            : void MemProtTestSetup(void **state)
+<span class="lineNum">      61 </span>                :            : {
+<span class="lineNum">      62 </span>                :<span class="lineCov">          8 :         gp_mp_inited = true;</span>
+<span class="lineNum">      63 </span>                :<span class="lineCov">          8 :         memprotOwnerThread = pthread_self();</span>
+<span class="lineNum">      64 </span>                :<span class="lineCov">          8 : }</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : /*
+<a name="67"><span class="lineNum">      67 </span>                :            :  * This method resets memprot state.</a>
+<span class="lineNum">      68 </span>                :            :  */
+<span class="lineNum">      69 </span>                :            : void MemProtTestTeardown(void **state)
+<span class="lineNum">      70 </span>                :            : {
+<span class="lineNum">      71 </span>                :<span class="lineCov">          8 :         gp_mp_inited = false;</span>
+<a name="72"><span class="lineNum">      72 </span>                :<span class="lineCov">          8 : }</span></a>
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : static size_t CalculateVmemSizeFromUserSize(size_t user_size)
+<span class="lineNum">      75 </span>                :            : {
+<span class="lineNum">      76 </span>                :<span class="lineCov">        126 :         size_t chosen_vmem_size = sizeof(VmemHeader) + user_size;</span>
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :            : #ifdef GP_ALLOC_DEBUG
+<span class="lineNum">      79 </span>                :<span class="lineCov">        126 :         chosen_vmem_size += sizeof(FooterChecksumType);</span>
+<span class="lineNum">      80 </span>                :            : #endif
+<span class="lineNum">      81 </span>                :            : 
+<span class="lineNum">      82 </span>                :<span class="lineCov">        126 :         return chosen_vmem_size;</span>
+<span class="lineNum">      83 </span>                :            : }
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :            : /*
+<span class="lineNum">      86 </span>                :            :  * This method calculates a new size of a pointer given a ratio to the original size.
+<a name="87"><span class="lineNum">      87 </span>                :            :  * The returned size will be between the maximum requestable size and zero</a>
+<span class="lineNum">      88 </span>                :            :  */
+<span class="lineNum">      89 </span>                :            : static size_t CalculateReallocSize(size_t original_size, float ratio)
+<span class="lineNum">      90 </span>                :            : {
+<span class="lineNum">      91 </span>                :<span class="lineCov">         36 :         assert_true(ratio &gt;= 0.0);</span>
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :<span class="lineCov">         36 :         size_t new_size = ((float)original_size) * ratio;</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            :         /* Overflow or exceeding the max allowed allocation size */
+<span class="lineNum">      96 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         36 :         if ((ratio &gt; 1.0 &amp;&amp; new_size &lt; original_size) || (new_size &gt; MAX_REQUESTABLE_SIZE))</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 6 times"> + </span><span class="branchCov" title="Branch 5 was taken 30 times"> + </span>]
+<span class="lineNum">      97 </span>                :            :         {
+<span class="lineNum">      98 </span>                :<span class="lineCov">          6 :                 return MAX_REQUESTABLE_SIZE;</span>
+<span class="lineNum">      99 </span>                :            :         }
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :<span class="lineCov">         30 :         return new_size;</span>
+<span class="lineNum">     102 </span>                :<span class="lineCov">         36 : }</span>
+<a name="103"><span class="lineNum">     103 </span>                :            : </a>
+<span class="lineNum">     104 </span>                :            : /* Verifies that the stored size is same as the expected size of the usable memory */
+<span class="lineNum">     105 </span>                :            : static void VerifyStoredSize(void* ptr, size_t expected_user_size)
+<span class="lineNum">     106 </span>                :            : {
+<span class="lineNum">     107 </span>                :<span class="lineCov">          4 :         size_t stored_size = *((size_t *)((((char *) ptr) - sizeof(VmemHeader)) + offsetof(VmemHeader, size)));</span>
+<span class="lineNum">     108 </span>                :<span class="lineCov">          4 :         assert_true(stored_size == expected_user_size);</span>
+<span class="lineNum">     109 </span>                :<span class="lineCov">          4 : }</span>
+<a name="110"><span class="lineNum">     110 </span>                :            : </a>
+<span class="lineNum">     111 </span>                :            : /* Wrapper around gp_malloc that executes basic sets of tests during allocations */
+<span class="lineNum">     112 </span>                :            : static void* AllocateWithCheck(size_t size)
+<span class="lineNum">     113 </span>                :            : {
+<span class="lineNum">     114 </span>                :<span class="lineCov">         46 :         size_t chosen_vmem_size = CalculateVmemSizeFromUserSize(size);</span>
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>                :            :         /* Too big allocation should fail assert checking */
+<span class="lineNum">     117 </span>[<span class="branchCov" title="Branch 0 was taken 46 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 4 times"> + </span><span class="branchCov" title="Branch 3 was taken 42 times"> + </span>]:<span class="lineCov">         46 :         if (is_assert_checking &amp;&amp; chosen_vmem_size &gt; MAX_REQUESTABLE_SIZE)</span>
+<span class="lineNum">     118 </span>                :            :         {
+<span class="lineNum">     119 </span>                :<span class="lineCov">          4 :                 EXPECT_EXCEPTION();</span>
+<span class="lineNum">     120 </span>                :<span class="lineCov">          4 :         }</span>
+<span class="lineNum">     121 </span>                :            :         else
+<span class="lineNum">     122 </span>                :            :         {
+<span class="lineNum">     123 </span>                :            :                 /* The expect_value's chosen_vmem_size will check the size calculation with overhead */
+<span class="lineNum">     124 </span>                :<span class="lineCov">         42 :                 expect_value(VmemTracker_ReserveVmem, newlyRequestedBytes, chosen_vmem_size);</span>
+<span class="lineNum">     125 </span>                :<span class="lineCov">         42 :                 will_return(VmemTracker_ReserveVmem, MemoryAllocation_Success);</span>
+<span class="lineNum">     126 </span>                :            :         }
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>        [<span class="branchCov" title="Branch 0 was taken 46 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">         50 :         PG_TRY();</span>
+<span class="lineNum">     129 </span>                :            :         {
+<span class="lineNum">     130 </span>                :<span class="lineCov">         42 :                 void *ptr = gp_malloc(size);</span>
+<span class="lineNum">     131 </span>                :            : 
+<span class="lineNum">     132 </span>                :            :                 /* size limit is only checked in assert build */
+<span class="lineNum">     133 </span>[<span class="branchCov" title="Branch 0 was taken 42 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 42 times"> + </span>]:<span class="lineCov">         42 :                 if (is_assert_checking &amp;&amp; chosen_vmem_size &gt; MAX_REQUESTABLE_SIZE)</span>
+<span class="lineNum">     134 </span>                :            :                 {
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                         assert_true(false);</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :<span class="lineCov">         42 :                 size_t stored_size = *((size_t *)((((char *) ptr) - sizeof(VmemHeader)) + offsetof(VmemHeader, size)));</span>
+<span class="lineNum">     139 </span>                :<span class="lineCov">         42 :                 assert_true(stored_size == size);</span>
+<span class="lineNum">     140 </span>                :            :                 /* Also check for correctness of UserPtr_GetEndPtr as an API */
+<span class="lineNum">     141 </span>                :<span class="lineCov">         42 :                 assert_true(UserPtr_GetEndPtr(ptr) == ((char*)ptr + size));</span>
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>                :<span class="lineCov">         42 :                 return ptr;</span>
+<span class="lineNum">     144 </span>                :            :         }
+<span class="lineNum">     145 </span>                :<span class="lineCov">          4 :         PG_CATCH();</span>
+<span class="lineNum">     146 </span>                :            :         {
+<span class="lineNum">     147 </span>                :            :         }
+<span class="lineNum">     148 </span>                :<span class="lineCov">          4 :         PG_END_TRY();</span>
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :<span class="lineCov">          4 :         return NULL;</span>
+<span class="lineNum">     151 </span>                :<span class="lineCov">         46 : }</span>
+<span class="lineNum">     152 </span>                :            : 
+<span class="lineNum">     153 </span>                :            : /*
+<span class="lineNum">     154 </span>                :            :  * Calls gp_realloc, testing that the pointer is properly resized. Returns
+<a name="155"><span class="lineNum">     155 </span>                :            :  * the newly resized pointer.</a>
+<span class="lineNum">     156 </span>                :            :  */
+<span class="lineNum">     157 </span>                :            : static void* ReallocateWithCheck(void* ptr, size_t requested_size)
+<span class="lineNum">     158 </span>                :            : {
+<span class="lineNum">     159 </span>                :            :         /*
+<span class="lineNum">     160 </span>                :            :          * Nothing to check for a null pointer in optimized build as we will just crash
+<span class="lineNum">     161 </span>                :            :          * and this is consistent with existing behavior of repalloc.
+<span class="lineNum">     162 </span>                :            :          */
+<span class="lineNum">     163 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 36 times"> + </span>]:<span class="lineCov">         36 :         if (NULL == ptr)</span>
+<span class="lineNum">     164 </span>                :            :         {
+<span class="lineNum">     165 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (is_assert_checking)</span>
+<span class="lineNum">     166 </span>                :            :                 {
+<span class="lineNum">     167 </span>                :            :                         /* The gp_realloc should fail assert for null pointer check */
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                         EXPECT_EXCEPTION();</span>
+<span class="lineNum">     169 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         PG_TRY();</span>
+<span class="lineNum">     170 </span>                :            :                         {
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                                 void * new_ptr = gp_realloc(ptr, requested_size);</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :                                 assert_true(false);</span>
+<span class="lineNum">     173 </span>                :            :                         }
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :                         PG_CATCH();</span>
+<span class="lineNum">     175 </span>                :            :                         {
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :            :                         }
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :                         PG_END_TRY();</span>
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :            :                 /*
+<span class="lineNum">     182 </span>                :            :                  * For release build or for debug build after failing the assertion in gp_realloc,
+<span class="lineNum">     183 </span>                :            :                  * we don't have any further execution to check
+<span class="lineNum">     184 </span>                :            :                  */
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     186 </span>                :            :         }
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :<span class="lineCov">         36 :         size_t orig_user_size = UserPtr_GetUserPtrSize(ptr);</span>
+<span class="lineNum">     189 </span>                :<span class="lineCov">         36 :         size_t orig_vmem_size = CalculateVmemSizeFromUserSize(orig_user_size);</span>
+<span class="lineNum">     190 </span>                :<span class="lineCov">         36 :         size_t size_difference = requested_size - orig_user_size;</span>
+<span class="lineNum">     191 </span>                :            : 
+<span class="lineNum">     192 </span>                :            :         /* If the size change is negative, we release vmem */
+<span class="lineNum">     193 </span>        [<span class="branchCov" title="Branch 0 was taken 14 times"> + </span><span class="branchCov" title="Branch 1 was taken 22 times"> + </span>]:<span class="lineCov">         36 :         if (requested_size &gt; orig_user_size)</span>
+<span class="lineNum">     194 </span>                :            :         {
+<span class="lineNum">     195 </span>                :<span class="lineCov">         14 :                 expect_value(VmemTracker_ReserveVmem, newlyRequestedBytes, requested_size - orig_user_size);</span>
+<span class="lineNum">     196 </span>                :<span class="lineCov">         14 :                 will_return(VmemTracker_ReserveVmem, MemoryAllocation_Success);</span>
+<span class="lineNum">     197 </span>                :<span class="lineCov">         14 :         }</span>
+<span class="lineNum">     198 </span>        [<span class="branchCov" title="Branch 0 was taken 18 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">         22 :         else if (requested_size &lt; orig_user_size)</span>
+<span class="lineNum">     199 </span>                :            :         {
+<span class="lineNum">     200 </span>                :            :                 /* ReleaseVmem will release the size difference */
+<span class="lineNum">     201 </span>                :<span class="lineCov">         18 :                 expect_value(VmemTracker_ReleaseVmem, toBeFreedRequested, abs(size_difference));</span>
+<span class="lineNum">     202 </span>                :<span class="lineCov">         18 :                 will_be_called(VmemTracker_ReleaseVmem);</span>
+<span class="lineNum">     203 </span>                :<span class="lineCov">         18 :         }</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :<span class="lineCov">         36 :         void *realloc_ptr =     gp_realloc(ptr, requested_size);</span>
+<span class="lineNum">     206 </span>        [<span class="branchCov" title="Branch 0 was taken 15 times"> + </span><span class="branchCov" title="Branch 1 was taken 21 times"> + </span>]:<span class="lineCov">         36 :         assert_true(ptr == realloc_ptr || requested_size != orig_user_size);</span>
+<span class="lineNum">     207 </span>                :            : 
+<span class="lineNum">     208 </span>                :<span class="lineCov">         36 :         assert_true(requested_size == UserPtr_GetUserPtrSize(realloc_ptr));</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :            :         /* Check vmem size has been recalculated */
+<span class="lineNum">     211 </span>                :<span class="lineCov">         36 :         size_t realloc_vmem_size = orig_vmem_size + size_difference;</span>
+<span class="lineNum">     212 </span>                :<span class="lineCov">         36 :         assert_true(realloc_vmem_size == UserPtr_GetVmemPtrSize(realloc_ptr));</span>
+<span class="lineNum">     213 </span>                :<span class="lineCov">         36 :         assert_true(UserPtr_GetEndPtr(realloc_ptr) == ((char*)realloc_ptr + requested_size));</span>
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>                :<span class="lineCov">         36 :         return realloc_ptr;</span>
+<span class="lineNum">     216 </span>                :<span class="lineCov">         36 : }</span>
+<span class="lineNum">     217 </span>                :            : 
+<span class="lineNum">     218 </span>                :            : /*
+<a name="219"><span class="lineNum">     219 </span>                :            :  * Frees a user pointer, checking against the original user size</a>
+<span class="lineNum">     220 </span>                :            :  */
+<span class="lineNum">     221 </span>                :            : static void FreeWithCheck(void* ptr, size_t size)
+<span class="lineNum">     222 </span>                :            : {
+<span class="lineNum">     223 </span>                :<span class="lineCov">         46 :         size_t vmem_size = 0;</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            :         /*
+<span class="lineNum">     226 </span>                :            :          * Nothing to check for a null pointer in optimized build as we will just crash
+<span class="lineNum">     227 </span>                :            :          * and this is consistent with existing behavior of pfree.
+<span class="lineNum">     228 </span>                :            :          */
+<span class="lineNum">     229 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 42 times"> + </span>]:<span class="lineCov">         46 :         if (NULL == ptr)</span>
+<span class="lineNum">     230 </span>                :            :         {
+<span class="lineNum">     231 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          4 :                 if (is_assert_checking)</span>
+<span class="lineNum">     232 </span>                :            :                 {
+<span class="lineNum">     233 </span>                :            :                         /* The gp_free should fail assert for null pointer check */
+<span class="lineNum">     234 </span>                :<span class="lineCov">          4 :                         EXPECT_EXCEPTION();</span>
+<span class="lineNum">     235 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          8 :                         PG_TRY();</span>
+<span class="lineNum">     236 </span>                :            :                         {
+<span class="lineNum">     237 </span>                :<span class="lineCov">          4 :                                 gp_free(ptr);</span>
+<span class="lineNum">     238 </span>                :<span class="lineCov">          4 :                                 assert_true(false);</span>
+<span class="lineNum">     239 </span>                :            :                         }
+<span class="lineNum">     240 </span>                :<span class="lineCov">          4 :                         PG_CATCH();</span>
+<span class="lineNum">     241 </span>                :            :                         {
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :            :                         }
+<span class="lineNum">     244 </span>                :<span class="lineCov">          4 :                         PG_END_TRY();</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">          4 :                 }</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>                :            :                 /*
+<span class="lineNum">     248 </span>                :            :                  * For release build or for debug build after failing the assertion in gp_free,
+<span class="lineNum">     249 </span>                :            :                  * we don't have any further execution to check
+<span class="lineNum">     250 </span>                :            :                  */
+<span class="lineNum">     251 </span>                :<span class="lineCov">          4 :                 return;</span>
+<span class="lineNum">     252 </span>                :            :         }
+<span class="lineNum">     253 </span>                :            : 
+<span class="lineNum">     254 </span>                :<span class="lineCov">         42 :         size_t stored_size = UserPtr_GetUserPtrSize(ptr);</span>
+<span class="lineNum">     255 </span>                :<span class="lineCov">         42 :         assert_true(stored_size == size);</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :<span class="lineCov">         42 :         vmem_size = CalculateVmemSizeFromUserSize(size);</span>
+<span class="lineNum">     258 </span>                :<span class="lineCov">         42 :         assert_true(vmem_size ==  UserPtr_GetVmemPtrSize(ptr));</span>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :<span class="lineCov">         42 :         our_free_expected_pointer = ((char*)ptr - sizeof(VmemHeader));</span>
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            :         /* Set the our_free_input_pointer to null to detect if free was actually called */
+<span class="lineNum">     263 </span>                :<span class="lineCov">         42 :         our_free_input_pointer = NULL;</span>
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>[<span class="branchCov" title="Branch 0 was taken 42 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 36 times"> + </span><span class="branchCov" title="Branch 3 was taken 6 times"> + </span>]:<span class="lineCov">         42 :         if (!is_assert_checking || size != 0)</span>
+<span class="lineNum">     266 </span>                :            :         {
+<span class="lineNum">     267 </span>                :            :                 /* The expect_value's chosen_vmem_size will check the size calculation with overhead */
+<span class="lineNum">     268 </span>                :<span class="lineCov">         36 :                 expect_value(VmemTracker_ReleaseVmem, toBeFreedRequested, vmem_size);</span>
+<span class="lineNum">     269 </span>                :<span class="lineCov">         36 :                 will_be_called(VmemTracker_ReleaseVmem);</span>
+<span class="lineNum">     270 </span>                :<span class="lineCov">         36 :         }</span>
+<span class="lineNum">     271 </span>                :            : 
+<span class="lineNum">     272 </span>                :            :         /*
+<span class="lineNum">     273 </span>                :            :          * Verify that the input pointer (supposed to be saved inside our_free to indicate
+<span class="lineNum">     274 </span>                :            :          * that it was called) and the expected pointer are not same, before calling gp_free
+<span class="lineNum">     275 </span>                :            :          */
+<span class="lineNum">     276 </span>                :<span class="lineCov">         42 :         assert_true(our_free_expected_pointer != our_free_input_pointer);</span>
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>[<span class="branchCov" title="Branch 0 was taken 42 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 6 times"> + </span><span class="branchCov" title="Branch 3 was taken 36 times"> + </span>]:<span class="lineCov">         42 :         if (is_assert_checking &amp;&amp; size == 0)</span>
+<span class="lineNum">     279 </span>                :            :         {
+<span class="lineNum">     280 </span>                :<span class="lineCov">          6 :                 EXPECT_EXCEPTION();</span>
+<span class="lineNum">     281 </span>                :<span class="lineCov">          6 :         }</span>
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>        [<span class="branchCov" title="Branch 0 was taken 42 times"> + </span><span class="branchCov" title="Branch 1 was taken 6 times"> + </span>]:<span class="lineCov">         48 :         PG_TRY();</span>
+<span class="lineNum">     284 </span>                :            :         {
+<span class="lineNum">     285 </span>                :<span class="lineCov">         36 :                 gp_free(ptr);</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 36 times"> + </span>]:<span class="lineCov">         36 :                 if (size == 0)</span>
+<span class="lineNum">     288 </span>                :            :                 {
+<span class="lineNum">     289 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         assert_true(!is_assert_checking || false);</span>
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            :                 /* For non-zero size, we expect the free (and our_free) to be called */
+<span class="lineNum">     293 </span>        [<span class="branchCov" title="Branch 0 was taken 36 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         36 :                 assert_true(size == 0 || our_free_input_pointer == our_free_expected_pointer);</span>
+<span class="lineNum">     294 </span>                :            :         }
+<span class="lineNum">     295 </span>                :<span class="lineCov">         36 :         PG_CATCH();</span>
+<span class="lineNum">     296 </span>                :            :         {
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :            :         }
+<span class="lineNum">     299 </span>                :<span class="lineCov">         42 :         PG_END_TRY();</span>
+<span class="lineNum">     300 </span>                :<span class="lineCov">         46 : }</span>
+<span class="lineNum">     301 </span>                :            : 
+<a name="302"><span class="lineNum">     302 </span>                :            : /* Checks if we bypass vmem tracker when mp_init is false */</a>
+<span class="lineNum">     303 </span>                :            : void
+<span class="lineNum">     304 </span>                :            : test__gp_malloc_no_vmem_tracker_when_mp_init_false(void **state)
+<span class="lineNum">     305 </span>                :            : {
+<span class="lineNum">     306 </span>                :<span class="lineCov">          2 :         gp_mp_inited = false;</span>
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :<span class="lineCov">          2 :         const size_t alloc_size = 10;</span>
+<span class="lineNum">     309 </span>                :            :         /* No expected calls to VMEM tracker as the mp is not initialized */
+<span class="lineNum">     310 </span>                :<span class="lineCov">          2 :         void * alloc = gp_malloc(alloc_size);</span>
+<span class="lineNum">     311 </span>                :<span class="lineCov">          2 :         assert_true(alloc != NULL);</span>
+<span class="lineNum">     312 </span>                :<span class="lineCov">          2 :         VerifyStoredSize(alloc, alloc_size);</span>
+<span class="lineNum">     313 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     314 </span>                :            : 
+<a name="315"><span class="lineNum">     315 </span>                :            : /* Checks if we call vmem tracker when mp_init is true */</a>
+<span class="lineNum">     316 </span>                :            : void
+<span class="lineNum">     317 </span>                :            : test__gp_malloc_calls_vmem_tracker_when_mp_init_true(void **state)
+<span class="lineNum">     318 </span>                :            : {
+<span class="lineNum">     319 </span>                :<span class="lineCov">          2 :         gp_mp_inited = true;</span>
+<span class="lineNum">     320 </span>                :<span class="lineCov">          2 :         const size_t alloc_size = 10;</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>                :<span class="lineCov">          2 :         expect_value(VmemTracker_ReserveVmem, newlyRequestedBytes, CalculateVmemSizeFromUserSize(alloc_size));</span>
+<span class="lineNum">     323 </span>                :<span class="lineCov">          2 :         will_return(VmemTracker_ReserveVmem, MemoryAllocation_Success);</span>
+<span class="lineNum">     324 </span>                :            : 
+<span class="lineNum">     325 </span>                :            :         /* No expected calls to VMEM tracker as the mp is not initialized */
+<span class="lineNum">     326 </span>                :<span class="lineCov">          2 :         void * alloc = gp_malloc(alloc_size);</span>
+<span class="lineNum">     327 </span>                :<span class="lineCov">          2 :         assert_true(alloc != NULL);</span>
+<span class="lineNum">     328 </span>                :<span class="lineCov">          2 :         VerifyStoredSize(alloc, alloc_size);</span>
+<span class="lineNum">     329 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :            : /*
+<span class="lineNum">     332 </span>                :            :  * Tests the basic functionality of gp_malloc and gp_free
+<a name="333"><span class="lineNum">     333 </span>                :            :  */</a>
+<span class="lineNum">     334 </span>                :            : void
+<span class="lineNum">     335 </span>                :            : test__gp_malloc_and_free__basic_tests(void **state)
+<span class="lineNum">     336 </span>                :            : {
+<span class="lineNum">     337 </span>                :<span class="lineCov">          2 :         size_t sizes[] = {50, 1024, MAX_REQUESTABLE_SIZE - sizeof(VmemHeader) - FOOTER_CHECKSUM_SIZE,</span>
+<span class="lineNum">     338 </span>                :            :                         1024L * 1024L * 1024L * 2L, 1024L * 1024L * 1024L * 5L};
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>        [<span class="branchCov" title="Branch 0 was taken 10 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">         12 :         for (int idx = 0; idx &lt; sizeof(sizes)/sizeof(sizes[0]); idx++)</span>
+<span class="lineNum">     341 </span>                :            :         {
+<span class="lineNum">     342 </span>                :<span class="lineCov">         10 :                 size_t chosen_size = sizes[idx];</span>
+<span class="lineNum">     343 </span>                :<span class="lineCov">         10 :                 void *ptr = AllocateWithCheck(chosen_size);</span>
+<span class="lineNum">     344 </span>                :<span class="lineCov">         10 :                 FreeWithCheck(ptr, chosen_size);</span>
+<span class="lineNum">     345 </span>                :<span class="lineCov">         10 :         }</span>
+<span class="lineNum">     346 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>                :            : /*
+<span class="lineNum">     349 </span>                :            :  * Tests the basic functionality of gp_realloc
+<a name="350"><span class="lineNum">     350 </span>                :            :  */</a>
+<span class="lineNum">     351 </span>                :            : void
+<span class="lineNum">     352 </span>                :            : test__gp_realloc__basic_tests(void **state)
+<span class="lineNum">     353 </span>                :            : {
+<span class="lineNum">     354 </span>                :<span class="lineCov">          2 :         size_t sizes[] = {50, 1024, MAX_REQUESTABLE_SIZE - sizeof(VmemHeader) - FOOTER_CHECKSUM_SIZE};</span>
+<span class="lineNum">     355 </span>                :            :         /* Ratio of new size to original size for realloc calls */
+<span class="lineNum">     356 </span>                :<span class="lineCov">          2 :         float fractions[] = {0, 0.1, 0.5, 1, 1.5, 2};</span>
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          8 :         for (int idx = 0; idx &lt; sizeof(sizes)/sizeof(sizes[0]); idx++)</span>
+<span class="lineNum">     359 </span>                :            :         {
+<span class="lineNum">     360 </span>        [<span class="branchCov" title="Branch 0 was taken 36 times"> + </span><span class="branchCov" title="Branch 1 was taken 6 times"> + </span>]:<span class="lineCov">         42 :                 for (int didx = 0; didx &lt; sizeof(fractions)/sizeof(fractions[0]); didx++)</span>
+<span class="lineNum">     361 </span>                :            :                 {
+<span class="lineNum">     362 </span>                :<span class="lineCov">         36 :                         size_t original_size = sizes[idx];</span>
+<span class="lineNum">     363 </span>                :<span class="lineCov">         36 :                         float chosen_fraction = fractions[didx];</span>
+<span class="lineNum">     364 </span>                :<span class="lineCov">         36 :                         size_t requested_size = CalculateReallocSize(original_size, chosen_fraction);</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :<span class="lineCov">         36 :                         void *ptr = AllocateWithCheck(original_size);</span>
+<span class="lineNum">     367 </span>                :<span class="lineCov">         36 :                         ptr = ReallocateWithCheck(ptr, requested_size);</span>
+<span class="lineNum">     368 </span>                :<span class="lineCov">         36 :                         FreeWithCheck(ptr, requested_size);</span>
+<span class="lineNum">     369 </span>                :<span class="lineCov">         36 :                 }</span>
+<span class="lineNum">     370 </span>                :<span class="lineCov">          6 :         }</span>
+<span class="lineNum">     371 </span>                :<span class="lineCov">          2 : }</span>
+<a name="372"><span class="lineNum">     372 </span>                :            : </a>
+<span class="lineNum">     373 </span>                :            : int
+<span class="lineNum">     374 </span>                :            : main(int argc, char* argv[])
+<span class="lineNum">     375 </span>                :            : {
+<span class="lineNum">     376 </span>                :<span class="lineCov">          2 :         cmockery_parse_arguments(argc, argv);</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :            :         const UnitTest tests[] = {
+<span class="lineNum">     379 </span>                :            :                 unit_test_setup_teardown(test__gp_malloc_no_vmem_tracker_when_mp_init_false, MemProtTestSetup, MemProtTestTeardown),
+<span class="lineNum">     380 </span>                :            :                 unit_test_setup_teardown(test__gp_malloc_calls_vmem_tracker_when_mp_init_true, MemProtTestSetup, MemProtTestTeardown),
+<span class="lineNum">     381 </span>                :            :                 unit_test_setup_teardown(test__gp_malloc_and_free__basic_tests, MemProtTestSetup, MemProtTestTeardown),
+<span class="lineNum">     382 </span>                :            :                 unit_test_setup_teardown(test__gp_realloc__basic_tests, MemProtTestSetup, MemProtTestTeardown),
+<span class="lineNum">     383 </span>                :            :         };
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :<span class="lineCov">          2 :         return run_tests(tests);</span>
+<span class="lineNum">     386 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,1153 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/misc/fstream/fstream.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">utils/misc/fstream</a> - fstream.c<span style="font-size: 80%;"> (source / <a href="fstream.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">381</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">22</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">220</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #ifdef WIN32</a>
+<span class="lineNum">       2 </span>                :            : /* exclude transformation features on windows for now */
+<span class="lineNum">       3 </span>                :            : #undef GPFXDIST
+<span class="lineNum">       4 </span>                :            : #endif
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : /*#include &quot;c.h&quot;*/
+<span class="lineNum">       7 </span>                :            : #ifdef WIN32
+<span class="lineNum">       8 </span>                :            : #define _WINSOCKAPI_
+<span class="lineNum">       9 </span>                :            : #include &lt;windows.h&gt;
+<span class="lineNum">      10 </span>                :            : #include &lt;winsock2.h&gt;
+<span class="lineNum">      11 </span>                :            : #include &lt;ws2tcpip.h&gt;
+<span class="lineNum">      12 </span>                :            : #endif
+<span class="lineNum">      13 </span>                :            : #include &lt;postgres.h&gt;
+<span class="lineNum">      14 </span>                :            : #include &lt;commands/copy.h&gt;
+<span class="lineNum">      15 </span>                :            : #include &lt;fstream/fstream.h&gt;
+<span class="lineNum">      16 </span>                :            : #include &lt;assert.h&gt;
+<span class="lineNum">      17 </span>                :            : #include &lt;glob.h&gt;
+<span class="lineNum">      18 </span>                :            : #include &lt;stdio.h&gt;
+<span class="lineNum">      19 </span>                :            : #include &lt;stdlib.h&gt;
+<span class="lineNum">      20 </span>                :            : #include &lt;string.h&gt;
+<span class="lineNum">      21 </span>                :            : #include &lt;errno.h&gt;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : #ifdef GPFXDIST
+<span class="lineNum">      24 </span>                :            : #include &lt;gpfxdist.h&gt;
+<span class="lineNum">      25 </span>                :            : #endif
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : #define FILE_ERROR_SZ 200
+<span class="lineNum">      28 </span>                :            : char* format_error(char* c1, char* c2);
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : typedef struct
+<span class="lineNum">      31 </span>                :            : {
+<span class="lineNum">      32 </span>                :            :         int     gl_pathc;
+<span class="lineNum">      33 </span>                :            :         char**  gl_pathv;
+<span class="lineNum">      34 </span>                :            : } glob_and_copy_t;
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : struct fstream_t
+<span class="lineNum">      37 </span>                :            : {
+<span class="lineNum">      38 </span>                :            :         glob_and_copy_t glob;
+<span class="lineNum">      39 </span>                :            :         gfile_t                 fd;
+<span class="lineNum">      40 </span>                :            :         int                     fidx; /* current index in ffd[] */
+<span class="lineNum">      41 </span>                :            :         int64_t                 foff; /* current offset in ffd[fidx] */
+<span class="lineNum">      42 </span>                :            :         int64_t                 line_number;
+<span class="lineNum">      43 </span>                :            :         int64_t                 compressed_size;
+<span class="lineNum">      44 </span>                :            :         int64_t                 compressed_position;
+<span class="lineNum">      45 </span>                :            :         int                     skip_header_line;
+<span class="lineNum">      46 </span>                :            :         char*                   buffer;                  /* buffer to store data read from file */
+<span class="lineNum">      47 </span>                :            :         int                     buffer_cur_size; /* number of bytes in buffer currently */
+<span class="lineNum">      48 </span>                :            :         const char*             ferror;                  /* error string */
+<span class="lineNum">      49 </span>                :            :         struct fstream_options options;
+<span class="lineNum">      50 </span>                :            : };
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : /*
+<span class="lineNum">      53 </span>                :            :  * Returns a pointer to the end of the last delimiter occurrence,
+<span class="lineNum">      54 </span>                :            :  * or the start pointer if delimiter doesn't appear.
+<span class="lineNum">      55 </span>                :            :  *
+<a name="56"><span class="lineNum">      56 </span>                :            :  * delimiter_length MUST be &gt; 0</a>
+<span class="lineNum">      57 </span>                :            :  */
+<span class="lineNum">      58 </span>                :            : static char *find_last_eol_delim (const char *start, const int size,
+<span class="lineNum">      59 </span>                :            :                                                                   const char *delimiter, const int delimiter_length)
+<span class="lineNum">      60 </span>                :            : {
+<span class="lineNum">      61 </span>                :            :         char* p;
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (size &lt;= delimiter_length)</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :                 return (char*)start - 1;</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (p = (char*)start + size - delimiter_length; start &lt;= p; p--)</span>
+<span class="lineNum">      67 </span>                :            :         {
+<span class="lineNum">      68 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (memcmp(p, delimiter, delimiter_length) == 0)</span>
+<span class="lineNum">      69 </span>                :            :                 {
+<span class="lineNum">      70 </span>                :<span class="lineNoCov">          0 :                         return (char*)p + delimiter_length - 1;</span>
+<span class="lineNum">      71 </span>                :            :                 }
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :         return (char*)start - 1;</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : /*
+<span class="lineNum">      77 </span>                :            :  * Returns a pointer to the end of the first delimiter occurrence,
+<span class="lineNum">      78 </span>                :            :  * or the end pointer if delimiter doesn't appear.
+<span class="lineNum">      79 </span>                :            :  *
+<a name="80"><span class="lineNum">      80 </span>                :            :  * delimiter_length MUST be &gt; 0</a>
+<span class="lineNum">      81 </span>                :            :  */
+<span class="lineNum">      82 </span>                :            : static char *find_first_eol_delim (char *start, char *end,
+<span class="lineNum">      83 </span>                :            :                                                                    const char *delimiter, const int delimiter_length)
+<span class="lineNum">      84 </span>                :            : {
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         char *search_limit = (char*)end - delimiter_length;</span>
+<span class="lineNum">      86 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (end - start &lt;= delimiter_length)</span>
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :                 return end;</span>
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (; start &lt;= search_limit; start++)</span>
+<span class="lineNum">      90 </span>                :            :         {
+<span class="lineNum">      91 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (memcmp(start, delimiter, delimiter_length) == 0)</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :                         return (char*)start + delimiter_length - 1;</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :         return end;</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      97 </span>                :            : 
+<span class="lineNum">      98 </span>                :            : /*
+<span class="lineNum">      99 </span>                :            :  * glob_and_copy
+<span class="lineNum">     100 </span>                :            :  *
+<span class="lineNum">     101 </span>                :            :  * Given a pattern, glob it and populate pglob with the results that match it.
+<span class="lineNum">     102 </span>                :            :  * For example, if 'pattern' equals '/somedir/&lt;asterisk&gt;.txt' and the filesystem has
+<span class="lineNum">     103 </span>                :            :  * 2 .txt files inside of somedir, namely 1.txt and 2.txt, then the result is:
+<span class="lineNum">     104 </span>                :            :  * g.gl_pathc = 2
+<span class="lineNum">     105 </span>                :            :  * g.gl_pathv[0] =  '/somedir/1.txt'
+<a name="106"><span class="lineNum">     106 </span>                :            :  * g.gl_pathv[1] =  '/somedir/2.txt'</a>
+<span class="lineNum">     107 </span>                :            :  */
+<span class="lineNum">     108 </span>                :            : static int glob_and_copy(const char *pattern, int flags, int(*errfunc)(
+<span class="lineNum">     109 </span>                :            :                                                  const char *epath, int eerno), glob_and_copy_t *pglob)
+<span class="lineNum">     110 </span>                :            : {
+<span class="lineNum">     111 </span>                :            :         glob_t  g;
+<span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 :         int     i = glob(pattern, flags, errfunc, &amp;g), j;</span>
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!i)</span>
+<span class="lineNum">     115 </span>                :            :         {
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :                 char **a = gfile_malloc(sizeof *a * (pglob-&gt;gl_pathc + g.gl_pathc));</span>
+<span class="lineNum">     117 </span>                :            : 
+<span class="lineNum">     118 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!a)</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                         i = GLOB_NOSPACE;</span>
+<span class="lineNum">     120 </span>                :            :                 else
+<span class="lineNum">     121 </span>                :            :                 {
+<span class="lineNum">     122 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (j = 0; j &lt; pglob-&gt;gl_pathc; j++)</span>
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :                                 a[j] = pglob-&gt;gl_pathv[j];</span>
+<span class="lineNum">     124 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (pglob-&gt;gl_pathv)</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                                 gfile_free(pglob-&gt;gl_pathv);</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                         pglob-&gt;gl_pathv = a;</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :                         a += pglob-&gt;gl_pathc;</span>
+<span class="lineNum">     128 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (j = 0; j &lt; g.gl_pathc; j++)</span>
+<span class="lineNum">     129 </span>                :            :                         {
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                                 char*b = g.gl_pathv[j];</span>
+<span class="lineNum">     131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!(*a = gfile_malloc(strlen(b) + 1)))</span>
+<span class="lineNum">     132 </span>                :            :                                 {
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                                         i = GLOB_NOSPACE;</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     135 </span>                :            :                                 }
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                                 strcpy(*a++, b);</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :                                 pglob-&gt;gl_pathc++;</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     139 </span>                :            :                 }
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                 globfree(&amp;g);</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         return i;</span>
+<span class="lineNum">     144 </span>                :            : }
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>                :            : /*
+<span class="lineNum">     147 </span>                :            :  * glob_and_copyfree
+<span class="lineNum">     148 </span>                :            :  *
+<a name="149"><span class="lineNum">     149 </span>                :            :  * free memory allocated in pglob.</a>
+<span class="lineNum">     150 </span>                :            :  */
+<span class="lineNum">     151 </span>                :            : static void glob_and_copyfree(glob_and_copy_t *pglob)
+<span class="lineNum">     152 </span>                :            : {
+<span class="lineNum">     153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pglob-&gt;gl_pathv)</span>
+<span class="lineNum">     154 </span>                :            :         {
+<span class="lineNum">     155 </span>                :            :                 int i;
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = 0; i &lt; pglob-&gt;gl_pathc; i++)</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                         gfile_free(pglob-&gt;gl_pathv[i]);</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                 gfile_free(pglob-&gt;gl_pathv);</span>
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :                 pglob-&gt;gl_pathc = 0;</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                 pglob-&gt;gl_pathv = 0;</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="165"><span class="lineNum">     165 </span>                :            : </a>
+<span class="lineNum">     166 </span>                :            : const char*
+<span class="lineNum">     167 </span>                :            : fstream_get_error(fstream_t*fs)
+<span class="lineNum">     168 </span>                :            : {
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :         return fs-&gt;ferror;</span>
+<span class="lineNum">     170 </span>                :            : }
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :            : /*
+<span class="lineNum">     173 </span>                :            :  * scan_csv_records
+<span class="lineNum">     174 </span>                :            :  *
+<span class="lineNum">     175 </span>                :            :  * Scan the data in [p, q) according to the csv parsing rules. Return as many
+<span class="lineNum">     176 </span>                :            :  * complete csv records as possible. However, if 'one' was passed in, return the
+<span class="lineNum">     177 </span>                :            :  * first complete record only.
+<span class="lineNum">     178 </span>                :            :  *
+<span class="lineNum">     179 </span>                :            :  * We need this function for gpfdist because until 'text' format we can't just
+<span class="lineNum">     180 </span>                :            :  * peek at the line newline in the buffer and send the whole data chunk to the
+<span class="lineNum">     181 </span>                :            :  * server. That is because it may be inside a quote. We have to carefully parse
+<span class="lineNum">     182 </span>                :            :  * the data from the start in order to find the last unquoted newline.
+<span class="lineNum">     183 </span>                :            :  *
+<span class="lineNum">     184 </span>                :            :  */
+<a name="185"><span class="lineNum">     185 </span>                :            : </a>
+<span class="lineNum">     186 </span>                :            : static char*
+<span class="lineNum">     187 </span>                :            : scan_csv_records_crlf(char *p, char* q, int one, fstream_t* fs)
+<span class="lineNum">     188 </span>                :            : {
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         int     in_quote = 0;</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         int     last_was_esc = 0;</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :         int     qc = fs-&gt;options.quote;</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         int     xc = fs-&gt;options.escape;</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         char*   last_record_loc = 0;</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         int     ch = 0;</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         int     lastch = 0;</span>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (p &lt; q)</span>
+<span class="lineNum">     198 </span>                :            :         {
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :                 lastch = ch;</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                 ch = *p++;</span>
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (in_quote)</span>
+<span class="lineNum">     203 </span>                :            :                 {
+<span class="lineNum">     204 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!last_was_esc)</span>
+<span class="lineNum">     205 </span>                :            :                         {
+<span class="lineNum">     206 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (ch == qc)</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                                         in_quote = 0;</span>
+<span class="lineNum">     208 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (ch == xc)</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                                         last_was_esc = 1;</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     211 </span>                :            :                         else
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                                 last_was_esc = 0;</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     214 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (ch == '\n' &amp;&amp; lastch == '\r')</span>
+<span class="lineNum">     215 </span>                :            :                 {
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                         last_record_loc = p;</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;line_number++;</span>
+<span class="lineNum">     218 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (one)</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     221 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (ch == qc)</span>
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                         in_quote = 1;</span>
+<span class="lineNum">     223 </span>                :            :         }
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         return last_record_loc;</span>
+<span class="lineNum">     226 </span>                :            : }
+<a name="227"><span class="lineNum">     227 </span>                :            : </a>
+<span class="lineNum">     228 </span>                :            : static char*
+<span class="lineNum">     229 </span>                :            : scan_csv_records_cr_or_lf(char *p, char *q, int one, fstream_t *fs, int nc)
+<span class="lineNum">     230 </span>                :            : {
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :         int     in_quote = 0;</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         int     last_was_esc = 0;</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :         int     qc = fs-&gt;options.quote;</span>
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :         int     xc = fs-&gt;options.escape;</span>
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :         char*   last_record_loc = 0;</span>
+<span class="lineNum">     236 </span>                :            : 
+<span class="lineNum">     237 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (p &lt; q)</span>
+<span class="lineNum">     238 </span>                :            :         {
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                 int ch = *p++;</span>
+<span class="lineNum">     240 </span>                :            : 
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (in_quote)</span>
+<span class="lineNum">     242 </span>                :            :                 {
+<span class="lineNum">     243 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!last_was_esc)</span>
+<span class="lineNum">     244 </span>                :            :                         {
+<span class="lineNum">     245 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (ch == qc)</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :                                         in_quote = 0;</span>
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (ch == xc)</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                                         last_was_esc = 1;</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     250 </span>                :            :                         else
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                                 last_was_esc = 0;</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     253 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (ch == nc)</span>
+<span class="lineNum">     254 </span>                :            :                 {
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                         last_record_loc = p;</span>
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;line_number++;</span>
+<span class="lineNum">     257 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (one)</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     260 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (ch == qc)</span>
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :                         in_quote = 1;</span>
+<span class="lineNum">     262 </span>                :            :         }
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :         return last_record_loc;</span>
+<span class="lineNum">     265 </span>                :            : }
+<a name="266"><span class="lineNum">     266 </span>                :            : </a>
+<span class="lineNum">     267 </span>                :            : static char*
+<span class="lineNum">     268 </span>                :            : scan_csv_records(char *p, char *q, int one, fstream_t *fs)
+<span class="lineNum">     269 </span>                :            : {
+<span class="lineNum">     270 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch(fs-&gt;options.eol_type)</span>
+<span class="lineNum">     271 </span>                :            :         {
+<span class="lineNum">     272 </span>                :            :                 case EOL_CRLF:
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :                    return scan_csv_records_crlf(p, q, one, fs);</span>
+<span class="lineNum">     274 </span>                :            :                 case EOL_CR:
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :                    return scan_csv_records_cr_or_lf(p, q, one, fs, '\r');</span>
+<span class="lineNum">     276 </span>                :            :                 case EOL_LF:
+<span class="lineNum">     277 </span>                :            :                 default:
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                    return scan_csv_records_cr_or_lf(p, q, one, fs, '\n');</span>
+<span class="lineNum">     279 </span>                :            :         }
+<a name="280"><span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     281 </span>                :            : /* close the file stream */
+<span class="lineNum">     282 </span>                :            : void fstream_close(fstream_t* fs)
+<span class="lineNum">     283 </span>                :            : {
+<span class="lineNum">     284 </span>                :            : #ifdef GPFXDIST
+<span class="lineNum">     285 </span>                :            :         /*
+<span class="lineNum">     286 </span>                :            :          * remove temporary file we created to hold the file paths
+<span class="lineNum">     287 </span>                :            :          */
+<span class="lineNum">     288 </span>                :            :         if (fs-&gt;options.transform &amp;&amp; fs-&gt;options.transform-&gt;tempfilename)
+<span class="lineNum">     289 </span>                :            :         {
+<span class="lineNum">     290 </span>                :            :                 apr_file_remove(fs-&gt;options.transform-&gt;tempfilename, fs-&gt;options.transform-&gt;mp);
+<span class="lineNum">     291 </span>                :            :                 fs-&gt;options.transform-&gt;tempfilename = NULL;
+<span class="lineNum">     292 </span>                :            :         }
+<span class="lineNum">     293 </span>                :            : #endif
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(fs-&gt;buffer)</span>
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :                 gfile_free(fs-&gt;buffer);</span>
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         glob_and_copyfree(&amp;fs-&gt;glob);</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :         gfile_close(&amp;fs-&gt;fd);</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :         gfile_free(fs);</span>
+<a name="301"><span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     302 </span>                :            : 
+<span class="lineNum">     303 </span>                :            : static int fpath_all_directories(const glob_and_copy_t *glob)
+<span class="lineNum">     304 </span>                :            : {
+<span class="lineNum">     305 </span>                :            :         int i;
+<span class="lineNum">     306 </span>                :            : 
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; glob-&gt;gl_pathc; i++)</span>
+<span class="lineNum">     308 </span>                :            :         {
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :                 const char      *a = glob-&gt;gl_pathv[i];</span>
+<span class="lineNum">     310 </span>                :            : 
+<span class="lineNum">     311 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!*a || a[strlen(a) - 1] != '/')</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                         return 0;</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         return 1;</span>
+<a name="315"><span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :            : static int expand_directories(fstream_t *fs)
+<span class="lineNum">     318 </span>                :            : {
+<span class="lineNum">     319 </span>                :            :         glob_and_copy_t g;
+<span class="lineNum">     320 </span>                :            :         int                     i, j;
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :         memset(&amp;g, 0, sizeof g);</span>
+<span class="lineNum">     323 </span>                :            : 
+<span class="lineNum">     324 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; fs-&gt;glob.gl_pathc; i++)</span>
+<span class="lineNum">     325 </span>                :            :         {
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                 const char* a = fs-&gt;glob.gl_pathv[i];</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :                 char* b = gfile_malloc(2 * strlen(a) + 2), *c;</span>
+<span class="lineNum">     328 </span>                :            : 
+<span class="lineNum">     329 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!b)</span>
+<span class="lineNum">     330 </span>                :            :                 {
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :                         gfile_printf_then_putc_newline(&quot;fstream out of memory&quot;);</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :                         glob_and_copyfree(&amp;g);</span>
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :                         return 1;</span>
+<span class="lineNum">     334 </span>                :            :                 }
+<span class="lineNum">     335 </span>                :            : 
+<span class="lineNum">     336 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (c = b ; *a ; a++)</span>
+<span class="lineNum">     337 </span>                :            :                 {
+<span class="lineNum">     338 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (*a == '?' || *a == '*' || *a == '[')</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :                                 *c++ = '\\';</span>
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :                         *c++ = *a;</span>
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                 *c++ = '*';</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                 *c++ = 0;</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                 j = glob_and_copy(b, 0, 0, &amp;g);</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                 gfile_free(b);</span>
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (j == GLOB_NOMATCH)</span>
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                         gfile_printf_then_putc_newline(&quot;fstream %s is empty directory&quot;,</span>
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :                                         fs-&gt;glob.gl_pathv[i]);</span>
+<span class="lineNum">     351 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (j)</span>
+<span class="lineNum">     352 </span>                :            :                 {
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                         gfile_printf_then_putc_newline(&quot;fstream glob failed&quot;);</span>
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :                         glob_and_copyfree(&amp;g);</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                         return 1;</span>
+<span class="lineNum">     356 </span>                :            :                 }
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :         glob_and_copyfree(&amp;fs-&gt;glob);</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         fs-&gt;glob = g;</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<a name="362"><span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :            : static int glob_path(fstream_t *fs, const char *path)
+<span class="lineNum">     365 </span>                :            : {
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :         char    *path2 = gfile_malloc(strlen(path) + 1);</span>
+<span class="lineNum">     367 </span>                :            : 
+<span class="lineNum">     368 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!path2)</span>
+<span class="lineNum">     369 </span>                :            :         {
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :                 gfile_printf_then_putc_newline(&quot;fstream out of memory&quot;);</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     372 </span>                :            :         }
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         path = strcpy(path2, path);</span>
+<span class="lineNum">     375 </span>                :            : 
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         do</span>
+<span class="lineNum">     377 </span>                :            :         {
+<span class="lineNum">     378 </span>                :            :                 char*   p;
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (*path == ' ')</span>
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :                         path++;</span>
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                 p = strchr(path, ' ');</span>
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (p)</span>
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :                         *p++ = 0;</span>
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*path &amp;&amp;</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :                         glob_and_copy(path, GLOB_MARK | GLOB_NOCHECK, 0, &amp;fs-&gt;glob))</span>
+<span class="lineNum">     390 </span>                :            :                 {
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :                         gfile_printf_then_putc_newline(&quot;fstream glob failed&quot;);</span>
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :                         gfile_free(path2);</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :                         return 1;</span>
+<span class="lineNum">     394 </span>                :            :                 }
+<span class="lineNum">     395 </span>                :<span class="lineNoCov">          0 :                 path = p;</span>
+<span class="lineNum">     396 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         } while (path);</span>
+<span class="lineNum">     397 </span>                :            : 
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :         gfile_free(path2);</span>
+<span class="lineNum">     399 </span>                :            : 
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     402 </span>                :            : 
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>                :            : #ifdef GPFXDIST
+<span class="lineNum">     405 </span>                :            : /*
+<span class="lineNum">     406 </span>                :            :  * adjust fs-&gt;glob so that it contains a single item which is a
+<span class="lineNum">     407 </span>                :            :  * properly allocated copy of the specified filename.  assumes fs-&gt;glob
+<span class="lineNum">     408 </span>                :            :  * contains at least one name.  
+<span class="lineNum">     409 </span>                :            :  */
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            : static int glob_adjust(fstream_t* fs, char* filename, int* response_code, const char** response_string)
+<span class="lineNum">     412 </span>                :            : {
+<span class="lineNum">     413 </span>                :            :         int i;
+<span class="lineNum">     414 </span>                :            :         int tlen    = strlen(filename) + 1;
+<span class="lineNum">     415 </span>                :            :         char* tname = gfile_malloc(tlen);
+<span class="lineNum">     416 </span>                :            :         if (!tname) 
+<span class="lineNum">     417 </span>                :            :         {
+<span class="lineNum">     418 </span>                :            :                 *response_code = 500;
+<span class="lineNum">     419 </span>                :            :                 *response_string = &quot;fstream out of memory allocating copy of temporary file name&quot;;
+<span class="lineNum">     420 </span>                :            :                 gfile_printf_then_putc_newline(*response_string);
+<span class="lineNum">     421 </span>                :            :                 return 1;
+<span class="lineNum">     422 </span>                :            :         }
+<span class="lineNum">     423 </span>                :            : 
+<span class="lineNum">     424 </span>                :            :         for (i = 0; i&lt;fs-&gt;glob.gl_pathc; i++)
+<span class="lineNum">     425 </span>                :            :         {
+<span class="lineNum">     426 </span>                :            :                 gfile_free(fs-&gt;glob.gl_pathv[i]);
+<span class="lineNum">     427 </span>                :            :                 fs-&gt;glob.gl_pathv[i] = NULL;
+<span class="lineNum">     428 </span>                :            :         }
+<span class="lineNum">     429 </span>                :            :         strcpy(tname, filename);
+<span class="lineNum">     430 </span>                :            :         fs-&gt;glob.gl_pathv[0] = tname;
+<span class="lineNum">     431 </span>                :            :         fs-&gt;glob.gl_pathc = 1;
+<span class="lineNum">     432 </span>                :            :         return 0;
+<span class="lineNum">     433 </span>                :            : }
+<span class="lineNum">     434 </span>                :            : #endif
+<span class="lineNum">     435 </span>                :            : 
+<span class="lineNum">     436 </span>                :            : /*
+<span class="lineNum">     437 </span>                :            :  * fstream_open
+<span class="lineNum">     438 </span>                :            :  *
+<span class="lineNum">     439 </span>                :            :  * Allocate a new file stream given a path (a url). in case of wildcards,
+<span class="lineNum">     440 </span>                :            :  * expand them here. we end up with a final list of files and include them
+<span class="lineNum">     441 </span>                :            :  * in our filestream that we return.
+<span class="lineNum">     442 </span>                :            :  *
+<span class="lineNum">     443 </span>                :            :  * In case of errors we set the proper http response code to send to the client.
+<a name="444"><span class="lineNum">     444 </span>                :            :  */</a>
+<span class="lineNum">     445 </span>                :            : fstream_t*
+<span class="lineNum">     446 </span>                :            : fstream_open(const char *path, const struct fstream_options *options,
+<span class="lineNum">     447 </span>                :            :                          int *response_code, const char **response_string)
+<span class="lineNum">     448 </span>                :            : {
+<span class="lineNum">     449 </span>                :            :         int i;
+<span class="lineNum">     450 </span>                :            :         fstream_t* fs;
+<span class="lineNum">     451 </span>                :            : 
+<span class="lineNum">     452 </span>                :<span class="lineNoCov">          0 :         *response_code = 500;</span>
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         *response_string = &quot;Internal Server Error&quot;;</span>
+<span class="lineNum">     454 </span>                :            : 
+<span class="lineNum">     455 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (0 == (fs = gfile_malloc(sizeof *fs)))</span>
+<span class="lineNum">     456 </span>                :            :         {
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                 gfile_printf_then_putc_newline(&quot;fstream out of memory&quot;);</span>
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     459 </span>                :            :         }
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :         memset(fs, 0, sizeof *fs);</span>
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :         fs-&gt;options = *options;</span>
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :         fs-&gt;buffer = gfile_malloc(options-&gt;bufsize);</span>
+<span class="lineNum">     464 </span>                :            :         
+<span class="lineNum">     465 </span>                :            :         /*
+<span class="lineNum">     466 </span>                :            :          * get a list of all files that were requested to be read and include them
+<span class="lineNum">     467 </span>                :            :          * in our fstream. This includes any wildcard pattern matching.
+<span class="lineNum">     468 </span>                :            :          */
+<span class="lineNum">     469 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (glob_path(fs, path))</span>
+<span class="lineNum">     470 </span>                :            :         {
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 :                 fstream_close(fs);</span>
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     473 </span>                :            :         }
+<span class="lineNum">     474 </span>                :            : 
+<span class="lineNum">     475 </span>                :            :         /*
+<span class="lineNum">     476 </span>                :            :          * If the list of files in our filestrem includes a directory name, expand
+<span class="lineNum">     477 </span>                :            :          * the directory and add all the files inside of it.
+<span class="lineNum">     478 </span>                :            :          */
+<span class="lineNum">     479 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fpath_all_directories(&amp;fs-&gt;glob))</span>
+<span class="lineNum">     480 </span>                :            :         {
+<span class="lineNum">     481 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (expand_directories(fs))</span>
+<span class="lineNum">     482 </span>                :            :                 {
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :                         fstream_close(fs);</span>
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                         return 0;</span>
+<span class="lineNum">     485 </span>                :            :                 }
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     487 </span>                :            : 
+<span class="lineNum">     488 </span>                :            :         /*
+<span class="lineNum">     489 </span>                :            :          * check if we don't have any matching files
+<span class="lineNum">     490 </span>                :            :          */
+<span class="lineNum">     491 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fs-&gt;glob.gl_pathc == 0)</span>
+<span class="lineNum">     492 </span>                :            :         {
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :                 gfile_printf_then_putc_newline(&quot;fstream bad path: %s&quot;, path);</span>
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :                 fstream_close(fs);</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :                 *response_code = 404;</span>
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :                 *response_string = &quot;No matching file(s) found&quot;;</span>
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     498 </span>                :            :         }
+<span class="lineNum">     499 </span>                :            : 
+<span class="lineNum">     500 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fs-&gt;glob.gl_pathc != 1 &amp;&amp; options-&gt;forwrite)</span>
+<span class="lineNum">     501 </span>                :            :         {
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :                 gfile_printf_then_putc_newline(&quot;fstream open for write found more than one file (%d)&quot;,</span>
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :                                                                                 fs-&gt;glob.gl_pathc);</span>
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :                 *response_code = 404;</span>
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                 *response_string = &quot;More than 1 file found for writing. Unsupported operation.&quot;;</span>
+<span class="lineNum">     506 </span>                :            : 
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :                 fstream_close(fs);</span>
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     509 </span>                :            :         }
+<span class="lineNum">     510 </span>                :            : 
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :            : #ifdef GPFXDIST
+<span class="lineNum">     513 </span>                :            :         /*
+<span class="lineNum">     514 </span>                :            :          * when the subprocess transformation wants to handle iteration over the files
+<span class="lineNum">     515 </span>                :            :          * we write the paths to a temporary file and replace the fs-&gt;glob items with
+<span class="lineNum">     516 </span>                :            :          * just a single entry referencing the path to the temporary file.
+<span class="lineNum">     517 </span>                :            :          */
+<span class="lineNum">     518 </span>                :            :         if (options-&gt;transform &amp;&amp; options-&gt;transform-&gt;pass_paths)
+<span class="lineNum">     519 </span>                :            :         {
+<span class="lineNum">     520 </span>                :            :                 apr_pool_t*  mp = options-&gt;transform-&gt;mp;
+<span class="lineNum">     521 </span>                :            :                 apr_file_t*  f = NULL;
+<span class="lineNum">     522 </span>                :            :                 const char*  tempdir = NULL;
+<span class="lineNum">     523 </span>                :            :                 char*        tempfilename = NULL;
+<span class="lineNum">     524 </span>                :            :                 apr_status_t rv;
+<span class="lineNum">     525 </span>                :            : 
+<span class="lineNum">     526 </span>                :            :                 if ((rv = apr_temp_dir_get(&amp;tempdir, mp)) != APR_SUCCESS)
+<span class="lineNum">     527 </span>                :            :                 {
+<span class="lineNum">     528 </span>                :            :                         *response_code = 500;
+<span class="lineNum">     529 </span>                :            :                         *response_string = &quot;failed to get temporary directory for paths file&quot;;
+<span class="lineNum">     530 </span>                :            :                         gfile_printf_then_putc_newline(*response_string);
+<span class="lineNum">     531 </span>                :            :                         fstream_close(fs);
+<span class="lineNum">     532 </span>                :            :                         return 0;
+<span class="lineNum">     533 </span>                :            :                 }
+<span class="lineNum">     534 </span>                :            : 
+<span class="lineNum">     535 </span>                :            :             tempfilename = apr_pstrcat(mp, tempdir, &quot;/pathsXXXXXX&quot;, (char *) NULL);
+<span class="lineNum">     536 </span>                :            :                 if ((rv = apr_file_mktemp(&amp;f, tempfilename, APR_CREATE|APR_WRITE|APR_EXCL, mp)) != APR_SUCCESS)
+<span class="lineNum">     537 </span>                :            :                 {
+<span class="lineNum">     538 </span>                :            :                         *response_code = 500;
+<span class="lineNum">     539 </span>                :            :                         *response_string = &quot;failed to open temporary paths file&quot;;
+<span class="lineNum">     540 </span>                :            :                         gfile_printf_then_putc_newline(*response_string);
+<span class="lineNum">     541 </span>                :            :                         fstream_close(fs);
+<span class="lineNum">     542 </span>                :            :                         return 0;
+<span class="lineNum">     543 </span>                :            :                 }
+<span class="lineNum">     544 </span>                :            : 
+<span class="lineNum">     545 </span>                :            :                 options-&gt;transform-&gt;tempfilename = tempfilename;
+<span class="lineNum">     546 </span>                :            : 
+<span class="lineNum">     547 </span>                :            :                 for (i = 0; i&lt;fs-&gt;glob.gl_pathc; i++)
+<span class="lineNum">     548 </span>                :            :                 {
+<span class="lineNum">     549 </span>                :            :                         char* filename      = fs-&gt;glob.gl_pathv[i];
+<span class="lineNum">     550 </span>                :            :                         apr_size_t expected = strlen(filename) + 1;
+<span class="lineNum">     551 </span>                :            :                         
+<span class="lineNum">     552 </span>                :            :                         if (apr_file_printf(f, &quot;%s\n&quot;, filename) &lt; expected)
+<span class="lineNum">     553 </span>                :            :                         {
+<span class="lineNum">     554 </span>                :            :                                 apr_file_close(f);
+<span class="lineNum">     555 </span>                :            : 
+<span class="lineNum">     556 </span>                :            :                                 *response_code = 500;
+<span class="lineNum">     557 </span>                :            :                                 *response_string = &quot;failed to fully write path to temporary paths file&quot;;
+<span class="lineNum">     558 </span>                :            :                                 gfile_printf_then_putc_newline(*response_string);
+<span class="lineNum">     559 </span>                :            :                                 fstream_close(fs);
+<span class="lineNum">     560 </span>                :            :                                 return 0;
+<span class="lineNum">     561 </span>                :            :                         }
+<span class="lineNum">     562 </span>                :            :                 }
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            :                 apr_file_close(f);
+<span class="lineNum">     565 </span>                :            : 
+<span class="lineNum">     566 </span>                :            :                 if (glob_adjust(fs, tempfilename, response_code, response_string)) 
+<span class="lineNum">     567 </span>                :            :                 {
+<span class="lineNum">     568 </span>                :            :                         fstream_close(fs);
+<span class="lineNum">     569 </span>                :            :                         return 0;
+<span class="lineNum">     570 </span>                :            :                 }
+<span class="lineNum">     571 </span>                :            :         }
+<span class="lineNum">     572 </span>                :            : #endif
+<span class="lineNum">     573 </span>                :            : 
+<span class="lineNum">     574 </span>                :            :         /*
+<span class="lineNum">     575 </span>                :            :          * if writing - check write access rights for the one file.
+<span class="lineNum">     576 </span>                :            :          * if reading - check read access right for all files, and 
+<span class="lineNum">     577 </span>                :            :          * then close them, leaving the first file open.
+<span class="lineNum">     578 </span>                :            :          * 
+<span class="lineNum">     579 </span>                :            :          */
+<span class="lineNum">     580 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = fs-&gt;glob.gl_pathc; --i &gt;= 0;)</span>
+<span class="lineNum">     581 </span>                :            :         {
+<span class="lineNum">     582 </span>                :            :                 /*
+<span class="lineNum">     583 </span>                :            :                  * CR-2173 - the fstream code allows the upper level logic to treat a
+<span class="lineNum">     584 </span>                :            :                  * collection of input sources as a single stream.  One problem it has
+<span class="lineNum">     585 </span>                :            :                  * to handle is the possibility that some of the underlying sources may
+<span class="lineNum">     586 </span>                :            :                  * not be readable.  Here we're trying to detect potential problems in
+<span class="lineNum">     587 </span>                :            :                  * advance by checking that we can open and close each source in our
+<span class="lineNum">     588 </span>                :            :                  * list in reverse order.
+<span class="lineNum">     589 </span>                :            :                  *
+<span class="lineNum">     590 </span>                :            :                  * However in the case of subprocess transformations, we don't want to 
+<span class="lineNum">     591 </span>                :            :                  * start and stop each transformation in this manner.  The check that 
+<span class="lineNum">     592 </span>                :            :                  * each transformation's underlying input source can be read is still 
+<span class="lineNum">     593 </span>                :            :                  * useful so we do those until we get to the first source, at which 
+<span class="lineNum">     594 </span>                :            :                  * point we proceed to just setup the tranformation for it.
+<span class="lineNum">     595 </span>                :            :                  */
+<span class="lineNum">     596 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 struct gpfxdist_t* transform = (i == 0) ? options-&gt;transform : NULL;</span>
+<span class="lineNum">     597 </span>                :            : 
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                 gfile_close(&amp;fs-&gt;fd);</span>
+<span class="lineNum">     599 </span>                :            : 
+<span class="lineNum">     600 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (gfile_open(&amp;fs-&gt;fd, fs-&gt;glob.gl_pathv[i], gfile_open_flags(options-&gt;forwrite, options-&gt;usesync),</span>
+<span class="lineNum">     601 </span>                :<span class="lineNoCov">          0 :                                            response_code, response_string, transform))</span>
+<span class="lineNum">     602 </span>                :            :                 {
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                         gfile_printf_then_putc_newline(&quot;fstream unable to open file %s&quot;,</span>
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :                                         fs-&gt;glob.gl_pathv[i]);</span>
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :                         fstream_close(fs);</span>
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                         return 0;</span>
+<span class="lineNum">     607 </span>                :            :                 }
+<span class="lineNum">     608 </span>                :            : 
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                 fs-&gt;compressed_size += gfile_get_compressed_size(&amp;fs-&gt;fd);</span>
+<span class="lineNum">     610 </span>                :            :         }
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :         fs-&gt;line_number = 1;</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :         fs-&gt;skip_header_line = options-&gt;header;</span>
+<span class="lineNum">     614 </span>                :            : 
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :         return fs;</span>
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     617 </span>                :            : 
+<span class="lineNum">     618 </span>                :            : /*
+<span class="lineNum">     619 </span>                :            :  * Updates the currently used filename and line number and offset. Since we
+<a name="620"><span class="lineNum">     620 </span>                :            :  * may be reading from more than 1 file, we need to be up to date all the time.</a>
+<span class="lineNum">     621 </span>                :            :  */
+<span class="lineNum">     622 </span>                :            : static void updateCurFileState(fstream_t* fs,
+<span class="lineNum">     623 </span>                :            :                                                            struct fstream_filename_and_offset* fo)
+<span class="lineNum">     624 </span>                :            : {
+<span class="lineNum">     625 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fo)</span>
+<span class="lineNum">     626 </span>                :            :         {
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :                 fo-&gt;foff = fs-&gt;foff;</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                 fo-&gt;line_number = fs-&gt;line_number;</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                 strncpy(fo-&gt;fname, fs-&gt;glob.gl_pathv[fs-&gt;fidx], sizeof fo-&gt;fname);</span>
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                 fo-&gt;fname[sizeof fo-&gt;fname - 1] = 0;</span>
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     633 </span>                :            : 
+<span class="lineNum">     634 </span>                :            : /*
+<span class="lineNum">     635 </span>                :            :  * nextFile
+<span class="lineNum">     636 </span>                :            :  *
+<span class="lineNum">     637 </span>                :            :  * open the next source file, if any.
+<span class="lineNum">     638 </span>                :            :  *
+<span class="lineNum">     639 </span>                :            :  * return 1 if could not open the next file.
+<a name="640"><span class="lineNum">     640 </span>                :            :  * return 0 otherwise.</a>
+<span class="lineNum">     641 </span>                :            :  */
+<span class="lineNum">     642 </span>                :            : static int nextFile(fstream_t*fs)
+<span class="lineNum">     643 </span>                :            : {
+<span class="lineNum">     644 </span>                :            :         int response_code;
+<span class="lineNum">     645 </span>                :            :         const char      *response_string;
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :         struct gpfxdist_t* transform = fs-&gt;options.transform;</span>
+<span class="lineNum">     647 </span>                :            : 
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :         fs-&gt;compressed_position += gfile_get_compressed_size(&amp;fs-&gt;fd);</span>
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :         gfile_close(&amp;fs-&gt;fd);</span>
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :         fs-&gt;foff = 0;</span>
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :         fs-&gt;line_number = 1;</span>
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :         fs-&gt;fidx++;</span>
+<span class="lineNum">     653 </span>                :            : 
+<span class="lineNum">     654 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fs-&gt;fidx &lt; fs-&gt;glob.gl_pathc)</span>
+<span class="lineNum">     655 </span>                :            :         {
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :                 fs-&gt;skip_header_line = fs-&gt;options.header;</span>
+<span class="lineNum">     657 </span>                :            : 
+<span class="lineNum">     658 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (gfile_open(&amp;fs-&gt;fd, fs-&gt;glob.gl_pathv[fs-&gt;fidx], GFILE_OPEN_FOR_READ, </span>
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :                                            &amp;response_code, &amp;response_string, transform))</span>
+<span class="lineNum">     660 </span>                :            :                 {
+<span class="lineNum">     661 </span>                :<span class="lineNoCov">          0 :                         gfile_printf_then_putc_newline(&quot;fstream unable to open file %s&quot;,</span>
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :                                                                                         fs-&gt;glob.gl_pathv[fs-&gt;fidx]);</span>
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;ferror = &quot;unable to open file&quot;;</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                         return 1;</span>
+<span class="lineNum">     665 </span>                :            :                 }
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     667 </span>                :            : 
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     670 </span>                :            : 
+<span class="lineNum">     671 </span>                :            : /*
+<span class="lineNum">     672 </span>                :            :  * format_error
+<span class="lineNum">     673 </span>                :            :  * enables addition of string parameters to the const char* error message in fstream_t
+<span class="lineNum">     674 </span>                :            :  * while enabling the calling functions not to worry about freeing memory - which is 
+<a name="675"><span class="lineNum">     675 </span>                :            :  * the present behaviour</a>
+<span class="lineNum">     676 </span>                :            :  */
+<span class="lineNum">     677 </span>                :            : char* format_error(char* c1, char* c2)
+<span class="lineNum">     678 </span>                :            : {
+<span class="lineNum">     679 </span>                :            :         int len1, len2;
+<span class="lineNum">     680 </span>                :            :         
+<span class="lineNum">     681 </span>                :            :         static char err_msg[FILE_ERROR_SZ];
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :         memset(err_msg, 0, FILE_ERROR_SZ);</span>
+<span class="lineNum">     683 </span>                :            :         
+<span class="lineNum">     684 </span>                :<span class="lineNoCov">          0 :         len1 = strlen(c1);</span>
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :         len2 = strlen(c2);</span>
+<span class="lineNum">     686 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( (len1 + len2) &gt; FILE_ERROR_SZ )</span>
+<span class="lineNum">     687 </span>                :            :         {
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 :                 gfile_printf_then_putc_newline(&quot;cannot read file&quot;);</span>
+<span class="lineNum">     689 </span>                :<span class="lineNoCov">          0 :                 return &quot;cannot read file&quot;;</span>
+<span class="lineNum">     690 </span>                :            :         }
+<span class="lineNum">     691 </span>                :            :         
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :         char* targ = err_msg;</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :         memcpy(targ, c1, len1);</span>
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 :         targ += len1;</span>
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :         memcpy(targ, c2, len2);</span>
+<span class="lineNum">     696 </span>                :            :         
+<span class="lineNum">     697 </span>                :<span class="lineNoCov">          0 :         gfile_printf_then_putc_newline(&quot;%s&quot;, err_msg);</span>
+<span class="lineNum">     698 </span>                :            :         
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :         return err_msg;</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     701 </span>                :            : 
+<span class="lineNum">     702 </span>                :            : /*
+<span class="lineNum">     703 </span>                :            :  * fstream_read
+<span class="lineNum">     704 </span>                :            :  *
+<span class="lineNum">     705 </span>                :            :  * Read 'size' bytes of data from the filestream into 'buffer'.
+<span class="lineNum">     706 </span>                :            :  * If 'read_whole_lines' is specified then read up to the last logical row
+<span class="lineNum">     707 </span>                :            :  * in the source buffer. 'fo' keeps the state (name, offset, etc) of the current
+<a name="708"><span class="lineNum">     708 </span>                :            :  * filestream file we are reading from.</a>
+<span class="lineNum">     709 </span>                :            :  */
+<span class="lineNum">     710 </span>                :            : int fstream_read(fstream_t *fs,
+<span class="lineNum">     711 </span>                :            :                                  void *dest,
+<span class="lineNum">     712 </span>                :            :                                  int size,
+<span class="lineNum">     713 </span>                :            :                                  struct fstream_filename_and_offset *fo,
+<span class="lineNum">     714 </span>                :            :                                  const int read_whole_lines,
+<span class="lineNum">     715 </span>                :            :                                  const char *line_delim_str,
+<span class="lineNum">     716 </span>                :            :                                  const int line_delim_length)
+<span class="lineNum">     717 </span>                :            : {
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :         int buffer_capacity = fs-&gt;options.bufsize;</span>
+<span class="lineNum">     719 </span>                :            :         static char err_buf[FILE_ERROR_SZ] = {0};
+<span class="lineNum">     720 </span>                :            :         
+<span class="lineNum">     721 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fs-&gt;ferror)</span>
+<span class="lineNum">     722 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     723 </span>                :            : 
+<span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     725 </span>                :            :         {
+<span class="lineNum">     726 </span>                :            :                 ssize_t bytesread;              /* num bytes read from filestream */
+<span class="lineNum">     727 </span>                :            :                 ssize_t bytesread2;             /* same, but when reading a second round */
+<span class="lineNum">     728 </span>                :            : 
+<span class="lineNum">     729 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!size || fs-&gt;fidx == fs-&gt;glob.gl_pathc)</span>
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                         return 0;</span>
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>                :            :                 /*
+<span class="lineNum">     733 </span>                :            :                  * If data source has a header, we consume it now and in order to
+<span class="lineNum">     734 </span>                :            :                  * move on to real data that follows it.
+<span class="lineNum">     735 </span>                :            :                  */
+<span class="lineNum">     736 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (fs-&gt;skip_header_line)</span>
+<span class="lineNum">     737 </span>                :            :                 {
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :                         char*   p = fs-&gt;buffer;</span>
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :                         char*   q = p + fs-&gt;buffer_cur_size;</span>
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :                         size_t  len = 0;</span>
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                     assert(fs-&gt;buffer_cur_size &lt; buffer_capacity);</span>
+<span class="lineNum">     743 </span>                :            : 
+<span class="lineNum">     744 </span>                :            :                         /*
+<span class="lineNum">     745 </span>                :            :                          * read data from the source file and fill up the file stream buffer
+<span class="lineNum">     746 </span>                :            :                          */
+<span class="lineNum">     747 </span>                :<span class="lineNoCov">          0 :                         len = buffer_capacity - fs-&gt;buffer_cur_size;</span>
+<span class="lineNum">     748 </span>                :<span class="lineNoCov">          0 :                         bytesread = gfile_read(&amp;fs-&gt;fd, q, len);</span>
+<span class="lineNum">     749 </span>                :            : 
+<span class="lineNum">     750 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (bytesread &lt; 0)</span>
+<span class="lineNum">     751 </span>                :            :                         {
+<span class="lineNum">     752 </span>                :<span class="lineNoCov">          0 :                                 fs-&gt;ferror = format_error(&quot;cannot read file - &quot;, fs-&gt;glob.gl_pathv[fs-&gt;fidx]);</span>
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :                                 return -1;</span>
+<span class="lineNum">     754 </span>                :            :                         }
+<span class="lineNum">     755 </span>                :            : 
+<span class="lineNum">     756 </span>                :            :                         /* update the buffer size according to new byte count we just read */
+<span class="lineNum">     757 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;buffer_cur_size += bytesread;</span>
+<span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :                         q += bytesread;</span>
+<span class="lineNum">     759 </span>                :            : 
+<span class="lineNum">     760 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (fs-&gt;options.is_csv)</span>
+<span class="lineNum">     761 </span>                :            :                         {
+<span class="lineNum">     762 </span>                :            :                                 /* csv header */
+<span class="lineNum">     763 </span>                :<span class="lineNoCov">          0 :                                 p = scan_csv_records(p, q, 1, fs);</span>
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     765 </span>                :            :                         else
+<span class="lineNum">     766 </span>                :            :                         {
+<span class="lineNum">     767 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (line_delim_length &gt; 0)</span>
+<span class="lineNum">     768 </span>                :            :                                 {
+<span class="lineNum">     769 </span>                :            :                                         /* text header with defined EOL */
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                                         p = find_first_eol_delim (p, q, line_delim_str, line_delim_length);</span>
+<span class="lineNum">     771 </span>                :            : 
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     773 </span>                :            :                                 else
+<span class="lineNum">     774 </span>                :            :                                 {
+<span class="lineNum">     775 </span>                :            :                                         /* text header with \n as delimiter (by default) */
+<span class="lineNum">     776 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         for (; p &lt; q &amp;&amp; *p != '\n'; p++)</span>
+<span class="lineNum">     777 </span>                :            :                                                 ;
+<span class="lineNum">     778 </span>                :            :                                 }
+<span class="lineNum">     779 </span>                :            : 
+<span class="lineNum">     780 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 p = (p &lt; q) ? p + 1 : 0;</span>
+<span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 :                                 fs-&gt;line_number++;</span>
+<span class="lineNum">     782 </span>                :            :                         }
+<span class="lineNum">     783 </span>                :            : 
+<span class="lineNum">     784 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!p)</span>
+<span class="lineNum">     785 </span>                :            :                         {
+<span class="lineNum">     786 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (fs-&gt;buffer_cur_size == buffer_capacity)</span>
+<span class="lineNum">     787 </span>                :            :                                 {
+<span class="lineNum">     788 </span>                :<span class="lineNoCov">          0 :                                         gfile_printf_then_putc_newline(</span>
+<span class="lineNum">     789 </span>                :            :                                                         &quot;fstream ERROR: header too long in file %s&quot;,
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :                                                         fs-&gt;glob.gl_pathv[fs-&gt;fidx]);</span>
+<span class="lineNum">     791 </span>                :            :                                         
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :                                         fs-&gt;ferror = &quot;line too long in file&quot;;</span>
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :                                         return -1;</span>
+<span class="lineNum">     794 </span>                :            :                                 }
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :                                 p = q;</span>
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>                :            :                         /*
+<span class="lineNum">     799 </span>                :            :                          * update the filestream buffer offset to past last line read and
+<span class="lineNum">     800 </span>                :            :                          * copy the end of the buffer (past header data) to the beginning.
+<span class="lineNum">     801 </span>                :            :                          * we now bypassed the header data and can continue to real data.
+<span class="lineNum">     802 </span>                :            :                          */
+<span class="lineNum">     803 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;foff += p - fs-&gt;buffer;</span>
+<span class="lineNum">     804 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;buffer_cur_size = q - p;</span>
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 :                         memmove(fs-&gt;buffer, p, fs-&gt;buffer_cur_size);</span>
+<span class="lineNum">     806 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;skip_header_line = 0;</span>
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     808 </span>                :            : 
+<span class="lineNum">     809 </span>                :            :                 /*
+<span class="lineNum">     810 </span>                :            :                  * If we need to read all the data up to the last *complete* logical
+<span class="lineNum">     811 </span>                :            :                  * line in the data buffer (like gpfdist for example) - we choose this
+<span class="lineNum">     812 </span>                :            :                  * path. We grab the bigger chunk we can get that includes whole lines.
+<span class="lineNum">     813 </span>                :            :                  * Otherwise, if we just want the whole buffer we skip.
+<span class="lineNum">     814 </span>                :            :                  */
+<span class="lineNum">     815 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (read_whole_lines)</span>
+<span class="lineNum">     816 </span>                :            :                 {
+<span class="lineNum">     817 </span>                :            :                         char    *p;
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :                         ssize_t total_bytes = fs-&gt;buffer_cur_size;</span>
+<span class="lineNum">     819 </span>                :            :                         
+<span class="lineNum">     820 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         assert(size &gt;= buffer_capacity);</span>
+<span class="lineNum">     821 </span>                :            : 
+<span class="lineNum">     822 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (total_bytes &gt; 0)</span>
+<span class="lineNum">     823 </span>                :            :                         {
+<span class="lineNum">     824 </span>                :            :                                 /*
+<span class="lineNum">     825 </span>                :            :                                  * source buffer is not empty. copy the data from the beginning
+<span class="lineNum">     826 </span>                :            :                                  * up to the current length before moving on to reading more
+<span class="lineNum">     827 </span>                :            :                                  */
+<span class="lineNum">     828 </span>                :<span class="lineNoCov">          0 :                                 fs-&gt;buffer_cur_size = 0;</span>
+<span class="lineNum">     829 </span>                :<span class="lineNoCov">          0 :                                 updateCurFileState(fs, fo);</span>
+<span class="lineNum">     830 </span>                :<span class="lineNoCov">          0 :                                 memcpy(dest, fs-&gt;buffer, total_bytes);</span>
+<span class="lineNum">     831 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     832 </span>                :            : 
+<span class="lineNum">     833 </span>                :            :                         /* read more data from source file into destination buffer */
+<span class="lineNum">     834 </span>                :<span class="lineNoCov">          0 :                         bytesread2 = gfile_read(&amp;fs-&gt;fd, (char*) dest + total_bytes, size - total_bytes);</span>
+<span class="lineNum">     835 </span>                :            : 
+<span class="lineNum">     836 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (bytesread2 &lt; 0)</span>
+<span class="lineNum">     837 </span>                :            :                         {
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 :                                 fs-&gt;ferror = format_error(&quot;cannot read file - &quot;, fs-&gt;glob.gl_pathv[fs-&gt;fidx]);</span>
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                                 return -1;</span>
+<span class="lineNum">     840 </span>                :            :                         }
+<span class="lineNum">     841 </span>                :            : 
+<span class="lineNum">     842 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (bytesread2 &lt; size - total_bytes)</span>
+<span class="lineNum">     843 </span>                :            :                         {
+<span class="lineNum">     844 </span>                :            :                                 /*
+<span class="lineNum">     845 </span>                :            :                                  * We didn't read as much as we asked for. Check why.
+<span class="lineNum">     846 </span>                :            :                                  * We could be done reading data, we may need to move
+<span class="lineNum">     847 </span>                :            :                                  * on the reading the next data file (if any).
+<span class="lineNum">     848 </span>                :            :                                  */
+<span class="lineNum">     849 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (total_bytes == 0)</span>
+<span class="lineNum">     850 </span>                :            :                                 {
+<span class="lineNum">     851 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (bytesread2 == 0)</span>
+<span class="lineNum">     852 </span>                :            :                                         {
+<span class="lineNum">     853 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 if (nextFile(fs))</span>
+<span class="lineNum">     854 </span>                :<span class="lineNoCov">          0 :                                                         return -1; /* found next file but failed to open */</span>
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :                                                 continue;</span>
+<span class="lineNum">     856 </span>                :            :                                         }
+<span class="lineNum">     857 </span>                :<span class="lineNoCov">          0 :                                         updateCurFileState(fs, fo);</span>
+<span class="lineNum">     858 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     859 </span>                :            : 
+<span class="lineNum">     860 </span>                :            :                                 /*
+<span class="lineNum">     861 </span>                :            :                                  * try to open the next file if any, and return the number of
+<span class="lineNum">     862 </span>                :            :                                  * bytes read to buffer earlier, if next file was found but
+<span class="lineNum">     863 </span>                :            :                                  * could not open return -1
+<span class="lineNum">     864 </span>                :            :                                  */
+<span class="lineNum">     865 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 return nextFile(fs) ? -1 : total_bytes + bytesread2;</span>
+<span class="lineNum">     866 </span>                :            :                         }
+<span class="lineNum">     867 </span>                :            : 
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :                         updateCurFileState(fs, fo);</span>
+<span class="lineNum">     869 </span>                :            : 
+<span class="lineNum">     870 </span>                :            :                         /*
+<span class="lineNum">     871 </span>                :            :                          * Now that we have enough data in our filestream buffer, get a 
+<span class="lineNum">     872 </span>                :            :                          * chunk of whole rows and copy it into our dest buffer to be sent
+<span class="lineNum">     873 </span>                :            :                          * out later.
+<span class="lineNum">     874 </span>                :            :                          */
+<span class="lineNum">     875 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (fs-&gt;options.is_csv)</span>
+<span class="lineNum">     876 </span>                :            :                         {
+<span class="lineNum">     877 </span>                :            :                                 /* CSV: go slow, scan byte-by-byte for record boundary */
+<span class="lineNum">     878 </span>                :<span class="lineNoCov">          0 :                                 p = scan_csv_records(dest, (char*)dest + size, 0, fs);</span>
+<span class="lineNum">     879 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     880 </span>                :            :                         else
+<span class="lineNum">     881 </span>                :            :                         {
+<span class="lineNum">     882 </span>                :            :                                 /*
+<span class="lineNum">     883 </span>                :            :                                  * TEXT: go fast, scan for end of line delimiter (\n by default) for
+<span class="lineNum">     884 </span>                :            :                                  * record boundary.
+<span class="lineNum">     885 </span>                :            :                                  * find the last end of line delimiter from the back
+<span class="lineNum">     886 </span>                :            :                                  */
+<span class="lineNum">     887 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (line_delim_length &gt; 0)</span>
+<span class="lineNum">     888 </span>                :            :                                 {
+<span class="lineNum">     889 </span>                :<span class="lineNoCov">          0 :                                         p = find_last_eol_delim((char*)dest, size, line_delim_str, line_delim_length);</span>
+<span class="lineNum">     890 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     891 </span>                :            :                                 else
+<span class="lineNum">     892 </span>                :            :                                 {
+<span class="lineNum">     893 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         for (p = (char*)dest + size; (char*)dest &lt;= --p &amp;&amp; *p != '\n';)</span>
+<span class="lineNum">     894 </span>                :            :                                                 ;
+<span class="lineNum">     895 </span>                :            :                                 }
+<span class="lineNum">     896 </span>                :            : 
+<span class="lineNum">     897 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 p = (char*)dest &lt;= p ? p + 1 : 0;</span>
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :                                 fs-&gt;line_number = 0;</span>
+<span class="lineNum">     899 </span>                :            :                         }
+<span class="lineNum">     900 </span>                :            : 
+<span class="lineNum">     901 </span>                :            :                         /*
+<span class="lineNum">     902 </span>                :            :                          * could we not find even one complete row in this buffer? error.
+<span class="lineNum">     903 </span>                :            :                          */
+<span class="lineNum">     904 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!p || (char*)dest + size &gt;= p + buffer_capacity)</span>
+<span class="lineNum">     905 </span>                :            :                         {
+<span class="lineNum">     906 </span>                :            : #ifdef WIN32
+<span class="lineNum">     907 </span>                :            :                                 snprintf(err_buf, sizeof(err_buf)-1, &quot;line too long in file %s near (%ld bytes)&quot;,
+<span class="lineNum">     908 </span>                :            :                                                  fs-&gt;glob.gl_pathv[fs-&gt;fidx], (long) fs-&gt;foff);
+<span class="lineNum">     909 </span>                :            : #else
+<span class="lineNum">     910 </span>                :<span class="lineNoCov">          0 :                                 snprintf(err_buf, sizeof(err_buf)-1, &quot;line too long in file %s near (%lld bytes)&quot;,</span>
+<span class="lineNum">     911 </span>                :            :                                                  fs-&gt;glob.gl_pathv[fs-&gt;fidx], (long long) fs-&gt;foff);
+<span class="lineNum">     912 </span>                :            : #endif
+<span class="lineNum">     913 </span>                :<span class="lineNoCov">          0 :                                 fs-&gt;ferror = err_buf;</span>
+<span class="lineNum">     914 </span>                :<span class="lineNoCov">          0 :                                 gfile_printf_then_putc_newline(&quot;%s&quot;, err_buf);</span>
+<span class="lineNum">     915 </span>                :<span class="lineNoCov">          0 :                                 return -1;</span>
+<span class="lineNum">     916 </span>                :            :                         }
+<span class="lineNum">     917 </span>                :            : 
+<span class="lineNum">     918 </span>                :            :                         /* copy the result chunk of data into our buffer and we're done */
+<span class="lineNum">     919 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;buffer_cur_size = (char*)dest + size - p;</span>
+<span class="lineNum">     920 </span>                :<span class="lineNoCov">          0 :                         memcpy(fs-&gt;buffer, p, fs-&gt;buffer_cur_size);</span>
+<span class="lineNum">     921 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;foff += p - (char*)dest;</span>
+<span class="lineNum">     922 </span>                :            : 
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :                         return p - (char*)dest;</span>
+<span class="lineNum">     924 </span>                :            :                 }
+<span class="lineNum">     925 </span>                :            : 
+<span class="lineNum">     926 </span>                :            :                 /*
+<span class="lineNum">     927 </span>                :            :                  * if we're here it means that we just want chunks of data and don't
+<span class="lineNum">     928 </span>                :            :                  * care if it includes whole rows or not (for example, backend url_read
+<span class="lineNum">     929 </span>                :            :                  * code - a segdb that reads all the data that gpfdist sent to it,
+<span class="lineNum">     930 </span>                :            :                  * buffer by buffer and then parses the lines internally).
+<span class="lineNum">     931 </span>                :            :                  */
+<span class="lineNum">     932 </span>                :            : 
+<span class="lineNum">     933 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (fs-&gt;buffer_cur_size)</span>
+<span class="lineNum">     934 </span>                :            :                 {
+<span class="lineNum">     935 </span>                :<span class="lineNoCov">          0 :                         ssize_t total_bytes = fs-&gt;buffer_cur_size;</span>
+<span class="lineNum">     936 </span>                :            :                         
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 :                         updateCurFileState(fs, fo);</span>
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (total_bytes &gt; size)</span>
+<span class="lineNum">     940 </span>                :<span class="lineNoCov">          0 :                                 total_bytes = size;</span>
+<span class="lineNum">     941 </span>                :            : 
+<span class="lineNum">     942 </span>                :<span class="lineNoCov">          0 :                         memcpy(dest, fs-&gt;buffer, total_bytes);</span>
+<span class="lineNum">     943 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;buffer_cur_size -= total_bytes;</span>
+<span class="lineNum">     944 </span>                :<span class="lineNoCov">          0 :                         memmove(fs-&gt;buffer, fs-&gt;buffer + total_bytes, fs-&gt;buffer_cur_size);</span>
+<span class="lineNum">     945 </span>                :            : 
+<span class="lineNum">     946 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;foff += total_bytes;</span>
+<span class="lineNum">     947 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;line_number = 0;</span>
+<span class="lineNum">     948 </span>                :            : 
+<span class="lineNum">     949 </span>                :<span class="lineNoCov">          0 :                         return total_bytes;</span>
+<span class="lineNum">     950 </span>                :            :                 }
+<span class="lineNum">     951 </span>                :            : 
+<span class="lineNum">     952 </span>                :<span class="lineNoCov">          0 :                 bytesread = gfile_read(&amp;fs-&gt;fd, dest, size);</span>
+<span class="lineNum">     953 </span>                :            : 
+<span class="lineNum">     954 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bytesread &lt; 0)</span>
+<span class="lineNum">     955 </span>                :            :                 {
+<span class="lineNum">     956 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;ferror = format_error(&quot;cannot read file - &quot;, fs-&gt;glob.gl_pathv[fs-&gt;fidx]);</span>
+<span class="lineNum">     957 </span>                :            :                         
+<span class="lineNum">     958 </span>                :<span class="lineNoCov">          0 :                         return -1;</span>
+<span class="lineNum">     959 </span>                :            :                 }
+<span class="lineNum">     960 </span>                :            : 
+<span class="lineNum">     961 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bytesread)</span>
+<span class="lineNum">     962 </span>                :            :                 {
+<span class="lineNum">     963 </span>                :<span class="lineNoCov">          0 :                         updateCurFileState(fs, fo);</span>
+<span class="lineNum">     964 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;foff += bytesread;</span>
+<span class="lineNum">     965 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;line_number = 0;</span>
+<span class="lineNum">     966 </span>                :<span class="lineNoCov">          0 :                         return bytesread;</span>
+<span class="lineNum">     967 </span>                :            :                 }
+<span class="lineNum">     968 </span>                :            : 
+<span class="lineNum">     969 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (nextFile(fs))</span>
+<span class="lineNum">     970 </span>                :<span class="lineNoCov">          0 :                         return -1;</span>
+<span class="lineNum">     971 </span>                :            :         }
+<a name="972"><span class="lineNum">     972 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     973 </span>                :            : 
+<span class="lineNum">     974 </span>                :            : int fstream_write(fstream_t *fs,
+<span class="lineNum">     975 </span>                :            :                                   void *buf,
+<span class="lineNum">     976 </span>                :            :                                   int size,
+<span class="lineNum">     977 </span>                :            :                                   const int write_whole_lines,
+<span class="lineNum">     978 </span>                :            :                                   const char* line_delim_str,
+<span class="lineNum">     979 </span>                :            :                                   const int line_delim_length)
+<span class="lineNum">     980 </span>                :            : {
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :         int byteswritten = 0;</span>
+<span class="lineNum">     982 </span>                :            :         
+<span class="lineNum">     983 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fs-&gt;ferror)</span>
+<span class="lineNum">     984 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     985 </span>                :            : 
+<span class="lineNum">     986 </span>                :            :         /*
+<span class="lineNum">     987 </span>                :            :          * If we need to write all the data up to the last *complete* logical
+<span class="lineNum">     988 </span>                :            :          * line in the data buffer (like gpfdist for example) - we choose this
+<span class="lineNum">     989 </span>                :            :          * path (we don't want to write partial lines to the output file). 
+<span class="lineNum">     990 </span>                :            :          * We grab the bigger chunk we can get that includes whole lines.
+<span class="lineNum">     991 </span>                :            :          * Otherwise, if we just want the whole buffer we skip.
+<span class="lineNum">     992 </span>                :            :          */     
+<span class="lineNum">     993 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (write_whole_lines)</span>
+<span class="lineNum">     994 </span>                :            :         {
+<span class="lineNum">     995 </span>                :            :                 char* last_delim;
+<span class="lineNum">     996 </span>                :            : 
+<span class="lineNum">     997 </span>                :            :            /*
+<span class="lineNum">     998 </span>                :            :                 * scan for EOL Delimiter (\n by default) for record boundary
+<span class="lineNum">     999 </span>                :            :                 * find the last EOL Delimiter from the back
+<span class="lineNum">    1000 </span>                :            :                 */
+<span class="lineNum">    1001 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (line_delim_length &gt; 0)</span>
+<span class="lineNum">    1002 </span>                :            :                 {
+<span class="lineNum">    1003 </span>                :<span class="lineNoCov">          0 :                         last_delim = find_last_eol_delim(buf, size, line_delim_str, line_delim_length);</span>
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1005 </span>                :            :                 else
+<span class="lineNum">    1006 </span>                :            :                 {
+<span class="lineNum">    1007 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (last_delim = (char*)buf + size; (char*)buf &lt;= --last_delim &amp;&amp; *last_delim != '\n';)</span>
+<span class="lineNum">    1008 </span>                :            :                                 ;
+<span class="lineNum">    1009 </span>                :            :                 }
+<span class="lineNum">    1010 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 last_delim = (char*)buf &lt;= last_delim ? last_delim + 1 : 0;</span>
+<span class="lineNum">    1011 </span>                :            : 
+<span class="lineNum">    1012 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (last_delim == 0)</span>
+<span class="lineNum">    1013 </span>                :            :                 {
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 :                         fs-&gt;ferror = &quot;no complete data row found for writing&quot;;</span>
+<span class="lineNum">    1015 </span>                :<span class="lineNoCov">          0 :                         return -1;</span>
+<span class="lineNum">    1016 </span>                :            :                 }
+<span class="lineNum">    1017 </span>                :            :                                 
+<span class="lineNum">    1018 </span>                :            :                 /* TODO: need to do this more carefully for CSV, like in the read case */
+<span class="lineNum">    1019 </span>                :            :                 
+<span class="lineNum">    1020 </span>                :<span class="lineNoCov">          0 :                 size = last_delim - (char *) buf;</span>
+<span class="lineNum">    1021 </span>                :            :                 /* caller should move leftover data to start of buffer */
+<span class="lineNum">    1022 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1023 </span>                :            : 
+<span class="lineNum">    1024 </span>                :            :         /* write data to destination file */
+<span class="lineNum">    1025 </span>                :<span class="lineNoCov">          0 :         byteswritten = (int)gfile_write(&amp;fs-&gt;fd, (char*) buf, size);</span>
+<span class="lineNum">    1026 </span>                :            : 
+<span class="lineNum">    1027 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (byteswritten &lt; 0)</span>
+<span class="lineNum">    1028 </span>                :            :         {
+<span class="lineNum">    1029 </span>                :<span class="lineNoCov">          0 :                 gfile_printf_then_putc_newline(&quot;cannot write into file, byteswritten=%d, size=%d, errno=%d, errmsg=%s&quot;, </span>
+<span class="lineNum">    1030 </span>                :<span class="lineNoCov">          0 :                         byteswritten, size, errno, strerror(errno));</span>
+<span class="lineNum">    1031 </span>                :<span class="lineNoCov">          0 :                 fs-&gt;ferror = &quot;cannot write into file&quot;;</span>
+<span class="lineNum">    1032 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">    1033 </span>                :            :         }
+<span class="lineNum">    1034 </span>                :            : 
+<span class="lineNum">    1035 </span>                :<span class="lineNoCov">          0 :         return byteswritten;</span>
+<a name="1036"><span class="lineNum">    1036 </span>                :            :         </a>
+<span class="lineNum">    1037 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1038 </span>                :            : int fstream_eof(fstream_t *fs)
+<span class="lineNum">    1039 </span>                :            : {
+<span class="lineNum">    1040 </span>                :<span class="lineNoCov">          0 :         return fs-&gt;fidx == fs-&gt;glob.gl_pathc;</span>
+<a name="1041"><span class="lineNum">    1041 </span>                :            : }</a>
+<span class="lineNum">    1042 </span>                :            : 
+<span class="lineNum">    1043 </span>                :            : int64_t fstream_get_compressed_size(fstream_t *fs)
+<span class="lineNum">    1044 </span>                :            : {
+<span class="lineNum">    1045 </span>                :<span class="lineNoCov">          0 :         return fs-&gt;compressed_size;</span>
+<a name="1046"><span class="lineNum">    1046 </span>                :            : }</a>
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>                :            : int64_t fstream_get_compressed_position(fstream_t *fs)
+<span class="lineNum">    1049 </span>                :            : {
+<span class="lineNum">    1050 </span>                :<span class="lineNoCov">          0 :         int64_t p = fs-&gt;compressed_position;</span>
+<span class="lineNum">    1051 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fs-&gt;fidx != fs-&gt;glob.gl_pathc)</span>
+<span class="lineNum">    1052 </span>                :<span class="lineNoCov">          0 :                 p += gfile_get_compressed_position(&amp;fs-&gt;fd);</span>
+<span class="lineNum">    1053 </span>                :<span class="lineNoCov">          0 :         return p;</span>
+<a name="1054"><span class="lineNum">    1054 </span>                :            : }</a>
+<span class="lineNum">    1055 </span>                :            : 
+<span class="lineNum">    1056 </span>                :            : bool_t fstream_is_win_pipe(fstream_t *fs)
+<span class="lineNum">    1057 </span>                :            : {
+<span class="lineNum">    1058 </span>                :<span class="lineNoCov">          0 :         return fs-&gt;fd.is_win_pipe;</span>
+<span class="lineNum">    1059 </span>                :            : }
+<span class="lineNum">    1060 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,1293 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - commands/exttablecmds.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">commands</a> - exttablecmds.c<span style="font-size: 80%;"> (source / <a href="exttablecmds.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">508</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">433</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * exttablecmds.c
+<span class="lineNum">       4 </span>                :            :  *        Commands for creating and altering external tables
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2005-2010, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        src/backend/commands/exttablecmds.c
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;access/extprotocol.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;access/reloptions.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;catalog/namespace.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;catalog/oid_dispatch.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/pg_exttable.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;catalog/pg_extprotocol.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;catalog/pg_authid.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;commands/copy.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;commands/defrem.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;commands/tablecmds.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;utils/inval.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;utils/uri.h&quot;
+<span class="lineNum">      33 </span>                :            : 
+<span class="lineNum">      34 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;cdb/cdbsreh.h&quot;
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : static Datum transformLocationUris(List *locs, bool isweb, bool iswritable);
+<span class="lineNum">      39 </span>                :            : static Datum transformExecOnClause(List *on_clause);
+<span class="lineNum">      40 </span>                :            : static char transformFormatType(char *formatname);
+<span class="lineNum">      41 </span>                :            : static Datum transformFormatOpts(char formattype, List *formatOpts, int numcols, bool iswritable);
+<span class="lineNum">      42 </span>                :            : static void InvokeProtocolValidation(Oid procOid, char *procName, bool iswritable, List *locs);
+<span class="lineNum">      43 </span>                :            : static Datum optionsListToArray(List *options);
+<span class="lineNum">      44 </span>                :            : 
+<span class="lineNum">      45 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">      46 </span>                :            : *               DefineExternalRelation
+<span class="lineNum">      47 </span>                :            : *                               Creates a new external relation.
+<span class="lineNum">      48 </span>                :            : *
+<span class="lineNum">      49 </span>                :            : * In here we first dispatch a normal DefineRelation() (with relstorage
+<span class="lineNum">      50 </span>                :            : * external) in order to create the external relation entries in pg_class
+<span class="lineNum">      51 </span>                :            : * pg_type etc. Then once this is done we dispatch ourselves (DefineExternalRelation)
+<span class="lineNum">      52 </span>                :            : * in order to create the pg_exttable entry across the gp array.
+<span class="lineNum">      53 </span>                :            : *
+<span class="lineNum">      54 </span>                :            : * Why don't we just do all of this in one dispatch run? Because that
+<span class="lineNum">      55 </span>                :            : * involves duplicating the DefineRelation() code or severely modifying it
+<span class="lineNum">      56 </span>                :            : * to have special cases for external tables. IMHO it's better and cleaner
+<span class="lineNum">      57 </span>                :            : * to leave it intact and do another dispatch.
+<span class="lineNum">      58 </span>                :            : * ----------------------------------------------------------------
+<a name="59"><span class="lineNum">      59 </span>                :            : */</a>
+<span class="lineNum">      60 </span>                :            : extern void
+<span class="lineNum">      61 </span>                :            : DefineExternalRelation(CreateExternalStmt *createExtStmt)
+<span class="lineNum">      62 </span>                :            : {
+<span class="lineNum">      63 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         CreateStmt *createStmt = makeNode(CreateStmt);</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :         ExtTableTypeDesc *exttypeDesc = (ExtTableTypeDesc *) createExtStmt-&gt;exttypedesc;</span>
+<span class="lineNum">      65 </span>                :<span class="lineNoCov">          0 :         SingleRowErrorDesc *singlerowerrorDesc = NULL;</span>
+<span class="lineNum">      66 </span>                :<span class="lineNoCov">          0 :         DefElem    *dencoding = NULL;</span>
+<span class="lineNum">      67 </span>                :            :         ListCell   *option;
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :         Oid                     reloid = 0;</span>
+<span class="lineNum">      69 </span>                :<span class="lineNoCov">          0 :         Oid                     fmtErrTblOid = InvalidOid;</span>
+<span class="lineNum">      70 </span>                :            :         Datum           formatOptStr;
+<span class="lineNum">      71 </span>                :            :         Datum           optionsStr;
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :         Datum           locationUris = 0;</span>
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :         Datum           locationExec = 0;</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :         char       *commandString = NULL;</span>
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :         char       *customProtName = NULL;</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :         char            rejectlimittype = '\0';</span>
+<span class="lineNum">      77 </span>                :            :         char            formattype;
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :         int                     rejectlimit = -1;</span>
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :         int                     encoding = -1;</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :         bool            issreh = false; /* is single row error handling requested? */</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :         bool            iswritable = createExtStmt-&gt;iswritable;</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         bool            isweb = createExtStmt-&gt;isweb;</span>
+<span class="lineNum">      83 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         bool            shouldDispatch = (Gp_role == GP_ROLE_DISPATCH &amp;&amp;</span>
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :                                                                   IsNormalProcessingMode());</span>
+<span class="lineNum">      85 </span>                :            : 
+<span class="lineNum">      86 </span>                :            :         /*
+<span class="lineNum">      87 </span>                :            :          * now set the parameters for keys/inheritance etc. Most of these are
+<span class="lineNum">      88 </span>                :            :          * uninteresting for external relations...
+<span class="lineNum">      89 </span>                :            :          */
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;relation = createExtStmt-&gt;relation;</span>
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;tableElts = createExtStmt-&gt;tableElts;</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;inhRelations = NIL;</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;constraints = NIL;</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;options = NIL;</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;oncommit = ONCOMMIT_NOOP;</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;tablespacename = NULL;</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;policy = createExtStmt-&gt;policy; /* policy was set in transform */</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>     [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch (exttypeDesc-&gt;exttabletype)</span>
+<span class="lineNum">     100 </span>                :            :         {
+<span class="lineNum">     101 </span>                :            :                 case EXTTBL_TYPE_LOCATION:
+<span class="lineNum">     102 </span>                :            : 
+<span class="lineNum">     103 </span>                :            :                         /* Parse and validate URI strings (LOCATION clause) */
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                         locationExec = transformExecOnClause(exttypeDesc-&gt;on_clause);</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                         locationUris = transformLocationUris(exttypeDesc-&gt;location_list,</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :                                                                                                  isweb, iswritable);</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :            :                 case EXTTBL_TYPE_EXECUTE:
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :                         locationExec = transformExecOnClause(exttypeDesc-&gt;on_clause);</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                         commandString = exttypeDesc-&gt;command_string;</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (strlen(commandString) == 0)</span>
+<span class="lineNum">     114 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     115 </span>                :            :                                                 (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     116 </span>                :            :                                                  errmsg(&quot;Invalid EXECUTE clause. Found an empty command string&quot;)));
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :            :                 default:
+<span class="lineNum">     120 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     121 </span>                :            :                                         (errcode(ERRCODE_GP_INTERNAL_ERROR),
+<span class="lineNum">     122 </span>                :            :                                          errmsg(&quot;Internal error: unknown external table type&quot;)));
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>                :            :         /*----------
+<span class="lineNum">     126 </span>                :            :          * check permissions to create this external table.
+<span class="lineNum">     127 </span>                :            :          *
+<span class="lineNum">     128 </span>                :            :          * - Always allow if superuser.
+<span class="lineNum">     129 </span>                :            :          * - Never allow EXECUTE or 'file' exttables if not superuser.
+<span class="lineNum">     130 </span>                :            :          * - Allow http, gpfdist or gpfdists tables if pg_auth has the right
+<span class="lineNum">     131 </span>                :            :          *       permissions for this role and for this type of table
+<span class="lineNum">     132 </span>                :            :          *----------
+<span class="lineNum">     133 </span>                :            :          */
+<span class="lineNum">     134 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     135 </span>                :            :         {
+<span class="lineNum">     136 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (exttypeDesc-&gt;exttabletype == EXTTBL_TYPE_EXECUTE)</span>
+<span class="lineNum">     137 </span>                :            :                 {
+<span class="lineNum">     138 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     139 </span>                :            :                                         (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     140 </span>                :            :                                          errmsg(&quot;must be superuser to create an EXECUTE external web table&quot;)));
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     142 </span>                :            :                 else
+<span class="lineNum">     143 </span>                :            :                 {
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :                         ListCell   *first_uri = list_head(exttypeDesc-&gt;location_list);</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                         Value      *v = lfirst(first_uri);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :                         char       *uri_str = pstrdup(v-&gt;val.str);</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                         Uri                *uri = ParseExternalTableUri(uri_str);</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(exttypeDesc-&gt;exttabletype == EXTTBL_TYPE_LOCATION);</span>
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (uri-&gt;protocol == URI_FILE)</span>
+<span class="lineNum">     152 </span>                :            :                         {
+<span class="lineNum">     153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     154 </span>                :            :                                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     155 </span>                :            :                                                  errmsg(&quot;must be superuser to create an external table with a file protocol&quot;)));
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     157 </span>                :            :                         else
+<span class="lineNum">     158 </span>                :            :                         {
+<span class="lineNum">     159 </span>                :            :                                 /*
+<span class="lineNum">     160 </span>                :            :                                  * Check if this role has the proper 'gpfdist', 'gpfdists' or
+<span class="lineNum">     161 </span>                :            :                                  * 'http' permissions in pg_auth for creating this table.
+<span class="lineNum">     162 </span>                :            :                                  */
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :            :                                 bool            isnull;
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                                 Oid                     userid = GetUserId();</span>
+<span class="lineNum">     166 </span>                :            :                                 HeapTuple       tuple;
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                                 tuple = SearchSysCache1(AUTHOID,</span>
+<span class="lineNum">     169 </span>                :            :                                                                                 ObjectIdGetDatum(userid));
+<span class="lineNum">     170 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     171 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     172 </span>                :            :                                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     173 </span>                :            :                                                          errmsg(&quot;role \&quot;%s\&quot; does not exist (in DefineExternalRelation)&quot;,
+<span class="lineNum">     174 </span>                :            :                                                                         GetUserNameFromId(userid))));
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if ((uri-&gt;protocol == URI_GPFDIST || uri-&gt;protocol == URI_GPFDISTS) &amp;&amp; iswritable)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     177 </span>                :            :                                 {
+<span class="lineNum">     178 </span>                :            :                                         Datum           d_wextgpfd;
+<span class="lineNum">     179 </span>                :            :                                         bool            createwextgpfd;
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :                                         d_wextgpfd = SysCacheGetAttr(AUTHOID, tuple,</span>
+<span class="lineNum">     182 </span>                :            :                                                                                                  Anum_pg_authid_rolcreatewextgpfd,
+<span class="lineNum">     183 </span>                :            :                                                                                                  &amp;isnull);
+<span class="lineNum">     184 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         createwextgpfd = (isnull ? false : DatumGetBool(d_wextgpfd));</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (!createwextgpfd)</span>
+<span class="lineNum">     187 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR,</span>
+<span class="lineNum">     188 </span>                :            :                                                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     189 </span>                :            :                                                                  errmsg(&quot;permission denied: no privilege to create a writable gpfdist(s) external table&quot;)));
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     191 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if ((uri-&gt;protocol == URI_GPFDIST || uri-&gt;protocol == URI_GPFDISTS) &amp;&amp; !iswritable)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     192 </span>                :            :                                 {
+<span class="lineNum">     193 </span>                :            :                                         Datum           d_rextgpfd;
+<span class="lineNum">     194 </span>                :            :                                         bool            createrextgpfd;
+<span class="lineNum">     195 </span>                :            : 
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :                                         d_rextgpfd = SysCacheGetAttr(AUTHOID, tuple,</span>
+<span class="lineNum">     197 </span>                :            :                                                                                                  Anum_pg_authid_rolcreaterextgpfd,
+<span class="lineNum">     198 </span>                :            :                                                                                                  &amp;isnull);
+<span class="lineNum">     199 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         createrextgpfd = (isnull ? false : DatumGetBool(d_rextgpfd));</span>
+<span class="lineNum">     200 </span>                :            : 
+<span class="lineNum">     201 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (!createrextgpfd)</span>
+<span class="lineNum">     202 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR,</span>
+<span class="lineNum">     203 </span>                :            :                                                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     204 </span>                :            :                                                                  errmsg(&quot;permission denied: no privilege to create a readable gpfdist(s) external table&quot;)));
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     206 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (uri-&gt;protocol == URI_GPHDFS &amp;&amp; iswritable)</span>
+<span class="lineNum">     207 </span>                :            :                                 {
+<span class="lineNum">     208 </span>                :            :                                         Datum           d_wexthdfs;
+<span class="lineNum">     209 </span>                :            :                                         bool            createwexthdfs;
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                                         d_wexthdfs = SysCacheGetAttr(AUTHOID, tuple,</span>
+<span class="lineNum">     212 </span>                :            :                                                                                                  Anum_pg_authid_rolcreatewexthdfs,
+<span class="lineNum">     213 </span>                :            :                                                                                                  &amp;isnull);
+<span class="lineNum">     214 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         createwexthdfs = (isnull ? false : DatumGetBool(d_wexthdfs));</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (!createwexthdfs)</span>
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR,</span>
+<span class="lineNum">     218 </span>                :            :                                                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     219 </span>                :            :                                                                  errmsg(&quot;permission denied: no privilege to create a writable gphdfs external table&quot;)));
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     221 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (uri-&gt;protocol == URI_GPHDFS &amp;&amp; !iswritable)</span>
+<span class="lineNum">     222 </span>                :            :                                 {
+<span class="lineNum">     223 </span>                :            :                                         Datum           d_rexthdfs;
+<span class="lineNum">     224 </span>                :            :                                         bool            createrexthdfs;
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :                                         d_rexthdfs = SysCacheGetAttr(AUTHOID, tuple,</span>
+<span class="lineNum">     227 </span>                :            :                                                                                                  Anum_pg_authid_rolcreaterexthdfs,
+<span class="lineNum">     228 </span>                :            :                                                                                                  &amp;isnull);
+<span class="lineNum">     229 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         createrexthdfs = (isnull ? false : DatumGetBool(d_rexthdfs));</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (!createrexthdfs)</span>
+<span class="lineNum">     232 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR,</span>
+<span class="lineNum">     233 </span>                :            :                                                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     234 </span>                :            :                                                                  errmsg(&quot;permission denied: no privilege to create a readable gphdfs external table&quot;)));
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     237 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (uri-&gt;protocol == URI_HTTP &amp;&amp; !iswritable)</span>
+<span class="lineNum">     238 </span>                :            :                                 {
+<span class="lineNum">     239 </span>                :            :                                         Datum           d_exthttp;
+<span class="lineNum">     240 </span>                :            :                                         bool            createrexthttp;
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                                         d_exthttp = SysCacheGetAttr(AUTHOID, tuple,</span>
+<span class="lineNum">     243 </span>                :            :                                                                                                 Anum_pg_authid_rolcreaterexthttp,
+<span class="lineNum">     244 </span>                :            :                                                                                                 &amp;isnull);
+<span class="lineNum">     245 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         createrexthttp = (isnull ? false : DatumGetBool(d_exthttp));</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (!createrexthttp)</span>
+<span class="lineNum">     248 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR,</span>
+<span class="lineNum">     249 </span>                :            :                                                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     250 </span>                :            :                                                                  errmsg(&quot;permission denied: no privilege to create an http external table&quot;)));
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     252 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (uri-&gt;protocol == URI_CUSTOM)</span>
+<span class="lineNum">     253 </span>                :            :                                 {
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :                                         Oid                     ownerId = GetUserId();</span>
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                                         char       *protname = uri-&gt;customprotocol;</span>
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                                         Oid                     ptcId = LookupExtProtocolOid(protname, false);</span>
+<span class="lineNum">     257 </span>                :            :                                         AclResult       aclresult;
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :            :                                         /* Check we have the right permissions on this protocol */
+<span class="lineNum">     260 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (!pg_extprotocol_ownercheck(ptcId, ownerId))</span>
+<span class="lineNum">     261 </span>                :            :                                         {
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :                                                 AclMode         mode = (iswritable ? ACL_INSERT : ACL_SELECT);</span>
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :                                                 aclresult = pg_extprotocol_aclcheck(ptcId, ownerId, mode);</span>
+<span class="lineNum">     265 </span>                :            : 
+<span class="lineNum">     266 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                                                         aclcheck_error(aclresult, ACL_KIND_EXTPROTOCOL, protname);</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     270 </span>                :            :                                 else
+<span class="lineNum">     271 </span>                :            :                                 {
+<span class="lineNum">     272 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     273 </span>                :            :                                                         (errcode(ERRCODE_INTERNAL_ERROR),
+<span class="lineNum">     274 </span>                :            :                                                   errmsg(&quot;internal error in DefineExternalRelation. &quot;
+<span class="lineNum">     275 </span>                :            :                                                                  &quot;protocol is %d, writable is %d&quot;,
+<span class="lineNum">     276 </span>                :            :                                                                  uri-&gt;protocol, iswritable)));
+<span class="lineNum">     277 </span>                :            :                                 }
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                                 ReleaseSysCache(tuple);</span>
+<span class="lineNum">     280 </span>                :            :                         }
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                         FreeExternalTableUri(uri);</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                         pfree(uri_str);</span>
+<span class="lineNum">     283 </span>                :            :                 }
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>                :            :         /*
+<span class="lineNum">     287 </span>                :            :          * Parse and validate FORMAT clause.
+<span class="lineNum">     288 </span>                :            :          */
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :         formattype = transformFormatType(createExtStmt-&gt;format);</span>
+<span class="lineNum">     290 </span>                :            : 
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :         formatOptStr = transformFormatOpts(formattype,</span>
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :                                                                            createExtStmt-&gt;formatOpts,</span>
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                                                                            list_length(createExtStmt-&gt;tableElts),</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                                                                            iswritable);</span>
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :            :         /*
+<span class="lineNum">     297 </span>                :            :          * Parse and validate OPTION clause.
+<span class="lineNum">     298 </span>                :            :          */
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :         optionsStr = optionsListToArray(createExtStmt-&gt;extOptions);</span>
+<span class="lineNum">     300 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (DatumGetPointer(optionsStr) == NULL)</span>
+<span class="lineNum">     301 </span>                :            :         {
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :                 optionsStr = PointerGetDatum(construct_empty_array(TEXTOID));</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     304 </span>                :            :         /*
+<span class="lineNum">     305 </span>                :            :          * Parse single row error handling info if available
+<span class="lineNum">     306 </span>                :            :          */
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :         singlerowerrorDesc = (SingleRowErrorDesc *) createExtStmt-&gt;sreh;</span>
+<span class="lineNum">     308 </span>                :            : 
+<span class="lineNum">     309 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (singlerowerrorDesc)</span>
+<span class="lineNum">     310 </span>                :            :         {
+<span class="lineNum">     311 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!iswritable);</span>
+<span class="lineNum">     312 </span>                :            : 
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                 issreh = true;</span>
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>                :            :                 /* get reject limit, and reject limit type */
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :                 rejectlimit = singlerowerrorDesc-&gt;rejectlimit;</span>
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                 rejectlimittype = (singlerowerrorDesc-&gt;is_limit_in_rows ? 'r' : 'p');</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                 VerifyRejectLimit(rejectlimittype, rejectlimit);</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>                :            :         /*
+<span class="lineNum">     322 </span>                :            :          * Parse external table data encoding
+<span class="lineNum">     323 </span>                :            :          */
+<span class="lineNum">     324 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(option, createExtStmt-&gt;encoding)</span>
+<span class="lineNum">     325 </span>                :            :         {
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                 DefElem    *defel = (DefElem *) lfirst(option);</span>
+<span class="lineNum">     327 </span>                :            : 
+<span class="lineNum">     328 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(strcmp(defel-&gt;defname, &quot;encoding&quot;) == 0);</span>
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (dencoding)</span>
+<span class="lineNum">     331 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     332 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     333 </span>                :            :                                  errmsg(&quot;conflicting or redundant ENCODING specification&quot;)));
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :                 dencoding = defel;</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dencoding &amp;&amp; dencoding-&gt;arg)</span>
+<span class="lineNum">     338 </span>                :            :         {
+<span class="lineNum">     339 </span>                :            :                 const char *encoding_name;
+<span class="lineNum">     340 </span>                :            : 
+<span class="lineNum">     341 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsA(dencoding-&gt;arg, Integer))</span>
+<span class="lineNum">     342 </span>                :            :                 {
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                         encoding = intVal(dencoding-&gt;arg);</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                         encoding_name = pg_encoding_to_char(encoding);</span>
+<span class="lineNum">     345 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (strcmp(encoding_name, &quot;&quot;) == 0 ||</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                                 pg_valid_client_encoding(encoding_name) &lt; 0)</span>
+<span class="lineNum">     347 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     348 </span>                :            :                                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     349 </span>                :            :                                                  errmsg(&quot;%d is not a valid encoding code&quot;,
+<span class="lineNum">     350 </span>                :            :                                                                 encoding)));
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     352 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (IsA(dencoding-&gt;arg, String))</span>
+<span class="lineNum">     353 </span>                :            :                 {
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :                         encoding_name = strVal(dencoding-&gt;arg);</span>
+<span class="lineNum">     355 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (pg_valid_client_encoding(encoding_name) &lt; 0)</span>
+<span class="lineNum">     356 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     357 </span>                :            :                                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     358 </span>                :            :                                                  errmsg(&quot;%s is not a valid encoding name&quot;,
+<span class="lineNum">     359 </span>                :            :                                                                 encoding_name)));
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                         encoding = pg_char_to_encoding(encoding_name);</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     362 </span>                :            :                 else
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;unrecognized node type: %d&quot;,</span>
+<span class="lineNum">     364 </span>                :            :                                  nodeTag(dencoding-&gt;arg));
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :            :         /* If encoding is defaulted, use database encoding */
+<span class="lineNum">     368 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (encoding &lt; 0)</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :                 encoding = pg_get_client_encoding();</span>
+<span class="lineNum">     370 </span>                :            : 
+<span class="lineNum">     371 </span>                :            :         /*
+<span class="lineNum">     372 </span>                :            :          * If the number of locations (file or http URIs) exceed the number of
+<span class="lineNum">     373 </span>                :            :          * segments in the cluster, then all queries against the table will fail
+<span class="lineNum">     374 </span>                :            :          * since locations must be mapped at most one per segment. Allow the
+<span class="lineNum">     375 </span>                :            :          * creation since this is old pre-existing behavior but throw a WARNING
+<span class="lineNum">     376 </span>                :            :          * that the user must expand the cluster in order to use it (or alter
+<span class="lineNum">     377 </span>                :            :          * the table).
+<span class="lineNum">     378 </span>                :            :          */
+<span class="lineNum">     379 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (exttypeDesc-&gt;exttabletype == EXTTBL_TYPE_LOCATION)</span>
+<span class="lineNum">     380 </span>                :            :         {
+<span class="lineNum">     381 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     382 </span>                :            :                 {
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                         Value   *loc = lfirst(list_head(exttypeDesc-&gt;location_list));</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                         Uri     *uri = ParseExternalTableUri(loc-&gt;val.str);</span>
+<span class="lineNum">     385 </span>                :            : 
+<span class="lineNum">     386 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (uri-&gt;protocol == URI_FILE || uri-&gt;protocol == URI_HTTP)</span>
+<span class="lineNum">     387 </span>                :            :                         {
+<span class="lineNum">     388 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (getgpsegmentCount() &lt; list_length(exttypeDesc-&gt;location_list))</span>
+<span class="lineNum">     389 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(WARNING,</span>
+<span class="lineNum">     390 </span>                :            :                                                         (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     391 </span>                :            :                                                          errmsg(&quot;number of locations (%d) exceeds the number of segments (%d)&quot;,
+<span class="lineNum">     392 </span>                :            :                                                                         list_length(exttypeDesc-&gt;location_list),
+<span class="lineNum">     393 </span>                :            :                                                                         getgpsegmentCount()),
+<span class="lineNum">     394 </span>                :            :                                                          errhint(&quot;The table cannot be queried until cluster &quot;
+<span class="lineNum">     395 </span>                :            :                                                                          &quot;is expanded so that there are at least as &quot;
+<span class="lineNum">     396 </span>                :            :                                                                          &quot;many segments as locations.&quot;)));
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     400 </span>                :            : 
+<span class="lineNum">     401 </span>                :            :         /*
+<span class="lineNum">     402 </span>                :            :          * First, create the pg_class and other regular relation catalog entries.
+<span class="lineNum">     403 </span>                :            :          * Under the covers this will dispatch a CREATE TABLE statement to all the
+<span class="lineNum">     404 </span>                :            :          * QEs.
+<span class="lineNum">     405 </span>                :            :          */
+<span class="lineNum">     406 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_UTILITY)</span>
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :                 reloid = DefineRelation(createStmt, RELKIND_RELATION, RELSTORAGE_EXTERNAL, true);</span>
+<span class="lineNum">     408 </span>                :            : 
+<span class="lineNum">     409 </span>                :            :         /*
+<span class="lineNum">     410 </span>                :            :          * Now we take care of pg_exttable.
+<span class="lineNum">     411 </span>                :            :          *
+<span class="lineNum">     412 </span>                :            :          * get our pg_class external rel OID. If we're the QD we just created it
+<span class="lineNum">     413 </span>                :            :          * above. If we're a QE DefineRelation() was already dispatched to us and
+<span class="lineNum">     414 </span>                :            :          * therefore we have a local entry in pg_class. get the OID from cache.
+<span class="lineNum">     415 </span>                :            :          */
+<span class="lineNum">     416 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH || Gp_role == GP_ROLE_UTILITY)</span>
+<span class="lineNum">     417 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(reloid != InvalidOid);</span>
+<span class="lineNum">     418 </span>                :            :         else
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :                 reloid = RangeVarGetRelid(createExtStmt-&gt;relation, true);</span>
+<span class="lineNum">     420 </span>                :            : 
+<span class="lineNum">     421 </span>                :            :         /*
+<span class="lineNum">     422 </span>                :            :          * In the case of error log file, set fmtErrorTblOid to the external table
+<span class="lineNum">     423 </span>                :            :          * itself.
+<span class="lineNum">     424 </span>                :            :          */
+<span class="lineNum">     425 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (issreh)</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                 fmtErrTblOid = reloid;</span>
+<span class="lineNum">     427 </span>                :            : 
+<span class="lineNum">     428 </span>                :            :         /*
+<span class="lineNum">     429 </span>                :            :          * create a pg_exttable entry for this external table.
+<span class="lineNum">     430 </span>                :            :          */
+<span class="lineNum">     431 </span>                :<span class="lineNoCov">          0 :         InsertExtTableEntry(reloid,</span>
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :                                                 iswritable,</span>
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                                                 isweb,</span>
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                                                 issreh,</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                                                 formattype,</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                                                 rejectlimittype,</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :                                                 commandString,</span>
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                                                 rejectlimit,</span>
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :                                                 fmtErrTblOid,</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                                                 encoding,</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                                                 formatOptStr,</span>
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                                                 optionsStr,</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :                                                 locationExec,</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                                                 locationUris);</span>
+<span class="lineNum">     445 </span>                :            : 
+<span class="lineNum">     446 </span>                :            :         /*
+<span class="lineNum">     447 </span>                :            :          * DefineRelation loaded the new relation into relcache, but the relcache
+<span class="lineNum">     448 </span>                :            :          * contains the distribution policy, which in turn depends on the contents
+<span class="lineNum">     449 </span>                :            :          * of pg_exttable, for EXECUTE-type external tables (see GpPolicyFetch()).
+<span class="lineNum">     450 </span>                :            :          * Now that we have created the pg_exttable entry, invalidate the
+<span class="lineNum">     451 </span>                :            :          * relcache, so that it gets loaded with the correct information.
+<span class="lineNum">     452 </span>                :            :          */
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         CacheInvalidateRelcacheByRelid(reloid);</span>
+<span class="lineNum">     454 </span>                :            : 
+<span class="lineNum">     455 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (shouldDispatch)</span>
+<span class="lineNum">     456 </span>                :            :         {
+<span class="lineNum">     457 </span>                :            :                 /*
+<span class="lineNum">     458 </span>                :            :                  * Dispatch the statement tree to all primary segdbs. Doesn't wait for
+<span class="lineNum">     459 </span>                :            :                  * the QEs to finish execution.
+<span class="lineNum">     460 </span>                :            :                  */
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchUtilityStatement((Node *) createExtStmt,</span>
+<span class="lineNum">     462 </span>                :            :                                                                         DF_CANCEL_ON_ERROR |
+<span class="lineNum">     463 </span>                :            :                                                                         DF_WITH_SNAPSHOT |
+<span class="lineNum">     464 </span>                :            :                                                                         DF_NEED_TWO_PHASE,
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 :                                                                         GetAssignedOidsForDispatch(),</span>
+<span class="lineNum">     466 </span>                :            :                                                                         NULL);
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     468 </span>                :            : 
+<span class="lineNum">     469 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (customProtName)</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                 pfree(customProtName);</span>
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     472 </span>                :            : 
+<span class="lineNum">     473 </span>                :            : 
+<span class="lineNum">     474 </span>                :            : /*
+<span class="lineNum">     475 </span>                :            :  * Transform the URI string list into a text array (the form that is
+<span class="lineNum">     476 </span>                :            :  * used in the catalog table pg_exttable). While at it we validate
+<span class="lineNum">     477 </span>                :            :  * the URI strings.
+<span class="lineNum">     478 </span>                :            :  *
+<span class="lineNum">     479 </span>                :            :  * The result is a text array but we declare it as Datum to avoid
+<span class="lineNum">     480 </span>                :            :  * including array.h in analyze.h.
+<a name="481"><span class="lineNum">     481 </span>                :            :  */</a>
+<span class="lineNum">     482 </span>                :            : static Datum
+<span class="lineNum">     483 </span>                :            : transformLocationUris(List *locs, bool isweb, bool iswritable)
+<span class="lineNum">     484 </span>                :            : {
+<span class="lineNum">     485 </span>                :            :         ListCell   *cell;
+<span class="lineNum">     486 </span>                :            :         ArrayBuildState *astate;
+<span class="lineNum">     487 </span>                :            :         Datum           result;
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :         UriProtocol first_protocol = URI_FILE;          /* initialize to keep gcc</span>
+<span class="lineNum">     489 </span>                :            :                                                                                                  * quiet */
+<span class="lineNum">     490 </span>                :<span class="lineNoCov">          0 :         bool            first_uri = true;</span>
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :            : #define FDIST_DEF_PORT 8080
+<span class="lineNum">     493 </span>                :            : 
+<span class="lineNum">     494 </span>                :            :         /* Parser should not let this happen */
+<span class="lineNum">     495 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(locs != NIL);</span>
+<span class="lineNum">     496 </span>                :            : 
+<span class="lineNum">     497 </span>                :            :         /* We build new array using accumArrayResult */
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :         astate = NULL;</span>
+<span class="lineNum">     499 </span>                :            : 
+<span class="lineNum">     500 </span>                :            :         /*
+<span class="lineNum">     501 </span>                :            :          * iterate through the user supplied URI list from LOCATION clause.
+<span class="lineNum">     502 </span>                :            :          */
+<span class="lineNum">     503 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(cell, locs)</span>
+<span class="lineNum">     504 </span>                :            :         {
+<span class="lineNum">     505 </span>                :            :                 Uri                *uri;
+<span class="lineNum">     506 </span>                :            :                 text       *t;
+<span class="lineNum">     507 </span>                :            :                 char       *uri_str_orig;
+<span class="lineNum">     508 </span>                :            :                 char       *uri_str_final;
+<span class="lineNum">     509 </span>                :            :                 Size            len;
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :                 Value      *v = lfirst(cell);</span>
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :            :                 /* get the current URI string from the command */
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :                 uri_str_orig = pstrdup(v-&gt;val.str);</span>
+<span class="lineNum">     514 </span>                :            : 
+<span class="lineNum">     515 </span>                :            :                 /* parse it to its components */
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :                 uri = ParseExternalTableUri(uri_str_orig);</span>
+<span class="lineNum">     517 </span>                :            : 
+<span class="lineNum">     518 </span>                :            :                 /* allocate memory for a modified URI string (if needs modification) */
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :                 uri_str_final = (char *) palloc(strlen(uri_str_orig) *</span>
+<span class="lineNum">     520 </span>                :            :                                                                                 sizeof(char) +
+<span class="lineNum">     521 </span>                :            :                                                                          1 + 4 + 1 /* default port if added */ );
+<span class="lineNum">     522 </span>                :            : 
+<span class="lineNum">     523 </span>                :            :                 /*
+<span class="lineNum">     524 </span>                :            :                  * in here edit the uri string if needed
+<span class="lineNum">     525 </span>                :            :                  */
+<span class="lineNum">     526 </span>                :            : 
+<span class="lineNum">     527 </span>                :            :                 /*
+<span class="lineNum">     528 </span>                :            :                  * no port was specified for gpfdist, gpfdists or hdfs. add the
+<span class="lineNum">     529 </span>                :            :                  * default
+<span class="lineNum">     530 </span>                :            :                  */
+<span class="lineNum">     531 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((uri-&gt;protocol == URI_GPFDIST || uri-&gt;protocol == URI_GPFDISTS) &amp;&amp; uri-&gt;port == -1)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     532 </span>                :            :                 {
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :                         char       *at_hostname = (char *) uri_str_orig</span>
+<span class="lineNum">     534 </span>                :<span class="lineNoCov">          0 :                         + strlen(uri-&gt;protocol == URI_GPFDIST ? &quot;gpfdist://&quot; : &quot;gpfdists://&quot;);</span>
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :                         char       *after_hostname = strchr(at_hostname, '/');</span>
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :                         int                     len = after_hostname - at_hostname;</span>
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :                         char       *hostname = pstrdup(at_hostname);</span>
+<span class="lineNum">     538 </span>                :            : 
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :                         hostname[len] = '\0';</span>
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :            :                         /* add the default port number to the uri string */
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :                         sprintf(uri_str_final, &quot;%s%s:%d%s&quot;,</span>
+<span class="lineNum">     543 </span>                :            :                                         (uri-&gt;protocol == URI_GPFDIST ? PROTOCOL_GPFDIST : PROTOCOL_GPFDISTS),
+<span class="lineNum">     544 </span>                :            :                                         hostname,
+<span class="lineNum">     545 </span>                :            :                                         FDIST_DEF_PORT, after_hostname);
+<span class="lineNum">     546 </span>                :            : 
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :                         pfree(hostname);</span>
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     549 </span>                :            :                 else
+<span class="lineNum">     550 </span>                :            :                 {
+<span class="lineNum">     551 </span>                :            :                         /* no changes to original uri string */
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                         uri_str_final = (char *) uri_str_orig;</span>
+<span class="lineNum">     553 </span>                :            :                 }
+<span class="lineNum">     554 </span>                :            : 
+<span class="lineNum">     555 </span>                :            :                 /*
+<span class="lineNum">     556 </span>                :            :                  * check for various errors
+<span class="lineNum">     557 </span>                :            :                  */
+<span class="lineNum">     558 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!first_uri &amp;&amp; uri-&gt;protocol == URI_GPHDFS)</span>
+<span class="lineNum">     559 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     560 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     561 </span>                :            :                                          errmsg(&quot;GPHDFS can only have one location list&quot;),
+<span class="lineNum">     562 </span>                :            :                                  errhint(&quot;Combine multiple HDFS files into a single file&quot;)));
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            : 
+<span class="lineNum">     565 </span>                :            :                 /*
+<span class="lineNum">     566 </span>                :            :                  * If a custom protocol is used, validate its existence. If it exists,
+<span class="lineNum">     567 </span>                :            :                  * and a custom protocol url validator exists as well, invoke it now.
+<span class="lineNum">     568 </span>                :            :                  */
+<span class="lineNum">     569 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (first_uri &amp;&amp; uri-&gt;protocol == URI_CUSTOM)</span>
+<span class="lineNum">     570 </span>                :            :                 {
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                         Oid                     procOid = InvalidOid;</span>
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :<span class="lineNoCov">          0 :                         procOid = LookupExtProtocolFunction(uri-&gt;customprotocol,</span>
+<span class="lineNum">     574 </span>                :            :                                                                                                 EXTPTC_FUNC_VALIDATOR,
+<span class="lineNum">     575 </span>                :            :                                                                                                 false);
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (OidIsValid(procOid) &amp;&amp; Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :                                 InvokeProtocolValidation(procOid,</span>
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :                                                                                  uri-&gt;customprotocol,</span>
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                                                                                  iswritable,</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                                                                                  locs);</span>
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     583 </span>                :            : 
+<span class="lineNum">     584 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (first_uri)</span>
+<span class="lineNum">     585 </span>                :            :                 {
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                         first_protocol = uri-&gt;protocol;</span>
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :                         first_uri = false;</span>
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     589 </span>                :            : 
+<span class="lineNum">     590 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (uri-&gt;protocol != first_protocol)</span>
+<span class="lineNum">     591 </span>                :            :                 {
+<span class="lineNum">     592 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     593 </span>                :            :                                         (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     594 </span>                :            :                            errmsg(&quot;URI protocols must be the same for all data sources&quot;),
+<span class="lineNum">     595 </span>                :            :                                          errhint(&quot;Available protocols are 'http', 'file', 'gphdfs', 'gpfdist' and 'gpfdists'&quot;)));
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     598 </span>                :            : 
+<span class="lineNum">     599 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (uri-&gt;protocol != URI_HTTP &amp;&amp; isweb)</span>
+<span class="lineNum">     600 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     601 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     602 </span>                :            :                                          errmsg(&quot;an EXTERNAL WEB TABLE may only use http URI\'s, problem in: \'%s\'&quot;, uri_str_final),
+<span class="lineNum">     603 </span>                :            :                                          errhint(&quot;Use CREATE EXTERNAL TABLE instead.&quot;)));
+<span class="lineNum">     604 </span>                :            : 
+<span class="lineNum">     605 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (uri-&gt;protocol == URI_HTTP &amp;&amp; !isweb)</span>
+<span class="lineNum">     606 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     607 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     608 </span>                :            :                          errmsg(&quot;http URI\'s can only be used in an external web table&quot;),
+<span class="lineNum">     609 </span>                :            :                                          errhint(&quot;Use CREATE EXTERNAL WEB TABLE instead.&quot;)));
+<span class="lineNum">     610 </span>                :            : 
+<span class="lineNum">     611 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (iswritable &amp;&amp; (uri-&gt;protocol == URI_HTTP || uri-&gt;protocol == URI_FILE))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     612 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     613 </span>                :            :                                         (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     614 </span>                :            :                                          errmsg(&quot;unsupported URI protocol \'%s\' for writable external table&quot;,
+<span class="lineNum">     615 </span>                :            :                                                         (uri-&gt;protocol == URI_HTTP ? &quot;http&quot; : &quot;file&quot;)),
+<span class="lineNum">     616 </span>                :            :                                          errhint(&quot;Writable external tables may use \'gpfdist\', \'gpfdists\' or \'gphdfs\' URIs only.&quot;)));
+<span class="lineNum">     617 </span>                :            : 
+<span class="lineNum">     618 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (uri-&gt;protocol != URI_CUSTOM &amp;&amp; iswritable &amp;&amp; strchr(uri-&gt;path, '*'))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     619 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     620 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     621 </span>                :            :                                          errmsg(&quot;Unsupported use of wildcard in a writable external web table definition: &quot;
+<span class="lineNum">     622 </span>                :            :                                                         &quot;\'%s\'&quot;, uri_str_final),
+<span class="lineNum">     623 </span>                :            :                                          errhint(&quot;Specify the explicit path and file name to write into.&quot;)));
+<span class="lineNum">     624 </span>                :            : 
+<span class="lineNum">     625 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((uri-&gt;protocol == URI_GPFDIST || uri-&gt;protocol == URI_GPFDISTS) &amp;&amp; iswritable &amp;&amp; uri-&gt;path[strlen(uri-&gt;path) - 1] == '/')</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     626 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     627 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     628 </span>                :            :                                          errmsg(&quot;Unsupported use of a directory name in a writable gpfdist(s) external table : &quot;
+<span class="lineNum">     629 </span>                :            :                                                         &quot;\'%s\'&quot;, uri_str_final),
+<span class="lineNum">     630 </span>                :            :                                          errhint(&quot;Specify the explicit path and file name to write into.&quot;)));
+<span class="lineNum">     631 </span>                :            : 
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :                 len = VARHDRSZ + strlen(uri_str_final);</span>
+<span class="lineNum">     633 </span>                :            : 
+<span class="lineNum">     634 </span>                :            :                 /* +1 leaves room for sprintf's trailing null */
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                 t = (text *) palloc(len + 1);</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                 SET_VARSIZE(t, len);</span>
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :                 sprintf((char *) VARDATA(t), &quot;%s&quot;, uri_str_final);</span>
+<span class="lineNum">     638 </span>                :            : 
+<span class="lineNum">     639 </span>                :            : 
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                 astate = accumArrayResult(astate, PointerGetDatum(t),</span>
+<span class="lineNum">     641 </span>                :            :                                                                   false, TEXTOID,
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :                                                                   CurrentMemoryContext);</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :                 FreeExternalTableUri(uri);</span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :                 pfree(uri_str_final);</span>
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     647 </span>                :            : 
+<span class="lineNum">     648 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (astate)</span>
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                 result = makeArrayResult(astate, CurrentMemoryContext);</span>
+<span class="lineNum">     650 </span>                :            :         else
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :                 result = (Datum) 0;</span>
+<span class="lineNum">     652 </span>                :            : 
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     654 </span>                :            : 
+<span class="lineNum">     655 </span>                :            : }
+<a name="656"><span class="lineNum">     656 </span>                :            : </a>
+<span class="lineNum">     657 </span>                :            : static Datum
+<span class="lineNum">     658 </span>                :            : transformExecOnClause(List *on_clause)
+<span class="lineNum">     659 </span>                :            : {
+<span class="lineNum">     660 </span>                :            :         ArrayBuildState *astate;
+<span class="lineNum">     661 </span>                :            :         Datum           result;
+<span class="lineNum">     662 </span>                :            : 
+<span class="lineNum">     663 </span>                :            :         ListCell   *exec_location_opt;
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :         char       *exec_location_str = NULL;</span>
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :         char       *value_str = NULL;</span>
+<span class="lineNum">     666 </span>                :            :         int                     value_int;
+<span class="lineNum">     667 </span>                :            :         Size            len;
+<span class="lineNum">     668 </span>                :            :         text       *t;
+<span class="lineNum">     669 </span>                :            : 
+<span class="lineNum">     670 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (on_clause == NIL)</span>
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 :                 exec_location_str = &quot;ALL_SEGMENTS&quot;;</span>
+<span class="lineNum">     672 </span>                :            :         else {
+<span class="lineNum">     673 </span>                :            :         /*
+<span class="lineNum">     674 </span>                :            :          * Extract options from the statement node tree NOTE: as of now we only
+<span class="lineNum">     675 </span>                :            :          * support one option in the ON clause and therefore more than one is an
+<span class="lineNum">     676 </span>                :            :          * error (check here in case the sql parser isn't strict enough).
+<span class="lineNum">     677 </span>                :            :          */
+<span class="lineNum">     678 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(exec_location_opt, on_clause)</span>
+<span class="lineNum">     679 </span>                :            :         {
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                 DefElem    *defel = (DefElem *) lfirst(exec_location_opt);</span>
+<span class="lineNum">     681 </span>                :            : 
+<span class="lineNum">     682 </span>                :            :                 /* only one element is allowed! */
+<span class="lineNum">     683 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (exec_location_str)</span>
+<span class="lineNum">     684 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     685 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     686 </span>                :            :                                   errmsg(&quot;ON clause must not have more than one element.&quot;)));
+<span class="lineNum">     687 </span>                :            : 
+<span class="lineNum">     688 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (strcmp(defel-&gt;defname, &quot;all&quot;) == 0)</span>
+<span class="lineNum">     689 </span>                :            :                 {
+<span class="lineNum">     690 </span>                :            :                         /* result: &quot;ALL_SEGMENTS&quot; */
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = (char *) palloc(12 + 1);</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = &quot;ALL_SEGMENTS&quot;;</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     694 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (strcmp(defel-&gt;defname, &quot;hostname&quot;) == 0)</span>
+<span class="lineNum">     695 </span>                :            :                 {
+<span class="lineNum">     696 </span>                :            :                         /* result: &quot;HOST:&lt;hostname&gt;&quot; */
+<span class="lineNum">     697 </span>                :<span class="lineNoCov">          0 :                         value_str = strVal(defel-&gt;arg);</span>
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = (char *) palloc(5 + 1 + strlen(value_str) + 1);</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                         sprintf((char *) exec_location_str, &quot;HOST:%s&quot;, value_str);</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     701 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (strcmp(defel-&gt;defname, &quot;eachhost&quot;) == 0)</span>
+<span class="lineNum">     702 </span>                :            :                 {
+<span class="lineNum">     703 </span>                :            :                         /* result: &quot;PER_HOST&quot; */
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = (char *) palloc(8 + 1);</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = &quot;PER_HOST&quot;;</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     707 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (strcmp(defel-&gt;defname, &quot;master&quot;) == 0)</span>
+<span class="lineNum">     708 </span>                :            :                 {
+<span class="lineNum">     709 </span>                :            :                         /* result: &quot;MASTER_ONLY&quot; */
+<span class="lineNum">     710 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = (char *) palloc(11 + 1);</span>
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = &quot;MASTER_ONLY&quot;;</span>
+<span class="lineNum">     712 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     713 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (strcmp(defel-&gt;defname, &quot;segment&quot;) == 0)</span>
+<span class="lineNum">     714 </span>                :            :                 {
+<span class="lineNum">     715 </span>                :            :                         /* result: &quot;SEGMENT_ID:&lt;segid&gt;&quot; */
+<span class="lineNum">     716 </span>                :<span class="lineNoCov">          0 :                         value_int = intVal(defel-&gt;arg);</span>
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = (char *) palloc(10 + 1 + 8 + 1);</span>
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :                         sprintf((char *) exec_location_str, &quot;SEGMENT_ID:%d&quot;, value_int);</span>
+<span class="lineNum">     719 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     720 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (strcmp(defel-&gt;defname, &quot;random&quot;) == 0)</span>
+<span class="lineNum">     721 </span>                :            :                 {
+<span class="lineNum">     722 </span>                :            :                         /* result: &quot;TOTAL_SEGS:&lt;number&gt;&quot; */
+<span class="lineNum">     723 </span>                :<span class="lineNoCov">          0 :                         value_int = intVal(defel-&gt;arg);</span>
+<span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 :                         exec_location_str = (char *) palloc(10 + 1 + 8 + 1);</span>
+<span class="lineNum">     725 </span>                :<span class="lineNoCov">          0 :                         sprintf((char *) exec_location_str, &quot;TOTAL_SEGS:%d&quot;, value_int);</span>
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     727 </span>                :            :                 else
+<span class="lineNum">     728 </span>                :            :                 {
+<span class="lineNum">     729 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     730 </span>                :            :                                         (errcode(ERRCODE_GP_INTERNAL_ERROR),
+<span class="lineNum">     731 </span>                :            :                                  errmsg(&quot;Unknown location code for EXECUTE in tablecmds.&quot;)));
+<span class="lineNum">     732 </span>                :            :                 }
+<span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     734 </span>                :            :         }
+<span class="lineNum">     735 </span>                :            : 
+<span class="lineNum">     736 </span>                :            :         /* convert to text[] */
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :         astate = NULL;</span>
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :         len = VARHDRSZ + strlen(exec_location_str);</span>
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :         t = (text *) palloc(len + 1);</span>
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :         SET_VARSIZE(t, len);</span>
+<span class="lineNum">     741 </span>                :<span class="lineNoCov">          0 :         sprintf((char *) VARDATA(t), &quot;%s&quot;, exec_location_str);</span>
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            : 
+<span class="lineNum">     744 </span>                :<span class="lineNoCov">          0 :         astate = accumArrayResult(astate, PointerGetDatum(t),</span>
+<span class="lineNum">     745 </span>                :            :                                                           false, TEXTOID,
+<span class="lineNum">     746 </span>                :<span class="lineNoCov">          0 :                                                           CurrentMemoryContext);</span>
+<span class="lineNum">     747 </span>                :            : 
+<span class="lineNum">     748 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (astate)</span>
+<span class="lineNum">     749 </span>                :<span class="lineNoCov">          0 :                 result = makeArrayResult(astate, CurrentMemoryContext);</span>
+<span class="lineNum">     750 </span>                :            :         else
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :                 result = (Datum) 0;</span>
+<span class="lineNum">     752 </span>                :            : 
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     754 </span>                :            : }
+<span class="lineNum">     755 </span>                :            : 
+<span class="lineNum">     756 </span>                :            : /*
+<span class="lineNum">     757 </span>                :            :  * Transform format name for external table FORMAT option to format code and
+<span class="lineNum">     758 </span>                :            :  * validate that the requested format is supported.
+<a name="759"><span class="lineNum">     759 </span>                :            :  */</a>
+<span class="lineNum">     760 </span>                :            : static char
+<span class="lineNum">     761 </span>                :            : transformFormatType(char *formatname)
+<span class="lineNum">     762 </span>                :            : {
+<span class="lineNum">     763 </span>                :<span class="lineNoCov">          0 :         char            result = '\0';</span>
+<span class="lineNum">     764 </span>                :            : 
+<span class="lineNum">     765 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pg_strcasecmp(formatname, &quot;text&quot;) == 0)</span>
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :                 result = 't';</span>
+<span class="lineNum">     767 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (pg_strcasecmp(formatname, &quot;csv&quot;) == 0)</span>
+<span class="lineNum">     768 </span>                :<span class="lineNoCov">          0 :                 result = 'c';</span>
+<span class="lineNum">     769 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (pg_strcasecmp(formatname, &quot;custom&quot;) == 0)</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                 result = 'b';</span>
+<span class="lineNum">     771 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (pg_strcasecmp(formatname, &quot;avro&quot;) == 0)</span>
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                 result = 'a';</span>
+<span class="lineNum">     773 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (pg_strcasecmp(formatname, &quot;parquet&quot;) == 0)</span>
+<span class="lineNum">     774 </span>                :<span class="lineNoCov">          0 :                 result = 'p';</span>
+<span class="lineNum">     775 </span>                :            :         else
+<span class="lineNum">     776 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     777 </span>                :            :                                 (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     778 </span>                :            :                                  errmsg(&quot;unsupported format '%s'&quot;, formatname),
+<span class="lineNum">     779 </span>                :            :                            errhint(&quot;Available formats for external tables are \&quot;text\&quot;, &quot;
+<span class="lineNum">     780 </span>                :            :                                            &quot;\&quot;csv\&quot;, \&quot;avro\&quot;, \&quot;parquet\&quot; and \&quot;custom\&quot;&quot;)));
+<span class="lineNum">     781 </span>                :            : 
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     783 </span>                :            : }
+<span class="lineNum">     784 </span>                :            : 
+<span class="lineNum">     785 </span>                :            : /*
+<span class="lineNum">     786 </span>                :            :  * Transform the external table options into a text array format.
+<span class="lineNum">     787 </span>                :            :  *
+<span class="lineNum">     788 </span>                :            :  * The result is an array that includes the format string.
+<span class="lineNum">     789 </span>                :            :  *
+<span class="lineNum">     790 </span>                :            :  * This method is a backported FDW's function from upper stream .
+<a name="791"><span class="lineNum">     791 </span>                :            :  */</a>
+<span class="lineNum">     792 </span>                :            : static Datum
+<span class="lineNum">     793 </span>                :            : optionsListToArray(List *options)
+<span class="lineNum">     794 </span>                :            : {
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :         ArrayBuildState *astate = NULL;</span>
+<span class="lineNum">     796 </span>                :            :         ListCell   *option;
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(option, options)</span>
+<span class="lineNum">     799 </span>                :            :         {
+<span class="lineNum">     800 </span>                :<span class="lineNoCov">          0 :                 DefElem    *defel = (DefElem *) lfirst(option);</span>
+<span class="lineNum">     801 </span>                :<span class="lineNoCov">          0 :                 char       *key = defel-&gt;defname;</span>
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 :                 char       *val = defGetString(defel);</span>
+<span class="lineNum">     803 </span>                :            :                 text       *t;
+<span class="lineNum">     804 </span>                :            :                 Size       len;
+<span class="lineNum">     805 </span>                :            : 
+<span class="lineNum">     806 </span>                :            :         // first 1 for '=', last 1 for '\0'
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                 len = VARHDRSZ + strlen(key) + 1 + strlen(val) + 1;</span>
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                 t = palloc(len);</span>
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :                 SET_VARSIZE(t, len);</span>
+<span class="lineNum">     810 </span>                :<span class="lineNoCov">          0 :                 sprintf(VARDATA(t), &quot;%s=%s&quot;, key, val);</span>
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :                 astate = accumArrayResult(astate, PointerGetDatum(t), false,</span>
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :                                                   TEXTOID, CurrentMemoryContext);</span>
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     814 </span>                :            : 
+<span class="lineNum">     815 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (astate)</span>
+<span class="lineNum">     816 </span>                :<span class="lineNoCov">          0 :                 return makeArrayResult(astate, CurrentMemoryContext);</span>
+<span class="lineNum">     817 </span>                :            : 
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :         return PointerGetDatum(NULL);</span>
+<span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     820 </span>                :            : 
+<span class="lineNum">     821 </span>                :            : /*
+<span class="lineNum">     822 </span>                :            :  * Transform the FORMAT options into a text field. Parse the
+<span class="lineNum">     823 </span>                :            :  * options and validate them for their respective format type.
+<span class="lineNum">     824 </span>                :            :  *
+<span class="lineNum">     825 </span>                :            :  * The result is a text field that includes the format string.
+<a name="826"><span class="lineNum">     826 </span>                :            :  */</a>
+<span class="lineNum">     827 </span>                :            : static Datum
+<span class="lineNum">     828 </span>                :            : transformFormatOpts(char formattype, List *formatOpts, int numcols, bool iswritable)
+<span class="lineNum">     829 </span>                :            : {
+<span class="lineNum">     830 </span>                :            :         ListCell   *option;
+<span class="lineNum">     831 </span>                :            :         Datum           result;
+<span class="lineNum">     832 </span>                :            :         char       *format_str;
+<span class="lineNum">     833 </span>                :<span class="lineNoCov">          0 :         char       *delim = NULL;</span>
+<span class="lineNum">     834 </span>                :<span class="lineNoCov">          0 :         char       *null_print = NULL;</span>
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :         char       *quote = NULL;</span>
+<span class="lineNum">     836 </span>                :<span class="lineNoCov">          0 :         char       *escape = NULL;</span>
+<span class="lineNum">     837 </span>                :<span class="lineNoCov">          0 :         char       *eol_str = NULL;</span>
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 :         char       *formatter = NULL;</span>
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :         bool            header_line = false;</span>
+<span class="lineNum">     840 </span>                :<span class="lineNoCov">          0 :         bool            fill_missing = false;</span>
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :         List       *force_notnull = NIL;</span>
+<span class="lineNum">     842 </span>                :<span class="lineNoCov">          0 :         List       *force_quote = NIL;</span>
+<span class="lineNum">     843 </span>                :            :         Size            len;
+<span class="lineNum">     844 </span>                :            :         StringInfoData fnn,
+<span class="lineNum">     845 </span>                :            :                                 fq,
+<span class="lineNum">     846 </span>                :            :                                 nl;
+<span class="lineNum">     847 </span>                :            : 
+<span class="lineNum">     848 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(fmttype_is_custom(formattype) ||</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     849 </span>                :            :                    fmttype_is_text(formattype) ||
+<span class="lineNum">     850 </span>                :            :                    fmttype_is_csv(formattype) ||
+<span class="lineNum">     851 </span>                :            :                    fmttype_is_avro(formattype) ||
+<span class="lineNum">     852 </span>                :            :                    fmttype_is_parquet(formattype));
+<span class="lineNum">     853 </span>                :            : 
+<span class="lineNum">     854 </span>                :            :         /* Extract options from the statement node tree */
+<span class="lineNum">     855 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fmttype_is_text(formattype) || fmttype_is_csv(formattype))</span>
+<span class="lineNum">     856 </span>                :            :         {
+<span class="lineNum">     857 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(option, formatOpts)</span>
+<span class="lineNum">     858 </span>                :            :                 {
+<span class="lineNum">     859 </span>                :<span class="lineNoCov">          0 :                         DefElem    *defel = (DefElem *) lfirst(option);</span>
+<span class="lineNum">     860 </span>                :            : 
+<span class="lineNum">     861 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (strcmp(defel-&gt;defname, &quot;delimiter&quot;) == 0)</span>
+<span class="lineNum">     862 </span>                :            :                         {
+<span class="lineNum">     863 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (delim)</span>
+<span class="lineNum">     864 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     865 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     866 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     867 </span>                :<span class="lineNoCov">          0 :                                 delim = strVal(defel-&gt;arg);</span>
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     869 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;null&quot;) == 0)</span>
+<span class="lineNum">     870 </span>                :            :                         {
+<span class="lineNum">     871 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (null_print)</span>
+<span class="lineNum">     872 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     873 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     874 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     875 </span>                :<span class="lineNoCov">          0 :                                 null_print = strVal(defel-&gt;arg);</span>
+<span class="lineNum">     876 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     877 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;header&quot;) == 0)</span>
+<span class="lineNum">     878 </span>                :            :                         {
+<span class="lineNum">     879 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (header_line)</span>
+<span class="lineNum">     880 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     881 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     882 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     883 </span>                :<span class="lineNoCov">          0 :                                 header_line = intVal(defel-&gt;arg);</span>
+<span class="lineNum">     884 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     885 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;quote&quot;) == 0)</span>
+<span class="lineNum">     886 </span>                :            :                         {
+<span class="lineNum">     887 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (quote)</span>
+<span class="lineNum">     888 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     889 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     890 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                                 quote = strVal(defel-&gt;arg);</span>
+<span class="lineNum">     892 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     893 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;escape&quot;) == 0)</span>
+<span class="lineNum">     894 </span>                :            :                         {
+<span class="lineNum">     895 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (escape)</span>
+<span class="lineNum">     896 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     897 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     898 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     899 </span>                :<span class="lineNoCov">          0 :                                 escape = strVal(defel-&gt;arg);</span>
+<span class="lineNum">     900 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     901 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;force_notnull&quot;) == 0)</span>
+<span class="lineNum">     902 </span>                :            :                         {
+<span class="lineNum">     903 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (force_notnull)</span>
+<span class="lineNum">     904 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     905 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     906 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     907 </span>                :<span class="lineNoCov">          0 :                                 force_notnull = (List *) defel-&gt;arg;</span>
+<span class="lineNum">     908 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     909 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;force_quote&quot;) == 0)</span>
+<span class="lineNum">     910 </span>                :            :                         {
+<span class="lineNum">     911 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (force_quote)</span>
+<span class="lineNum">     912 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     913 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     914 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     915 </span>                :<span class="lineNoCov">          0 :                                 force_quote = (List *) defel-&gt;arg;</span>
+<span class="lineNum">     916 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     917 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;fill_missing_fields&quot;) == 0)</span>
+<span class="lineNum">     918 </span>                :            :                         {
+<span class="lineNum">     919 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (fill_missing)</span>
+<span class="lineNum">     920 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     921 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     922 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :                                 fill_missing = intVal(defel-&gt;arg);</span>
+<span class="lineNum">     924 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     925 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;newline&quot;) == 0)</span>
+<span class="lineNum">     926 </span>                :            :                         {
+<span class="lineNum">     927 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (eol_str)</span>
+<span class="lineNum">     928 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     929 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     930 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">     931 </span>                :<span class="lineNoCov">          0 :                                 eol_str = strVal(defel-&gt;arg);</span>
+<span class="lineNum">     932 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     933 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (strcmp(defel-&gt;defname, &quot;formatter&quot;) == 0)</span>
+<span class="lineNum">     934 </span>                :            :                         {
+<span class="lineNum">     935 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     936 </span>                :            :                                                 (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     937 </span>                :            :                                 errmsg(&quot;formatter option only valid for custom formatters&quot;)));
+<span class="lineNum">     938 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     939 </span>                :            :                         else
+<span class="lineNum">     940 </span>                :<span class="lineNoCov">          0 :                                 elog(ERROR, &quot;option \&quot;%s\&quot; not recognized&quot;,</span>
+<span class="lineNum">     941 </span>                :            :                                          defel-&gt;defname);
+<span class="lineNum">     942 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     943 </span>                :            : 
+<span class="lineNum">     944 </span>                :            :                 /*
+<span class="lineNum">     945 </span>                :            :                  * Set defaults
+<span class="lineNum">     946 </span>                :            :                  */
+<span class="lineNum">     947 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!delim)</span>
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :                         delim = fmttype_is_csv(formattype) ? &quot;,&quot; : &quot;\t&quot;;</span>
+<span class="lineNum">     949 </span>                :            : 
+<span class="lineNum">     950 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!null_print)</span>
+<span class="lineNum">     951 </span>                :<span class="lineNoCov">          0 :                         null_print = fmttype_is_csv(formattype) ? &quot;&quot; : &quot;\\N&quot;;</span>
+<span class="lineNum">     952 </span>                :            : 
+<span class="lineNum">     953 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (fmttype_is_csv(formattype))</span>
+<span class="lineNum">     954 </span>                :            :                 {
+<span class="lineNum">     955 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!quote)</span>
+<span class="lineNum">     956 </span>                :<span class="lineNoCov">          0 :                                 quote = &quot;\&quot;&quot;;</span>
+<span class="lineNum">     957 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!escape)</span>
+<span class="lineNum">     958 </span>                :<span class="lineNoCov">          0 :                                 escape = quote;</span>
+<span class="lineNum">     959 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     960 </span>                :            : 
+<span class="lineNum">     961 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!fmttype_is_csv(formattype) &amp;&amp; !escape)</span>
+<span class="lineNum">     962 </span>                :<span class="lineNoCov">          0 :                         escape = &quot;\\&quot;;                /* default escape for text mode */</span>
+<span class="lineNum">     963 </span>                :            : 
+<span class="lineNum">     964 </span>                :            :                 /*
+<span class="lineNum">     965 </span>                :            :                  * re-construct the FORCE NOT NULL list string. TODO: is there no
+<span class="lineNum">     966 </span>                :            :                  * existing util function that does this? can't find.
+<span class="lineNum">     967 </span>                :            :                  */
+<span class="lineNum">     968 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (force_notnull)</span>
+<span class="lineNum">     969 </span>                :            :                 {
+<span class="lineNum">     970 </span>                :            :                         ListCell   *l;
+<span class="lineNum">     971 </span>                :<span class="lineNoCov">          0 :                         bool            is_first_col = true;</span>
+<span class="lineNum">     972 </span>                :            : 
+<span class="lineNum">     973 </span>                :<span class="lineNoCov">          0 :                         initStringInfo(&amp;fnn);</span>
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(&amp;fnn, &quot; force not null&quot;);</span>
+<span class="lineNum">     975 </span>                :            : 
+<span class="lineNum">     976 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(l, force_notnull)</span>
+<span class="lineNum">     977 </span>                :            :                         {
+<span class="lineNum">     978 </span>                :<span class="lineNoCov">          0 :                                 const char *col_name = strVal(lfirst(l));</span>
+<span class="lineNum">     979 </span>                :            : 
+<span class="lineNum">     980 </span>                :<span class="lineNoCov">          0 :                                 appendStringInfo(&amp;fnn, (is_first_col ? &quot; %s&quot; : &quot;,%s&quot;),</span>
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :                                                                  quote_identifier(col_name));</span>
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :                                 is_first_col = false;</span>
+<span class="lineNum">     983 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     984 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     985 </span>                :            : 
+<span class="lineNum">     986 </span>                :            :                 /*
+<span class="lineNum">     987 </span>                :            :                  * re-construct the FORCE QUOTE list string.
+<span class="lineNum">     988 </span>                :            :                  */
+<span class="lineNum">     989 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (force_quote)</span>
+<span class="lineNum">     990 </span>                :            :                 {
+<span class="lineNum">     991 </span>                :            :                         ListCell   *l;
+<span class="lineNum">     992 </span>                :<span class="lineNoCov">          0 :                         bool            is_first_col = true;</span>
+<span class="lineNum">     993 </span>                :            : 
+<span class="lineNum">     994 </span>                :<span class="lineNoCov">          0 :                         initStringInfo(&amp;fq);</span>
+<span class="lineNum">     995 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(&amp;fq, &quot; force quote&quot;);</span>
+<span class="lineNum">     996 </span>                :            : 
+<span class="lineNum">     997 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(l, force_quote)</span>
+<span class="lineNum">     998 </span>                :            :                         {
+<span class="lineNum">     999 </span>                :<span class="lineNoCov">          0 :                                 const char *col_name = strVal(lfirst(l));</span>
+<span class="lineNum">    1000 </span>                :            : 
+<span class="lineNum">    1001 </span>                :<span class="lineNoCov">          0 :                                 appendStringInfo(&amp;fq, (is_first_col ? &quot; %s&quot; : &quot;,%s&quot;),</span>
+<span class="lineNum">    1002 </span>                :<span class="lineNoCov">          0 :                                                                  quote_identifier(col_name));</span>
+<span class="lineNum">    1003 </span>                :<span class="lineNoCov">          0 :                                 is_first_col = false;</span>
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1006 </span>                :            : 
+<span class="lineNum">    1007 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (eol_str)</span>
+<span class="lineNum">    1008 </span>                :            :                 {
+<span class="lineNum">    1009 </span>                :<span class="lineNoCov">          0 :                         initStringInfo(&amp;nl);</span>
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(&amp;nl, &quot; newline '%s'&quot;, eol_str);</span>
+<span class="lineNum">    1011 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1012 </span>                :            : 
+<span class="lineNum">    1013 </span>                :            :                 /* verify all user supplied control char combinations are legal */
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 :                 ValidateControlChars(false,</span>
+<span class="lineNum">    1015 </span>                :<span class="lineNoCov">          0 :                                                          !iswritable,</span>
+<span class="lineNum">    1016 </span>                :<span class="lineNoCov">          0 :                                                          fmttype_is_csv(formattype),</span>
+<span class="lineNum">    1017 </span>                :<span class="lineNoCov">          0 :                                                          delim,</span>
+<span class="lineNum">    1018 </span>                :<span class="lineNoCov">          0 :                                                          null_print,</span>
+<span class="lineNum">    1019 </span>                :<span class="lineNoCov">          0 :                                                          quote,</span>
+<span class="lineNum">    1020 </span>                :<span class="lineNoCov">          0 :                                                          escape,</span>
+<span class="lineNum">    1021 </span>                :<span class="lineNoCov">          0 :                                                          force_quote,</span>
+<span class="lineNum">    1022 </span>                :<span class="lineNoCov">          0 :                                                          force_notnull,</span>
+<span class="lineNum">    1023 </span>                :<span class="lineNoCov">          0 :                                                          header_line,</span>
+<span class="lineNum">    1024 </span>                :<span class="lineNoCov">          0 :                                                          fill_missing,</span>
+<span class="lineNum">    1025 </span>                :<span class="lineNoCov">          0 :                                                          eol_str,</span>
+<span class="lineNum">    1026 </span>                :<span class="lineNoCov">          0 :                                                          numcols);</span>
+<span class="lineNum">    1027 </span>                :            : 
+<span class="lineNum">    1028 </span>                :            :                 /*
+<span class="lineNum">    1029 </span>                :            :                  * build the format option string that will get stored in the catalog.
+<span class="lineNum">    1030 </span>                :            :                  */
+<span class="lineNum">    1031 </span>                :            : 
+<span class="lineNum">    1032 </span>                :<span class="lineNoCov">          0 :                 len = 9 + 1 + 1 + strlen(delim) + 1 +   /* &quot;delimiter 'x' of 'off'&quot; */</span>
+<span class="lineNum">    1033 </span>                :<span class="lineNoCov">          0 :                         1 +                                     /* space                                        */</span>
+<span class="lineNum">    1034 </span>                :<span class="lineNoCov">          0 :                         4 + 1 + 1 + strlen(null_print) + 1 +            /* &quot;null 'str'&quot;                               */</span>
+<span class="lineNum">    1035 </span>                :<span class="lineNoCov">          0 :                         1 +                                     /* space                                        */</span>
+<span class="lineNum">    1036 </span>                :<span class="lineNoCov">          0 :                         6 + 1 + 1 + strlen(escape) + 1;         /* &quot;escape 'c' or 'off'     */</span>
+<span class="lineNum">    1037 </span>                :            : 
+<span class="lineNum">    1038 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (fmttype_is_csv(formattype))</span>
+<span class="lineNum">    1039 </span>                :<span class="lineNoCov">          0 :                         len += 1 +                      /* space                                        */</span>
+<span class="lineNum">    1040 </span>                :            :                                 5 + 1 + 3;              /* &quot;quote 'x'&quot;                                */
+<span class="lineNum">    1041 </span>                :            : 
+<span class="lineNum">    1042 </span>                :<span class="lineNoCov">          0 :                 len += header_line ? strlen(&quot; header&quot;) : 0;</span>
+<span class="lineNum">    1043 </span>                :<span class="lineNoCov">          0 :                 len += fill_missing ? strlen(&quot; fill missing fields&quot;) : 0;</span>
+<span class="lineNum">    1044 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 len += force_notnull ? strlen(fnn.data) : 0;</span>
+<span class="lineNum">    1045 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 len += force_quote ? strlen(fq.data) : 0;</span>
+<span class="lineNum">    1046 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 len += (eol_str ? (1 + 7 + 1 + 1 + strlen(eol_str) + 1) : 0);   /* space x 2, newline</span>
+<span class="lineNum">    1047 </span>                :            :                                                                                                                                                  * 'xx/xxxx' */
+<span class="lineNum">    1048 </span>                :            : 
+<span class="lineNum">    1049 </span>                :            :                 /* +1 leaves room for sprintf's trailing null */
+<span class="lineNum">    1050 </span>                :<span class="lineNoCov">          0 :                 format_str = (char *) palloc(len + 1);</span>
+<span class="lineNum">    1051 </span>                :            : 
+<span class="lineNum">    1052 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (fmttype_is_text(formattype))</span>
+<span class="lineNum">    1053 </span>                :            :                 {
+<span class="lineNum">    1054 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         sprintf((char *) format_str, &quot;delimiter '%s' null '%s' escape '%s'%s%s%s&quot;,</span>
+<span class="lineNum">    1055 </span>                :            :                                         delim, null_print, escape, (header_line ? &quot; header&quot; : &quot;&quot;),
+<span class="lineNum">    1056 </span>                :            :                                         (fill_missing ? &quot; fill missing fields&quot; : &quot;&quot;), (eol_str ? nl.data : &quot;&quot;));
+<span class="lineNum">    1057 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1058 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (fmttype_is_csv(formattype))</span>
+<span class="lineNum">    1059 </span>                :            :                 {
+<span class="lineNum">    1060 </span>                :            : 
+<span class="lineNum">    1061 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         sprintf((char *) format_str, &quot;delimiter '%s' null '%s' escape '%s' quote '%s'%s%s%s%s%s&quot;,</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1062 </span>                :            :                         delim, null_print, escape, quote, (header_line ? &quot; header&quot; : &quot;&quot;),
+<span class="lineNum">    1063 </span>                :            :                                         (fill_missing ? &quot; fill missing fields&quot; : &quot;&quot;),
+<span class="lineNum">    1064 </span>                :            :                            (force_notnull ? fnn.data : &quot;&quot;), (force_quote ? fq.data : &quot;&quot;),
+<span class="lineNum">    1065 </span>                :            :                                         (eol_str ? nl.data : &quot;&quot;));
+<span class="lineNum">    1066 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1067 </span>                :            :                 else
+<span class="lineNum">    1068 </span>                :            :                 {
+<span class="lineNum">    1069 </span>                :            :                         /* should never happen */
+<span class="lineNum">    1070 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(false);</span>
+<span class="lineNum">    1071 </span>                :            :                 }
+<span class="lineNum">    1072 </span>                :            : 
+<span class="lineNum">    1073 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1074 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (fmttype_is_avro(formattype) || fmttype_is_parquet(formattype))</span>
+<span class="lineNum">    1075 </span>                :            :         {
+<span class="lineNum">    1076 </span>                :            :                 /*
+<span class="lineNum">    1077 </span>                :            :                  * avro format, add &quot;formatter 'gphdfs_import’ &quot; directly, user
+<span class="lineNum">    1078 </span>                :            :                  * don't need to set this value
+<span class="lineNum">    1079 </span>                :            :                  */
+<span class="lineNum">    1080 </span>                :<span class="lineNoCov">          0 :                 char       *val = NULL;</span>
+<span class="lineNum">    1081 </span>                :            : 
+<span class="lineNum">    1082 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (iswritable)</span>
+<span class="lineNum">    1083 </span>                :            :                 {
+<span class="lineNum">    1084 </span>                :<span class="lineNoCov">          0 :                         val = &quot;gphdfs_export&quot;;</span>
+<span class="lineNum">    1085 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1086 </span>                :            :                 else
+<span class="lineNum">    1087 </span>                :            :                 {
+<span class="lineNum">    1088 </span>                :<span class="lineNoCov">          0 :                         val = &quot;gphdfs_import&quot;;</span>
+<span class="lineNum">    1089 </span>                :            :                 }
+<span class="lineNum">    1090 </span>                :            : 
+<span class="lineNum">    1091 </span>                :<span class="lineNoCov">          0 :                 const int       maxlen = 32;</span>
+<span class="lineNum">    1092 </span>                :            : 
+<span class="lineNum">    1093 </span>                :<span class="lineNoCov">          0 :                 format_str = (char *) palloc0(maxlen + 1);</span>
+<span class="lineNum">    1094 </span>                :<span class="lineNoCov">          0 :                 sprintf(format_str, &quot;%s '%s' &quot;, &quot;formatter&quot;, val);</span>
+<span class="lineNum">    1095 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1096 </span>                :            :         else
+<span class="lineNum">    1097 </span>                :            :         {
+<span class="lineNum">    1098 </span>                :            :                 /* custom format */
+<span class="lineNum">    1099 </span>                :            :                 StringInfoData cfbuf;
+<span class="lineNum">    1100 </span>                :            : 
+<span class="lineNum">    1101 </span>                :<span class="lineNoCov">          0 :                 initStringInfo(&amp;cfbuf);</span>
+<span class="lineNum">    1102 </span>                :            : 
+<span class="lineNum">    1103 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(option, formatOpts)</span>
+<span class="lineNum">    1104 </span>                :            :                 {
+<span class="lineNum">    1105 </span>                :<span class="lineNoCov">          0 :                         DefElem    *defel = (DefElem *) lfirst(option);</span>
+<span class="lineNum">    1106 </span>                :<span class="lineNoCov">          0 :                         char       *key = defel-&gt;defname;</span>
+<span class="lineNum">    1107 </span>                :<span class="lineNoCov">          0 :                         char       *val = defGetString(defel);</span>
+<span class="lineNum">    1108 </span>                :            : 
+<span class="lineNum">    1109 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (strcmp(key, &quot;formatter&quot;) == 0)</span>
+<span class="lineNum">    1110 </span>                :            :                         {
+<span class="lineNum">    1111 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (formatter)</span>
+<span class="lineNum">    1112 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">    1113 </span>                :            :                                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">    1114 </span>                :            :                                                          errmsg(&quot;conflicting or redundant options&quot;)));
+<span class="lineNum">    1115 </span>                :            : 
+<span class="lineNum">    1116 </span>                :<span class="lineNoCov">          0 :                                 formatter = strVal(defel-&gt;arg);</span>
+<span class="lineNum">    1117 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1118 </span>                :            : 
+<span class="lineNum">    1119 </span>                :            :                         /*
+<span class="lineNum">    1120 </span>                :            :                          * Output &quot;&lt;key&gt; '&lt;val&gt;' &quot;, but replace any space chars in the key
+<span class="lineNum">    1121 </span>                :            :                          * with meta char (MPP-14467)
+<span class="lineNum">    1122 </span>                :            :                          */
+<span class="lineNum">    1123 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         while (*key)</span>
+<span class="lineNum">    1124 </span>                :            :                         {
+<span class="lineNum">    1125 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (*key == ' ')</span>
+<span class="lineNum">    1126 </span>                :<span class="lineNoCov">          0 :                                         appendStringInfoString(&amp;cfbuf, &quot;&lt;gpx20&gt;&quot;);</span>
+<span class="lineNum">    1127 </span>                :            :                                 else
+<span class="lineNum">    1128 </span>                :<span class="lineNoCov">          0 :                                         appendStringInfoChar(&amp;cfbuf, *key);</span>
+<span class="lineNum">    1129 </span>                :<span class="lineNoCov">          0 :                                 key++;</span>
+<span class="lineNum">    1130 </span>                :            :                         }
+<span class="lineNum">    1131 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(&amp;cfbuf, &quot; '%s' &quot;, val);</span>
+<span class="lineNum">    1132 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1133 </span>                :            : 
+<span class="lineNum">    1134 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!formatter)</span>
+<span class="lineNum">    1135 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">    1136 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">    1137 </span>                :            :                                          errmsg(&quot;no formatter function specified&quot;)));
+<span class="lineNum">    1138 </span>                :            : 
+<span class="lineNum">    1139 </span>                :<span class="lineNoCov">          0 :                 format_str = cfbuf.data;</span>
+<span class="lineNum">    1140 </span>                :            :         }
+<span class="lineNum">    1141 </span>                :            : 
+<span class="lineNum">    1142 </span>                :            :         /* convert c string to text datum */
+<span class="lineNum">    1143 </span>                :<span class="lineNoCov">          0 :         result = DirectFunctionCall1(textin, CStringGetDatum(format_str));</span>
+<span class="lineNum">    1144 </span>                :            : 
+<span class="lineNum">    1145 </span>                :            :         /* clean up */
+<span class="lineNum">    1146 </span>                :<span class="lineNoCov">          0 :         pfree(format_str);</span>
+<span class="lineNum">    1147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (force_notnull)</span>
+<span class="lineNum">    1148 </span>                :<span class="lineNoCov">          0 :                 pfree(fnn.data);</span>
+<span class="lineNum">    1149 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (force_quote)</span>
+<span class="lineNum">    1150 </span>                :<span class="lineNoCov">          0 :                 pfree(fq.data);</span>
+<span class="lineNum">    1151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (eol_str)</span>
+<span class="lineNum">    1152 </span>                :<span class="lineNoCov">          0 :                 pfree(nl.data);</span>
+<span class="lineNum">    1153 </span>                :            : 
+<span class="lineNum">    1154 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">    1155 </span>                :            : 
+<span class="lineNum">    1156 </span>                :            : }
+<a name="1157"><span class="lineNum">    1157 </span>                :            : </a>
+<span class="lineNum">    1158 </span>                :            : static void
+<span class="lineNum">    1159 </span>                :            : InvokeProtocolValidation(Oid procOid, char *procName, bool iswritable, List *locs)
+<span class="lineNum">    1160 </span>                :            : {
+<span class="lineNum">    1161 </span>                :            :         ExtProtocolValidatorData *validator_data;
+<span class="lineNum">    1162 </span>                :            :         FmgrInfo   *validator_udf;
+<span class="lineNum">    1163 </span>                :            :         FunctionCallInfoData fcinfo;
+<span class="lineNum">    1164 </span>                :            : 
+<span class="lineNum">    1165 </span>                :<span class="lineNoCov">          0 :         validator_data = (ExtProtocolValidatorData *) palloc0(sizeof(ExtProtocolValidatorData));</span>
+<span class="lineNum">    1166 </span>                :<span class="lineNoCov">          0 :         validator_udf = palloc(sizeof(FmgrInfo));</span>
+<span class="lineNum">    1167 </span>                :<span class="lineNoCov">          0 :         fmgr_info(procOid, validator_udf);</span>
+<span class="lineNum">    1168 </span>                :            : 
+<span class="lineNum">    1169 </span>                :<span class="lineNoCov">          0 :         validator_data-&gt;type = T_ExtProtocolValidatorData;</span>
+<span class="lineNum">    1170 </span>                :<span class="lineNoCov">          0 :         validator_data-&gt;url_list = locs;</span>
+<span class="lineNum">    1171 </span>                :<span class="lineNoCov">          0 :         validator_data-&gt;errmsg = NULL;</span>
+<span class="lineNum">    1172 </span>                :<span class="lineNoCov">          0 :         validator_data-&gt;direction = (iswritable ? EXT_VALIDATE_WRITE :</span>
+<span class="lineNum">    1173 </span>                :            :                                                                  EXT_VALIDATE_READ);
+<span class="lineNum">    1174 </span>                :            : 
+<span class="lineNum">    1175 </span>                :<span class="lineNoCov">          0 :         InitFunctionCallInfoData( /* FunctionCallInfoData */ fcinfo,</span>
+<span class="lineNum">    1176 </span>                :            :                                                           /* FmgrInfo */ validator_udf,
+<span class="lineNum">    1177 </span>                :            :                                                           /* nArgs */ 0,
+<span class="lineNum">    1178 </span>                :            :                                                           /* Call Context */ (Node *) validator_data,
+<span class="lineNum">    1179 </span>                :            :                                                           /* ResultSetInfo */ NULL);
+<span class="lineNum">    1180 </span>                :            : 
+<span class="lineNum">    1181 </span>                :            :         /* invoke validator. if this function returns - validation passed */
+<span class="lineNum">    1182 </span>                :<span class="lineNoCov">          0 :         FunctionCallInvoke(&amp;fcinfo);</span>
+<span class="lineNum">    1183 </span>                :            : 
+<span class="lineNum">    1184 </span>                :            :         /* We do not expect a null result */
+<span class="lineNum">    1185 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fcinfo.isnull)</span>
+<span class="lineNum">    1186 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;validator function %u returned NULL&quot;,</span>
+<span class="lineNum">    1187 </span>                :            :                          fcinfo.flinfo-&gt;fn_oid);
+<span class="lineNum">    1188 </span>                :            : 
+<span class="lineNum">    1189 </span>                :<span class="lineNoCov">          0 :         pfree(validator_data);</span>
+<span class="lineNum">    1190 </span>                :<span class="lineNoCov">          0 :         pfree(validator_udf);</span>
+<span class="lineNum">    1191 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

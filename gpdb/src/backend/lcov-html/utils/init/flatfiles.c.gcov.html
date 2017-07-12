@@ -1,0 +1,1407 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/init/flatfiles.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/init</a> - flatfiles.c<span style="font-size: 80%;"> (source / <a href="flatfiles.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">432</td>
+            <td class="headerCovTableEntryLo">0.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">25</td>
+            <td class="headerCovTableEntryLo">8.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">219</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * flatfiles.c
+<span class="lineNum">       4 </span>                :            :  *        Routines for maintaining &quot;flat file&quot; images of the shared catalogs.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * We use flat files so that the postmaster and not-yet-fully-started
+<span class="lineNum">       7 </span>                :            :  * backends can look at the contents of pg_database, pg_authid, and
+<span class="lineNum">       8 </span>                :            :  * pg_auth_members for authentication purposes.  This module is
+<span class="lineNum">       9 </span>                :            :  * responsible for keeping the flat-file images as nearly in sync with
+<span class="lineNum">      10 </span>                :            :  * database reality as possible.
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  * The tricky part of the write_xxx_file() routines in this module is that
+<span class="lineNum">      13 </span>                :            :  * they need to be able to operate in the context of the database startup
+<span class="lineNum">      14 </span>                :            :  * process (which calls BuildFlatFiles()) as well as a normal backend.
+<span class="lineNum">      15 </span>                :            :  * This means for example that we can't assume a fully functional relcache
+<span class="lineNum">      16 </span>                :            :  * and we can't use syscaches at all.  The major restriction imposed by
+<span class="lineNum">      17 </span>                :            :  * all that is that there's no way to read an out-of-line-toasted datum,
+<span class="lineNum">      18 </span>                :            :  * because the tuptoaster.c code is not prepared to cope with such an
+<span class="lineNum">      19 </span>                :            :  * environment.  Fortunately we can design the shared catalogs in such
+<span class="lineNum">      20 </span>                :            :  * a way that this is OK.
+<span class="lineNum">      21 </span>                :            :  *
+<span class="lineNum">      22 </span>                :            :  *
+<span class="lineNum">      23 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">      24 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      25 </span>                :            :  *
+<span class="lineNum">      26 </span>                :            :  * $PostgreSQL: pgsql/src/backend/utils/init/flatfiles.c,v 1.30 2008/01/01 19:45:53 momjian Exp $
+<span class="lineNum">      27 </span>                :            :  *
+<span class="lineNum">      28 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      29 </span>                :            :  */
+<span class="lineNum">      30 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      33 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      34 </span>                :            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      35 </span>                :            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      36 </span>                :            : #include &lt;sys/types.h&gt;
+<span class="lineNum">      37 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;access/transam.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;access/twophase_rmgr.h&quot;
+<span class="lineNum">      42 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      43 </span>                :            : #include &quot;catalog/catalog.h&quot;
+<span class="lineNum">      44 </span>                :            : #include &quot;catalog/pg_auth_members.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;catalog/pg_auth_time_constraint.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;catalog/pg_authid.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;catalog/pg_database.h&quot;
+<span class="lineNum">      48 </span>                :            : #include &quot;catalog/pg_namespace.h&quot;
+<span class="lineNum">      49 </span>                :            : #include &quot;catalog/pg_tablespace.h&quot;
+<span class="lineNum">      50 </span>                :            : #include &quot;commands/trigger.h&quot;
+<span class="lineNum">      51 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      52 </span>                :            : #include &quot;storage/fd.h&quot;
+<span class="lineNum">      53 </span>                :            : #include &quot;storage/pmsignal.h&quot;
+<span class="lineNum">      54 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      55 </span>                :            : #include &quot;utils/flatfiles.h&quot;
+<span class="lineNum">      56 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      57 </span>                :            : #include &quot;utils/relcache.h&quot;
+<span class="lineNum">      58 </span>                :            : #include &quot;utils/resowner.h&quot;
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :            : #include &quot;cdb/cdbmirroredflatfile.h&quot;
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : /* Actual names of the flat files (within $PGDATA) */
+<span class="lineNum">      64 </span>                :            : #define DATABASE_FLAT_FILE      &quot;global/pg_database&quot;
+<span class="lineNum">      65 </span>                :            : #define AUTH_FLAT_FILE          &quot;global/pg_auth&quot;
+<span class="lineNum">      66 </span>                :            : #define AUTH_TIME_FLAT_FILE &quot;global/pg_auth_time_constraint&quot;
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :            : /* Info bits in a flatfiles 2PC record */
+<span class="lineNum">      69 </span>                :            : #define FF_BIT_DATABASE 1
+<span class="lineNum">      70 </span>                :            : #define FF_BIT_AUTH             2
+<span class="lineNum">      71 </span>                :            : #define FF_BIT_AUTH_TIME 4
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : /*
+<span class="lineNum">      75 </span>                :            :  * The need-to-update-files flags are SubTransactionIds that show
+<span class="lineNum">      76 </span>                :            :  * what level of the subtransaction tree requested the update. To register
+<span class="lineNum">      77 </span>                :            :  * an update, the subtransaction saves its own SubTransactionId in the flag,
+<span class="lineNum">      78 </span>                :            :  * unless the value was already set to a valid SubTransactionId (which implies
+<span class="lineNum">      79 </span>                :            :  * that it or a parent level has already requested the same).  If it aborts
+<span class="lineNum">      80 </span>                :            :  * and the value is its SubTransactionId, it resets the flag to
+<span class="lineNum">      81 </span>                :            :  * InvalidSubTransactionId. If it commits, it changes the value to its
+<span class="lineNum">      82 </span>                :            :  * parent's SubTransactionId.  This way the value is propagated up to the
+<span class="lineNum">      83 </span>                :            :  * top-level transaction, which will update the files if a valid
+<span class="lineNum">      84 </span>                :            :  * SubTransactionId is seen at top-level commit.
+<span class="lineNum">      85 </span>                :            :  */
+<span class="lineNum">      86 </span>                :            : static SubTransactionId database_file_update_subid = InvalidSubTransactionId;
+<span class="lineNum">      87 </span>                :            : static SubTransactionId auth_file_update_subid = InvalidSubTransactionId;
+<span class="lineNum">      88 </span>                :            : static SubTransactionId auth_time_file_update_subid = InvalidSubTransactionId;
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>                :            : /*
+<span class="lineNum">      92 </span>                :            :  * Mark flat database file as needing an update (because pg_database changed)
+<a name="93"><span class="lineNum">      93 </span>                :            :  */</a>
+<span class="lineNum">      94 </span>                :            : void
+<span class="lineNum">      95 </span>                :            : database_file_update_needed(void)
+<span class="lineNum">      96 </span>                :            : {
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (database_file_update_subid == InvalidSubTransactionId)</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                 database_file_update_subid = GetCurrentSubTransactionId();</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :            : /*
+<span class="lineNum">     102 </span>                :            :  * Mark flat auth file as needing an update (because pg_authid or
+<span class="lineNum">     103 </span>                :            :  * pg_auth_members changed)
+<a name="104"><span class="lineNum">     104 </span>                :            :  */</a>
+<span class="lineNum">     105 </span>                :            : void
+<span class="lineNum">     106 </span>                :            : auth_file_update_needed(void)
+<span class="lineNum">     107 </span>                :            : {
+<span class="lineNum">     108 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_file_update_subid == InvalidSubTransactionId)</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                 auth_file_update_subid = GetCurrentSubTransactionId();</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            : /*
+<span class="lineNum">     113 </span>                :            :  * Mark flat auth time file as needing an update (because 
+<span class="lineNum">     114 </span>                :            :  * pg_auth_time_constraint changed)
+<a name="115"><span class="lineNum">     115 </span>                :            :  */</a>
+<span class="lineNum">     116 </span>                :            : void
+<span class="lineNum">     117 </span>                :            : auth_time_file_update_needed(void)
+<span class="lineNum">     118 </span>                :            : {
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_time_file_update_subid == InvalidSubTransactionId)</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_subid = GetCurrentSubTransactionId();</span>
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :            : /*
+<span class="lineNum">     124 </span>                :            :  * database_getflatfilename --- get pathname of database file
+<span class="lineNum">     125 </span>                :            :  *
+<span class="lineNum">     126 </span>                :            :  * Note that result string is palloc'd, and should be freed by the caller.
+<span class="lineNum">     127 </span>                :            :  * (This convention is not really needed anymore, since the relative path
+<span class="lineNum">     128 </span>                :            :  * is fixed.)
+<a name="129"><span class="lineNum">     129 </span>                :            :  */</a>
+<span class="lineNum">     130 </span>                :            : char *
+<span class="lineNum">     131 </span>                :            : database_getflatfilename(void)
+<span class="lineNum">     132 </span>                :            : {
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         return pstrdup(DATABASE_FLAT_FILE);</span>
+<span class="lineNum">     134 </span>                :            : }
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            : /*
+<span class="lineNum">     137 </span>                :            :  * auth_getflatfilename --- get pathname of auth file
+<span class="lineNum">     138 </span>                :            :  *
+<span class="lineNum">     139 </span>                :            :  * Note that result string is palloc'd, and should be freed by the caller.
+<span class="lineNum">     140 </span>                :            :  * (This convention is not really needed anymore, since the relative path
+<span class="lineNum">     141 </span>                :            :  * is fixed.)
+<a name="142"><span class="lineNum">     142 </span>                :            :  */</a>
+<span class="lineNum">     143 </span>                :            : char *
+<span class="lineNum">     144 </span>                :            : auth_getflatfilename(void)
+<span class="lineNum">     145 </span>                :            : {
+<span class="lineNum">     146 </span>                :<span class="lineCov">         48 :         return pstrdup(AUTH_FLAT_FILE);</span>
+<span class="lineNum">     147 </span>                :            : }
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :            : /*  
+<span class="lineNum">     150 </span>                :            :  * auth_time_getflatfilename --- get pathname of auth_time_constraint file
+<span class="lineNum">     151 </span>                :            :  *      
+<span class="lineNum">     152 </span>                :            :  * Note that result string is palloc'd, and should be freed by the caller.
+<span class="lineNum">     153 </span>                :            :  * (This convention is not really needed anymore, since the relative path
+<span class="lineNum">     154 </span>                :            :  * is fixed.)       
+<a name="155"><span class="lineNum">     155 </span>                :            :  */                  </a>
+<span class="lineNum">     156 </span>                :            : char *  
+<span class="lineNum">     157 </span>                :            : auth_time_getflatfilename(void)
+<span class="lineNum">     158 </span>                :            : {   
+<span class="lineNum">     159 </span>                :<span class="lineCov">         48 :         return pstrdup(AUTH_TIME_FLAT_FILE);</span>
+<span class="lineNum">     160 </span>                :            : }
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>                :            : /*
+<span class="lineNum">     163 </span>                :            :  *      puts_quote
+<span class="lineNum">     164 </span>                :            :  *
+<span class="lineNum">     165 </span>                :            :  *  Copies str info buffer, quoting it and duplicating quote characters
+<span class="lineNum">     166 </span>                :            :  *  to escape them.
+<a name="167"><span class="lineNum">     167 </span>                :            :  */</a>
+<span class="lineNum">     168 </span>                :            : static void
+<span class="lineNum">     169 </span>                :            : sputs_quote(StringInfo buffer, const char *str)
+<span class="lineNum">     170 </span>                :            : {
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :         appendStringInfoChar(buffer, '&quot;');</span>
+<span class="lineNum">     172 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (*str)</span>
+<span class="lineNum">     173 </span>                :            :         {
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(buffer, *str);</span>
+<span class="lineNum">     175 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*str == '&quot;')</span>
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoChar(buffer, '&quot;');</span>
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                 str++;</span>
+<span class="lineNum">     178 </span>                :            :         }
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :         appendStringInfoChar(buffer, '&quot;');</span>
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :            : /*
+<span class="lineNum">     183 </span>                :            :  * name_okay
+<span class="lineNum">     184 </span>                :            :  *
+<span class="lineNum">     185 </span>                :            :  * We must disallow newlines in role names because
+<span class="lineNum">     186 </span>                :            :  * hba.c's parser won't handle fields split across lines, even if quoted.
+<a name="187"><span class="lineNum">     187 </span>                :            :  */</a>
+<span class="lineNum">     188 </span>                :            : static bool
+<span class="lineNum">     189 </span>                :            : name_okay(const char *str)
+<span class="lineNum">     190 </span>                :            : {
+<span class="lineNum">     191 </span>                :            :         int                     i;
+<span class="lineNum">     192 </span>                :            : 
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         i = strcspn(str, &quot;\r\n&quot;);</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         return (str[i] == '\0');</span>
+<span class="lineNum">     195 </span>                :            : }
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            : /*
+<span class="lineNum">     199 </span>                :            :  * write_database_file: update the flat database file
+<span class="lineNum">     200 </span>                :            :  *
+<span class="lineNum">     201 </span>                :            :  * A side effect is to determine the oldest database's datfrozenxid
+<span class="lineNum">     202 </span>                :            :  * so we can set or update the XID wrap limit.
+<span class="lineNum">     203 </span>                :            :  *
+<span class="lineNum">     204 </span>                :            :  * Also, if &quot;startup&quot; is true, we tell relcache.c to clear out the relcache
+<span class="lineNum">     205 </span>                :            :  * init file in each database.  That's a bit nonmodular, but scanning
+<span class="lineNum">     206 </span>                :            :  * pg_database twice during system startup seems too high a price for keeping
+<span class="lineNum">     207 </span>                :            :  * things better separated.
+<a name="208"><span class="lineNum">     208 </span>                :            :  */</a>
+<span class="lineNum">     209 </span>                :            : static void
+<span class="lineNum">     210 </span>                :            : write_database_file(Relation drel, bool startup)
+<span class="lineNum">     211 </span>                :            : {
+<span class="lineNum">     212 </span>                :            :         StringInfoData buffer;
+<span class="lineNum">     213 </span>                :            :         HeapScanDesc scan;
+<span class="lineNum">     214 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     215 </span>                :            :         NameData        oldest_datname;
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         TransactionId oldest_datfrozenxid = InvalidTransactionId;</span>
+<span class="lineNum">     217 </span>                :            :         MirroredFlatFileOpen mirroredOpen;
+<span class="lineNum">     218 </span>                :            : 
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Open(</span>
+<span class="lineNum">     222 </span>                :            :                                         &amp;mirroredOpen,
+<span class="lineNum">     223 </span>                :            :                                         &quot;global&quot;,
+<span class="lineNum">     224 </span>                :            :                                         &quot;pg_database&quot;,
+<span class="lineNum">     225 </span>                :            :                                         O_CREAT | O_TRUNC | O_WRONLY | PG_BINARY,
+<span class="lineNum">     226 </span>                :            :                                         S_IRUSR | S_IWUSR,
+<span class="lineNum">     227 </span>                :            :                                         /* suppressError */ false,
+<span class="lineNum">     228 </span>                :            :                                         /* atomic operation */ true,
+<span class="lineNum">     229 </span>                :            :                                         /*isMirrorRecovery */ false);
+<span class="lineNum">     230 </span>                :            :         /*
+<span class="lineNum">     231 </span>                :            :          * Read pg_database and write the file.
+<span class="lineNum">     232 </span>                :            :          */
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :         scan = heap_beginscan(drel, SnapshotNow, 0, NULL);</span>
+<span class="lineNum">     234 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)</span>
+<span class="lineNum">     235 </span>                :            :         {
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                 Form_pg_database dbform = (Form_pg_database) GETSTRUCT(tuple);</span>
+<span class="lineNum">     237 </span>                :            :                 char       *datname;
+<span class="lineNum">     238 </span>                :            :                 Oid                     datoid;
+<span class="lineNum">     239 </span>                :            :                 Oid                     dattablespace;
+<span class="lineNum">     240 </span>                :            :                 TransactionId datfrozenxid;
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                 datname = NameStr(dbform-&gt;datname);</span>
+<span class="lineNum">     243 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 datoid = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 dattablespace = dbform-&gt;dattablespace;</span>
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                 datfrozenxid = dbform-&gt;datfrozenxid;</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>                :            :                 /*
+<span class="lineNum">     248 </span>                :            :                  * Identify the oldest datfrozenxid.  This must match the logic in
+<span class="lineNum">     249 </span>                :            :                  * vac_truncate_clog() in vacuum.c.
+<span class="lineNum">     250 </span>                :            :                  *
+<span class="lineNum">     251 </span>                :            :                  * MPP-20053: Skip databases that cannot be connected to in computing
+<span class="lineNum">     252 </span>                :            :                  * the oldest database.
+<span class="lineNum">     253 </span>                :            :                  */
+<span class="lineNum">     254 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (dbform-&gt;datallowconn &amp;&amp; TransactionIdIsNormal(datfrozenxid))</span>
+<span class="lineNum">     255 </span>                :            :                 {
+<span class="lineNum">     256 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (oldest_datfrozenxid == InvalidTransactionId ||</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                                 TransactionIdPrecedes(datfrozenxid, oldest_datfrozenxid))</span>
+<span class="lineNum">     258 </span>                :            :                         {
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                                 oldest_datfrozenxid = datfrozenxid;</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :                                 namestrcpy(&amp;oldest_datname, datname);</span>
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :            :                 /*
+<span class="lineNum">     265 </span>                :            :                  * Check for illegal characters in the database name.
+<span class="lineNum">     266 </span>                :            :                  */
+<span class="lineNum">     267 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!name_okay(datname))</span>
+<span class="lineNum">     268 </span>                :            :                 {
+<span class="lineNum">     269 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">     270 </span>                :            :                                         (errmsg(&quot;invalid database name \&quot;%s\&quot;&quot;, datname)));
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     272 </span>                :            :                 }
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :            :                 /*
+<span class="lineNum">     275 </span>                :            :                  * The file format is: &quot;dbname&quot; oid tablespace frozenxid
+<span class="lineNum">     276 </span>                :            :                  *
+<span class="lineNum">     277 </span>                :            :                  * The xids are not needed for backend startup, but are of use to
+<span class="lineNum">     278 </span>                :            :                  * autovacuum, and might also be helpful for forensic purposes.
+<span class="lineNum">     279 </span>                :            :                  */
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, datname);</span>
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                 appendStringInfo(&amp;buffer, &quot; %u %u %u\n&quot;,</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                                                  datoid, dattablespace, datfrozenxid);</span>
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>                :            :                 /*
+<span class="lineNum">     285 </span>                :            :                  * MPP-10111 - During database expansion we need to be able to bring a
+<span class="lineNum">     286 </span>                :            :                  * database up in order to correct the filespace locations in the
+<span class="lineNum">     287 </span>                :            :                  * catalog.  At this point we will not be able to resolve database paths
+<span class="lineNum">     288 </span>                :            :                  * for databases not stored in &quot;pg_default&quot; or &quot;pg_global&quot;.
+<span class="lineNum">     289 </span>                :            :                  *
+<span class="lineNum">     290 </span>                :            :                  * This is solved by passing a special guc to the startup during this
+<span class="lineNum">     291 </span>                :            :                  * phase of expand to bypass logic involving non-system tablespaces.
+<span class="lineNum">     292 </span>                :            :                  * Since we are bypassing the clearing of the relation cache on these
+<span class="lineNum">     293 </span>                :            :                  * databases we need to ensure that we don't try to use them at all
+<span class="lineNum">     294 </span>                :            :                  * elsewhere.  This is done with a similar check in
+<span class="lineNum">     295 </span>                :            :                  * PersistentTablespace_GetPrimaryAndMirrorFilespaces().
+<span class="lineNum">     296 </span>                :            :                  */
+<span class="lineNum">     297 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (gp_before_filespace_setup &amp;&amp; !IsBuiltinTablespace(dattablespace))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     299 </span>                :            :         }
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :         heap_endscan(scan);</span>
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Append(&amp;mirroredOpen, buffer.data, buffer.len,</span>
+<span class="lineNum">     303 </span>                :            :                                                         /* suppressError */ false);
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Flush(&amp;mirroredOpen, /* suppressError */ false);</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Close(&amp;mirroredOpen);</span>
+<span class="lineNum">     306 </span>                :            : 
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (buffer.maxlen &gt; 0)</span>
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                 pfree(buffer.data);</span>
+<span class="lineNum">     309 </span>                :            : 
+<span class="lineNum">     310 </span>                :            :         /*
+<span class="lineNum">     311 </span>                :            :          * Set the transaction ID wrap limit using the oldest datfrozenxid
+<span class="lineNum">     312 </span>                :            :          */
+<span class="lineNum">     313 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (oldest_datfrozenxid != InvalidTransactionId)</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                 SetTransactionIdLimit(oldest_datfrozenxid, &amp;oldest_datname);</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :            : /*
+<span class="lineNum">     319 </span>                :            :  * Support for write_auth_file
+<span class="lineNum">     320 </span>                :            :  *
+<span class="lineNum">     321 </span>                :            :  * The format for the flat auth file is
+<span class="lineNum">     322 </span>                :            :  *              &quot;rolename&quot; &quot;password&quot; &quot;validuntil&quot; &quot;memberof&quot; &quot;memberof&quot; ...
+<span class="lineNum">     323 </span>                :            :  * Each role's line lists all the roles (groups) of which it is directly
+<span class="lineNum">     324 </span>                :            :  * or indirectly a member, except for itself.
+<span class="lineNum">     325 </span>                :            :  *
+<span class="lineNum">     326 </span>                :            :  * The postmaster expects the file to be sorted by rolename.  There is not
+<span class="lineNum">     327 </span>                :            :  * any special ordering of the membership lists.
+<span class="lineNum">     328 </span>                :            :  *
+<span class="lineNum">     329 </span>                :            :  * To construct this information, we scan pg_authid and pg_auth_members,
+<span class="lineNum">     330 </span>                :            :  * and build data structures in-memory before writing the file.
+<span class="lineNum">     331 </span>                :            :  */
+<span class="lineNum">     332 </span>                :            : 
+<span class="lineNum">     333 </span>                :            : typedef struct
+<span class="lineNum">     334 </span>                :            : {
+<span class="lineNum">     335 </span>                :            :         Oid                     roleid;
+<span class="lineNum">     336 </span>                :            :         bool            rolsuper;
+<span class="lineNum">     337 </span>                :            :         char       *rolname;
+<span class="lineNum">     338 </span>                :            :         char       *rolpassword;
+<span class="lineNum">     339 </span>                :            :         char       *rolvaliduntil;
+<span class="lineNum">     340 </span>                :            :         List       *member_of;
+<span class="lineNum">     341 </span>                :            : } auth_entry;
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :            : typedef struct
+<span class="lineNum">     344 </span>                :            : {
+<span class="lineNum">     345 </span>                :            :         Oid                     roleid;
+<span class="lineNum">     346 </span>                :            :         Oid                     memberid;
+<span class="lineNum">     347 </span>                :            : } authmem_entry;
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :            : 
+<a name="350"><span class="lineNum">     350 </span>                :            : /* qsort comparator for sorting auth_entry array by roleid */</a>
+<span class="lineNum">     351 </span>                :            : static int
+<span class="lineNum">     352 </span>                :            : oid_compar(const void *a, const void *b)
+<span class="lineNum">     353 </span>                :            : {
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :         const auth_entry *a_auth = (const auth_entry *) a;</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :         const auth_entry *b_auth = (const auth_entry *) b;</span>
+<span class="lineNum">     356 </span>                :            : 
+<span class="lineNum">     357 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (a_auth-&gt;roleid &lt; b_auth-&gt;roleid)</span>
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     359 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (a_auth-&gt;roleid &gt; b_auth-&gt;roleid)</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     363 </span>                :            : 
+<a name="364"><span class="lineNum">     364 </span>                :            : /* qsort comparator for sorting auth_entry array by rolname */</a>
+<span class="lineNum">     365 </span>                :            : static int
+<span class="lineNum">     366 </span>                :            : name_compar(const void *a, const void *b)
+<span class="lineNum">     367 </span>                :            : {
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         const auth_entry *a_auth = (const auth_entry *) a;</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :         const auth_entry *b_auth = (const auth_entry *) b;</span>
+<span class="lineNum">     370 </span>                :            : 
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :         return strcmp(a_auth-&gt;rolname, b_auth-&gt;rolname);</span>
+<span class="lineNum">     372 </span>                :            : }
+<span class="lineNum">     373 </span>                :            : 
+<a name="374"><span class="lineNum">     374 </span>                :            : /* qsort comparator for sorting authmem_entry array by memberid */</a>
+<span class="lineNum">     375 </span>                :            : static int
+<span class="lineNum">     376 </span>                :            : mem_compar(const void *a, const void *b)
+<span class="lineNum">     377 </span>                :            : {
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         const authmem_entry *a_auth = (const authmem_entry *) a;</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         const authmem_entry *b_auth = (const authmem_entry *) b;</span>
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (a_auth-&gt;memberid &lt; b_auth-&gt;memberid)</span>
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     383 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (a_auth-&gt;memberid &gt; b_auth-&gt;memberid)</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>                :            : /*
+<span class="lineNum">     390 </span>                :            :  * load_auth_entries: read pg_authid into auth_entry[]
+<span class="lineNum">     391 </span>                :            :  *
+<span class="lineNum">     392 </span>                :            :  * auth_info_out: pointer to auth_entry * where address to auth_entry[] should be stored
+<span class="lineNum">     393 </span>                :            :  * total_roles_out: pointer to int where num of total roles should be stored
+<a name="394"><span class="lineNum">     394 </span>                :            :  */</a>
+<span class="lineNum">     395 </span>                :            : static void
+<span class="lineNum">     396 </span>                :            : load_auth_entries(Relation rel_authid, auth_entry **auth_info_out, int *total_roles_out)
+<span class="lineNum">     397 </span>                :            : {
+<span class="lineNum">     398 </span>                :            :         BlockNumber totalblocks;
+<span class="lineNum">     399 </span>                :            :         HeapScanDesc scan;
+<span class="lineNum">     400 </span>                :            :         HeapTuple   tuple;
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :         int         curr_role = 0;</span>
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :         int         total_roles = 0;</span>
+<span class="lineNum">     403 </span>                :            :         int         est_rows;
+<span class="lineNum">     404 </span>                :            :         auth_entry *auth_info;
+<span class="lineNum">     405 </span>                :            : 
+<span class="lineNum">     406 </span>                :            :         /*
+<span class="lineNum">     407 </span>                :            :          * Read pg_authid and fill temporary data structures.
+<span class="lineNum">     408 </span>                :            :          */
+<span class="lineNum">     409 </span>                :<span class="lineNoCov">          0 :         totalblocks = RelationGetNumberOfBlocks(rel_authid);</span>
+<span class="lineNum">     410 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         totalblocks = totalblocks ? totalblocks : 1;</span>
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 :         est_rows = totalblocks * (BLCKSZ / (sizeof(HeapTupleHeaderData) + sizeof(FormData_pg_authid)));</span>
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :         auth_info = (auth_entry *) palloc(est_rows * sizeof(auth_entry));</span>
+<span class="lineNum">     413 </span>                :            : 
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :         scan = heap_beginscan(rel_authid, SnapshotNow, 0, NULL);</span>
+<span class="lineNum">     415 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)</span>
+<span class="lineNum">     416 </span>                :            :         {
+<span class="lineNum">     417 </span>                :<span class="lineNoCov">          0 :                 Form_pg_authid aform = (Form_pg_authid) GETSTRUCT(tuple);</span>
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                 HeapTupleHeader tup = tuple-&gt;t_data;</span>
+<span class="lineNum">     419 </span>                :            :                 char       *tp;                 /* ptr to tuple data */
+<span class="lineNum">     420 </span>                :            :                 long            off;            /* offset in tuple data */
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :                 bits8      *bp = tup-&gt;t_bits;        /* ptr to null bitmask in tuple */</span>
+<span class="lineNum">     422 </span>                :            :                 Datum           datum;
+<span class="lineNum">     423 </span>                :            : 
+<span class="lineNum">     424 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (curr_role &gt;= est_rows)</span>
+<span class="lineNum">     425 </span>                :            :                 {
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                         est_rows *= 2;</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :                         auth_info = (auth_entry *)</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                                 repalloc(auth_info, est_rows * sizeof(auth_entry));</span>
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 auth_info[curr_role].roleid = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :                 auth_info[curr_role].rolsuper = aform-&gt;rolsuper;</span>
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                 auth_info[curr_role].rolname = pstrdup(NameStr(aform-&gt;rolname));</span>
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                 auth_info[curr_role].member_of = NIL;</span>
+<span class="lineNum">     435 </span>                :            : 
+<span class="lineNum">     436 </span>                :            :                 /*
+<span class="lineNum">     437 </span>                :            :                  * We can't use heap_getattr() here because during startup we will not
+<span class="lineNum">     438 </span>                :            :                  * have any tupdesc for pg_authid.  Fortunately it's not too hard to
+<span class="lineNum">     439 </span>                :            :                  * work around this.  rolpassword is the first possibly-null field so
+<span class="lineNum">     440 </span>                :            :                  * we can compute its offset directly.  Note that this only works
+<span class="lineNum">     441 </span>                :            :                  * reliably because the preceding field (rolconnlimit) is int4, and
+<span class="lineNum">     442 </span>                :            :                  * therefore rolpassword is always 4-byte-aligned, and will be at the
+<span class="lineNum">     443 </span>                :            :                  * same offset no matter whether it uses 1-byte or 4-byte header.
+<span class="lineNum">     444 </span>                :            :                  */
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :                 tp = (char *) tup + tup-&gt;t_hoff;</span>
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :                 off = offsetof(FormData_pg_authid, rolpassword);</span>
+<span class="lineNum">     447 </span>                :            : 
+<span class="lineNum">     448 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (HeapTupleHasNulls(tuple) &amp;&amp;</span>
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :                         att_isnull(Anum_pg_authid_rolpassword - 1, bp))</span>
+<span class="lineNum">     450 </span>                :            :                 {
+<span class="lineNum">     451 </span>                :            :                         /* passwd is null, emit as an empty string */
+<span class="lineNum">     452 </span>                :<span class="lineNoCov">          0 :                         auth_info[curr_role].rolpassword = pstrdup(&quot;&quot;);</span>
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     454 </span>                :            :                 else
+<span class="lineNum">     455 </span>                :            :                 {
+<span class="lineNum">     456 </span>                :            :                         /* assume passwd is pass-by-ref */
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                         datum = PointerGetDatum(tp + off);</span>
+<span class="lineNum">     458 </span>                :            : 
+<span class="lineNum">     459 </span>                :            :                         /*
+<span class="lineNum">     460 </span>                :            :                          * The password probably shouldn't ever be out-of-line toasted; if
+<span class="lineNum">     461 </span>                :            :                          * it is, ignore it, since we can't handle that in startup mode.
+<span class="lineNum">     462 </span>                :            :                          *
+<span class="lineNum">     463 </span>                :            :                          * It is entirely likely that it's 1-byte format not 4-byte, and
+<span class="lineNum">     464 </span>                :            :                          * theoretically possible that it's compressed inline, but textout
+<span class="lineNum">     465 </span>                :            :                          * should be able to handle those cases even in startup mode.
+<span class="lineNum">     466 </span>                :            :                          */
+<span class="lineNum">     467 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (VARATT_IS_EXTERNAL(DatumGetPointer(datum)))</span>
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :                                 auth_info[curr_role].rolpassword = pstrdup(&quot;&quot;);</span>
+<span class="lineNum">     469 </span>                :            :                         else
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                                 auth_info[curr_role].rolpassword = DatumGetCString(DirectFunctionCall1(textout, datum));</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>                :            :                         /* assume passwd has attlen -1 */
+<span class="lineNum">     473 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         off = att_addlength_pointer(off, -1, tp + off);</span>
+<span class="lineNum">     474 </span>                :            :                 }
+<span class="lineNum">     475 </span>                :            : 
+<span class="lineNum">     476 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (HeapTupleHasNulls(tuple) &amp;&amp;</span>
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :                         att_isnull(Anum_pg_authid_rolvaliduntil - 1, bp))</span>
+<span class="lineNum">     478 </span>                :            :                 {
+<span class="lineNum">     479 </span>                :            :                         /* rolvaliduntil is null, emit as an empty string */
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :                         auth_info[curr_role].rolvaliduntil = pstrdup(&quot;&quot;);</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     482 </span>                :            :                 else
+<span class="lineNum">     483 </span>                :            :                 {
+<span class="lineNum">     484 </span>                :            :                         /*
+<span class="lineNum">     485 </span>                :            :                          * rolvaliduntil is timestamptz, which we assume is double
+<span class="lineNum">     486 </span>                :            :                          * alignment and pass-by-value.
+<span class="lineNum">     487 </span>                :            :                          */
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :                         off = att_align_nominal(off, 'd');</span>
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 :                         datum = fetch_att(tp + off, true, sizeof(TimestampTz));</span>
+<span class="lineNum">     490 </span>                :<span class="lineNoCov">          0 :                         auth_info[curr_role].rolvaliduntil = DatumGetCString(DirectFunctionCall1(timestamptz_out, datum));</span>
+<span class="lineNum">     491 </span>                :            :                 }
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>                :            :                 /*
+<span class="lineNum">     494 </span>                :            :                  * Check for illegal characters in the user name and password.
+<span class="lineNum">     495 </span>                :            :                  */
+<span class="lineNum">     496 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!name_okay(auth_info[curr_role].rolname))</span>
+<span class="lineNum">     497 </span>                :            :                 {
+<span class="lineNum">     498 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">     499 </span>                :            :                                         (errmsg(&quot;invalid role name \&quot;%s\&quot;&quot;,
+<span class="lineNum">     500 </span>                :            :                                                         auth_info[curr_role].rolname)));
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     502 </span>                :            :                 }
+<span class="lineNum">     503 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!name_okay(auth_info[curr_role].rolpassword))</span>
+<span class="lineNum">     504 </span>                :            :                 {
+<span class="lineNum">     505 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">     506 </span>                :            :                                         (errmsg(&quot;invalid role password \&quot;%s\&quot;&quot;,
+<span class="lineNum">     507 </span>                :            :                                                         auth_info[curr_role].rolpassword)));
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     509 </span>                :            :                 }
+<span class="lineNum">     510 </span>                :            : 
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                 curr_role++;</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :                 total_roles++;</span>
+<span class="lineNum">     513 </span>                :            :         }
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :         heap_endscan(scan);</span>
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :         *auth_info_out = auth_info;</span>
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :         *total_roles_out = total_roles;</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     519 </span>                :            : 
+<span class="lineNum">     520 </span>                :            : /*
+<span class="lineNum">     521 </span>                :            :  * write_auth_file: update the flat auth file
+<a name="522"><span class="lineNum">     522 </span>                :            :  */</a>
+<span class="lineNum">     523 </span>                :            : static void
+<span class="lineNum">     524 </span>                :            : write_auth_file(Relation rel_authid, Relation rel_authmem)
+<span class="lineNum">     525 </span>                :            : {
+<span class="lineNum">     526 </span>                :            :         StringInfoData buffer;
+<span class="lineNum">     527 </span>                :            :         BlockNumber totalblocks;
+<span class="lineNum">     528 </span>                :            :         HeapScanDesc scan;
+<span class="lineNum">     529 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     530 </span>                :<span class="lineNoCov">          0 :         int                     curr_role = 0;</span>
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :         int                     total_roles = 0;</span>
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :         int                     curr_mem = 0;</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :         int                     total_mem = 0;</span>
+<span class="lineNum">     534 </span>                :            :         int                     est_rows;
+<span class="lineNum">     535 </span>                :            :         auth_entry *auth_info;
+<span class="lineNum">     536 </span>                :            :         authmem_entry *authmem_info;
+<span class="lineNum">     537 </span>                :            :         MirroredFlatFileOpen    mirroredOpen;
+<span class="lineNum">     538 </span>                :            : 
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :         load_auth_entries(rel_authid, &amp;auth_info, &amp;total_roles);</span>
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :            :         /*
+<span class="lineNum">     544 </span>                :            :          * Read pg_auth_members into temporary data structure, too
+<span class="lineNum">     545 </span>                :            :          */
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :         totalblocks = RelationGetNumberOfBlocks(rel_authmem);</span>
+<span class="lineNum">     547 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         totalblocks = totalblocks ? totalblocks : 1;</span>
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :         est_rows = totalblocks * (BLCKSZ / (sizeof(HeapTupleHeaderData) + sizeof(FormData_pg_auth_members)));</span>
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :         authmem_info = (authmem_entry *) palloc(est_rows * sizeof(authmem_entry));</span>
+<span class="lineNum">     550 </span>                :            : 
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :         scan = heap_beginscan(rel_authmem, SnapshotNow, 0, NULL);</span>
+<span class="lineNum">     552 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)</span>
+<span class="lineNum">     553 </span>                :            :         {
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :                 Form_pg_auth_members memform = (Form_pg_auth_members) GETSTRUCT(tuple);</span>
+<span class="lineNum">     555 </span>                :            : 
+<span class="lineNum">     556 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (curr_mem &gt;= est_rows)</span>
+<span class="lineNum">     557 </span>                :            :                 {
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                         est_rows *= 2;</span>
+<span class="lineNum">     559 </span>                :<span class="lineNoCov">          0 :                         authmem_info = (authmem_entry *)</span>
+<span class="lineNum">     560 </span>                :<span class="lineNoCov">          0 :                                 repalloc(authmem_info, est_rows * sizeof(authmem_entry));</span>
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     562 </span>                :            : 
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :                 authmem_info[curr_mem].roleid = memform-&gt;roleid;</span>
+<span class="lineNum">     564 </span>                :<span class="lineNoCov">          0 :                 authmem_info[curr_mem].memberid = memform-&gt;member;</span>
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :                 curr_mem++;</span>
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :                 total_mem++;</span>
+<span class="lineNum">     567 </span>                :            :         }
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :         heap_endscan(scan);</span>
+<span class="lineNum">     569 </span>                :            : 
+<span class="lineNum">     570 </span>                :            :         /*
+<span class="lineNum">     571 </span>                :            :          * Search for memberships.      We can skip all this if pg_auth_members is
+<span class="lineNum">     572 </span>                :            :          * empty.
+<span class="lineNum">     573 </span>                :            :          */
+<span class="lineNum">     574 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (total_mem &gt; 0)</span>
+<span class="lineNum">     575 </span>                :            :         {
+<span class="lineNum">     576 </span>                :            :                 /*
+<span class="lineNum">     577 </span>                :            :                  * Sort auth_info by roleid and authmem_info by memberid.
+<span class="lineNum">     578 </span>                :            :                  */
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :                 qsort(auth_info, total_roles, sizeof(auth_entry), oid_compar);</span>
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                 qsort(authmem_info, total_mem, sizeof(authmem_entry), mem_compar);</span>
+<span class="lineNum">     581 </span>                :            : 
+<span class="lineNum">     582 </span>                :            :                 /*
+<span class="lineNum">     583 </span>                :            :                  * For each role, find what it belongs to.
+<span class="lineNum">     584 </span>                :            :                  */
+<span class="lineNum">     585 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (curr_role = 0; curr_role &lt; total_roles; curr_role++)</span>
+<span class="lineNum">     586 </span>                :            :                 {
+<span class="lineNum">     587 </span>                :            :                         List       *roles_list;
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :                         List       *roles_names_list = NIL;</span>
+<span class="lineNum">     589 </span>                :            :                         ListCell   *mem;
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :            :                         /*
+<span class="lineNum">     592 </span>                :            :                          * This search algorithm is the same as in is_member_of_role; we
+<span class="lineNum">     593 </span>                :            :                          * are just working with a different input data structure.
+<span class="lineNum">     594 </span>                :            :                          */
+<span class="lineNum">     595 </span>                :<span class="lineNoCov">          0 :                         roles_list = list_make1_oid(auth_info[curr_role].roleid);</span>
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(mem, roles_list)</span>
+<span class="lineNum">     598 </span>                :            :                         {
+<span class="lineNum">     599 </span>                :            :                                 authmem_entry key;
+<span class="lineNum">     600 </span>                :            :                                 authmem_entry *found_mem;
+<span class="lineNum">     601 </span>                :            :                                 int                     first_found,
+<span class="lineNum">     602 </span>                :            :                                                         last_found,
+<span class="lineNum">     603 </span>                :            :                                                         i;
+<span class="lineNum">     604 </span>                :            : 
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :                                 key.memberid = lfirst_oid(mem);</span>
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                                 found_mem = bsearch(&amp;key, authmem_info, total_mem,</span>
+<span class="lineNum">     607 </span>                :            :                                                                         sizeof(authmem_entry), mem_compar);
+<span class="lineNum">     608 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!found_mem)</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                                         continue;</span>
+<span class="lineNum">     610 </span>                :            : 
+<span class="lineNum">     611 </span>                :            :                                 /*
+<span class="lineNum">     612 </span>                :            :                                  * bsearch found a match for us; but if there were multiple
+<span class="lineNum">     613 </span>                :            :                                  * matches it could have found any one of them. Locate first
+<span class="lineNum">     614 </span>                :            :                                  * and last match.
+<span class="lineNum">     615 </span>                :            :                                  */
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :                                 first_found = last_found = (found_mem - authmem_info);</span>
+<span class="lineNum">     617 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 while (first_found &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :                                            mem_compar(&amp;key, &amp;authmem_info[first_found - 1]) == 0)</span>
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :                                         first_found--;</span>
+<span class="lineNum">     620 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 while (last_found + 1 &lt; total_mem &amp;&amp;</span>
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :                                            mem_compar(&amp;key, &amp;authmem_info[last_found + 1]) == 0)</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                                         last_found++;</span>
+<span class="lineNum">     623 </span>                :            : 
+<span class="lineNum">     624 </span>                :            :                                 /*
+<span class="lineNum">     625 </span>                :            :                                  * Now add all the new roles to roles_list.
+<span class="lineNum">     626 </span>                :            :                                  */
+<span class="lineNum">     627 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 for (i = first_found; i &lt;= last_found; i++)</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                                         roles_list = list_append_unique_oid(roles_list,</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                                                                                                          authmem_info[i].roleid);</span>
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     631 </span>                :            : 
+<span class="lineNum">     632 </span>                :            :                         /*
+<span class="lineNum">     633 </span>                :            :                          * Convert list of role Oids to list of role names. We must do
+<span class="lineNum">     634 </span>                :            :                          * this before re-sorting auth_info.
+<span class="lineNum">     635 </span>                :            :                          *
+<span class="lineNum">     636 </span>                :            :                          * We skip the first list element (curr_role itself) since there
+<span class="lineNum">     637 </span>                :            :                          * is no point in writing that a role is a member of itself.
+<span class="lineNum">     638 </span>                :            :                          */
+<span class="lineNum">     639 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for_each_cell(mem, lnext(list_head(roles_list)))</span>
+<span class="lineNum">     640 </span>                :            :                         {
+<span class="lineNum">     641 </span>                :            :                                 auth_entry      key_auth;
+<span class="lineNum">     642 </span>                :            :                                 auth_entry *found_role;
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :                                 key_auth.roleid = lfirst_oid(mem);</span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :                                 found_role = bsearch(&amp;key_auth, auth_info, total_roles,</span>
+<span class="lineNum">     646 </span>                :            :                                                                          sizeof(auth_entry), oid_compar);
+<span class="lineNum">     647 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (found_role) /* paranoia */</span>
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :                                         roles_names_list = lappend(roles_names_list,</span>
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                                                                                            found_role-&gt;rolname);</span>
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :                         auth_info[curr_role].member_of = roles_names_list;</span>
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :                         list_free(roles_list);</span>
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     655 </span>                :            : 
+<span class="lineNum">     656 </span>                :            :         /*
+<span class="lineNum">     657 </span>                :            :          * Now sort auth_info into rolname order for output, and write the file.
+<span class="lineNum">     658 </span>                :            :          */
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :         qsort(auth_info, total_roles, sizeof(auth_entry), name_compar);</span>
+<span class="lineNum">     660 </span>                :            : 
+<span class="lineNum">     661 </span>                :            :         /*
+<span class="lineNum">     662 </span>                :            :          * Create a temporary filename to be renamed later.  This prevents the
+<span class="lineNum">     663 </span>                :            :          * backend from clobbering the flat file while the postmaster might be
+<span class="lineNum">     664 </span>                :            :          * reading from it.
+<span class="lineNum">     665 </span>                :            :          */
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Open(</span>
+<span class="lineNum">     667 </span>                :            :                                         &amp;mirroredOpen,
+<span class="lineNum">     668 </span>                :            :                                         &quot;global&quot;,
+<span class="lineNum">     669 </span>                :            :                                         &quot;pg_auth&quot;,
+<span class="lineNum">     670 </span>                :            :                                         O_CREAT | O_TRUNC | O_WRONLY | PG_BINARY,
+<span class="lineNum">     671 </span>                :            :                                         S_IRUSR | S_IWUSR,
+<span class="lineNum">     672 </span>                :            :                                         /* suppressError */ false,
+<span class="lineNum">     673 </span>                :            :                                         /* atomic operation */ true,
+<span class="lineNum">     674 </span>                :            :                                         /*isMirrorRecovery */ false);
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (curr_role = 0; curr_role &lt; total_roles; curr_role++)</span>
+<span class="lineNum">     677 </span>                :            :         {
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :                 auth_entry *arole = &amp;auth_info[curr_role];</span>
+<span class="lineNum">     679 </span>                :            :                 ListCell   *mem;
+<span class="lineNum">     680 </span>                :            : 
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, arole-&gt;rolname);</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     683 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, arole-&gt;rolpassword);</span>
+<span class="lineNum">     684 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, arole-&gt;rolvaliduntil);</span>
+<span class="lineNum">     686 </span>                :            : 
+<span class="lineNum">     687 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(mem, arole-&gt;member_of)</span>
+<span class="lineNum">     688 </span>                :            :                 {
+<span class="lineNum">     689 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :                         sputs_quote(&amp;buffer, (char *) lfirst(mem));</span>
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     692 </span>                :            : 
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, '\n');</span>
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     695 </span>                :            : 
+<span class="lineNum">     696 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Append(&amp;mirroredOpen, buffer.data, buffer.len,</span>
+<span class="lineNum">     697 </span>                :            :                                                         /* suppressError */ false);
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Flush(&amp;mirroredOpen, /* suppressError */ false);</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Close(&amp;mirroredOpen);</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     701 </span>                :            : 
+<span class="lineNum">     702 </span>                :            : /*
+<span class="lineNum">     703 </span>                :            :  * Support for write_auth_time_file
+<span class="lineNum">     704 </span>                :            :  *
+<span class="lineNum">     705 </span>                :            :  * The format for the flat auth file is
+<span class="lineNum">     706 </span>                :            :  *      &quot;rolename&quot; &quot;startday&quot; &quot;starttime&quot; &quot;endday&quot; &quot;endtime&quot; 
+<span class="lineNum">     707 </span>                :            :  *
+<span class="lineNum">     708 </span>                :            :  * To construct this information, we scan pg_auth_time_constraint,
+<span class="lineNum">     709 </span>                :            :  * and build data structures in-memory before writing the file.
+<span class="lineNum">     710 </span>                :            :  */
+<span class="lineNum">     711 </span>                :            : typedef struct
+<span class="lineNum">     712 </span>                :            : {
+<span class="lineNum">     713 </span>                :            :         Oid                     roleid;
+<span class="lineNum">     714 </span>                :            :         char       *rolname;
+<span class="lineNum">     715 </span>                :            :         int16           startday;
+<span class="lineNum">     716 </span>                :            :         TimeADT         starttime;
+<span class="lineNum">     717 </span>                :            :         int16           endday;
+<span class="lineNum">     718 </span>                :            :         TimeADT         endtime;
+<span class="lineNum">     719 </span>                :            : } authtime_entry;
+<span class="lineNum">     720 </span>                :            : 
+<a name="721"><span class="lineNum">     721 </span>                :            : /* qsort comparator for sorting auth_entry array by roleid */</a>
+<span class="lineNum">     722 </span>                :            : static int
+<span class="lineNum">     723 </span>                :            : time_oid_compar(const void *a, const void *b)
+<span class="lineNum">     724 </span>                :            : {
+<span class="lineNum">     725 </span>                :<span class="lineNoCov">          0 :         const authtime_entry *x = (const authtime_entry *) a;</span>
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :         const authtime_entry *y = (const authtime_entry *) b;</span>
+<span class="lineNum">     727 </span>                :            : 
+<span class="lineNum">     728 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (x-&gt;roleid &lt; y-&gt;roleid)</span>
+<span class="lineNum">     729 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     730 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (x-&gt;roleid &gt; y-&gt;roleid)</span>
+<span class="lineNum">     731 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     732 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     734 </span>                :            : 
+<a name="735"><span class="lineNum">     735 </span>                :            : /* qsort comparator for sorting auth_entry array by rolname */</a>
+<span class="lineNum">     736 </span>                :            : static int
+<span class="lineNum">     737 </span>                :            : time_name_compar(const void *a, const void *b)
+<span class="lineNum">     738 </span>                :            : {
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :         const authtime_entry *x = (const authtime_entry *) a;</span>
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :         const authtime_entry *y = (const authtime_entry *) b;</span>
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :         return strcmp(x-&gt;rolname, y-&gt;rolname);</span>
+<span class="lineNum">     743 </span>                :            : }
+<span class="lineNum">     744 </span>                :            : 
+<span class="lineNum">     745 </span>                :            : 
+<span class="lineNum">     746 </span>                :            : /*
+<span class="lineNum">     747 </span>                :            :  * write_auth_time_file: update the flat auth time constraint file
+<a name="748"><span class="lineNum">     748 </span>                :            :  */</a>
+<span class="lineNum">     749 </span>                :            : static void
+<span class="lineNum">     750 </span>                :            : write_auth_time_file(Relation rel_authid, Relation rel_authtime)
+<span class="lineNum">     751 </span>                :            : {
+<span class="lineNum">     752 </span>                :            :         StringInfoData buffer;
+<span class="lineNum">     753 </span>                :            :         BlockNumber totalblocks;
+<span class="lineNum">     754 </span>                :            :         HeapScanDesc scan;
+<span class="lineNum">     755 </span>                :            :         HeapTuple   tuple;
+<span class="lineNum">     756 </span>                :<span class="lineNoCov">          0 :         int                     total_roles = 0;</span>
+<span class="lineNum">     757 </span>                :<span class="lineNoCov">          0 :         int                     curr_constraint = 0;</span>
+<span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :         int                     total_constraints = 0;</span>
+<span class="lineNum">     759 </span>                :            :         int                     est_rows;
+<span class="lineNum">     760 </span>                :            :         auth_entry *auth_info;
+<span class="lineNum">     761 </span>                :            :         authtime_entry *authtime_info;
+<span class="lineNum">     762 </span>                :            :         MirroredFlatFileOpen    mirroredOpen;
+<span class="lineNum">     763 </span>                :            : 
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     765 </span>                :            : 
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :         load_auth_entries(rel_authid, &amp;auth_info, &amp;total_roles);</span>
+<span class="lineNum">     767 </span>                :            : 
+<span class="lineNum">     768 </span>                :            :         /*
+<span class="lineNum">     769 </span>                :            :          * Read pg_auth_time_constraint into temporary data structure, too
+<span class="lineNum">     770 </span>                :            :          */
+<span class="lineNum">     771 </span>                :<span class="lineNoCov">          0 :         totalblocks = RelationGetNumberOfBlocks(rel_authtime);</span>
+<span class="lineNum">     772 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         totalblocks = totalblocks ? totalblocks : 1;</span>
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :         est_rows = totalblocks * (BLCKSZ / (sizeof(HeapTupleHeaderData) + sizeof(FormData_pg_auth_time_constraint)));</span>
+<span class="lineNum">     774 </span>                :<span class="lineNoCov">          0 :         authtime_info = (authtime_entry *) palloc(est_rows * sizeof(authtime_entry));</span>
+<span class="lineNum">     775 </span>                :            : 
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :         scan = heap_beginscan(rel_authtime, SnapshotNow, 0, NULL);</span>
+<span class="lineNum">     777 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((tuple = heap_getnext(scan, ForwardScanDirection)) != NULL)</span>
+<span class="lineNum">     778 </span>                :            :         {
+<span class="lineNum">     779 </span>                :<span class="lineNoCov">          0 :                 Form_pg_auth_time_constraint timeform = (Form_pg_auth_time_constraint) GETSTRUCT(tuple);</span>
+<span class="lineNum">     780 </span>                :            : 
+<span class="lineNum">     781 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (curr_constraint &gt;= est_rows)</span>
+<span class="lineNum">     782 </span>                :            :                 {
+<span class="lineNum">     783 </span>                :<span class="lineNoCov">          0 :                         est_rows *= 2;</span>
+<span class="lineNum">     784 </span>                :<span class="lineNoCov">          0 :                         authtime_info = (authtime_entry *)</span>
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :                                 repalloc(authtime_info, est_rows * sizeof(authtime_entry));</span>
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     787 </span>                :            : 
+<span class="lineNum">     788 </span>                :<span class="lineNoCov">          0 :                 authtime_info[curr_constraint].roleid = timeform-&gt;authid;</span>
+<span class="lineNum">     789 </span>                :<span class="lineNoCov">          0 :                 authtime_info[curr_constraint].startday = timeform-&gt;start_day;</span>
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :                 authtime_info[curr_constraint].starttime = timeform-&gt;start_time;</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                 authtime_info[curr_constraint].endday = timeform-&gt;end_day;</span>
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :                 authtime_info[curr_constraint].endtime = timeform-&gt;end_time;</span>
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :                 curr_constraint++;</span>
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :                 total_constraints++;</span>
+<span class="lineNum">     795 </span>                :            :         }
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :         heap_endscan(scan);</span>
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>                :            :         /*
+<span class="lineNum">     799 </span>                :            :          * Search for rolenames.  We can skip all this if pg_auth_time_constraint is
+<span class="lineNum">     800 </span>                :            :          * empty.
+<span class="lineNum">     801 </span>                :            :          */
+<span class="lineNum">     802 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (total_constraints &gt; 0)</span>
+<span class="lineNum">     803 </span>                :            :         {
+<span class="lineNum">     804 </span>                :            :                 /*
+<span class="lineNum">     805 </span>                :            :                  * Sort auth_info by roleid and authtime_info by roleid.
+<span class="lineNum">     806 </span>                :            :                  */
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                 qsort(auth_info, total_roles, sizeof(auth_entry), oid_compar);</span>
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                 qsort(authtime_info, total_constraints, sizeof(authtime_entry), time_oid_compar);</span>
+<span class="lineNum">     809 </span>                :            : 
+<span class="lineNum">     810 </span>                :            :                 /*
+<span class="lineNum">     811 </span>                :            :                  * For each time constraint, determine the rolename.
+<span class="lineNum">     812 </span>                :            :                  * TODO: this is O(nlogm). we could do O(n + m).
+<span class="lineNum">     813 </span>                :            :                  */
+<span class="lineNum">     814 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (curr_constraint = 0; curr_constraint &lt; total_constraints; curr_constraint++)</span>
+<span class="lineNum">     815 </span>                :            :                 {
+<span class="lineNum">     816 </span>                :            :                         auth_entry      key_auth;
+<span class="lineNum">     817 </span>                :            :                         auth_entry *found_role;
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :                         key_auth.roleid = authtime_info[curr_constraint].roleid;</span>
+<span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 :                         found_role = bsearch(&amp;key_auth, auth_info, total_roles,</span>
+<span class="lineNum">     820 </span>                :            :                                                                  sizeof(auth_entry), oid_compar);
+<span class="lineNum">     821 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (found_role)</span>
+<span class="lineNum">     822 </span>                :            :                         {
+<span class="lineNum">     823 </span>                :            :                                 /*
+<span class="lineNum">     824 </span>                :            :                                  * All constraints written out will be enforced. 
+<span class="lineNum">     825 </span>                :            :                                  * Constraints against superusers must not be allowed.
+<span class="lineNum">     826 </span>                :            :                                  */
+<span class="lineNum">     827 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (found_role-&gt;rolsuper)</span>
+<span class="lineNum">     828 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(WARNING,</span>
+<span class="lineNum">     829 </span>                :            :                                                         (errmsg(&quot;time constraints are being added against superuser&quot;)));
+<span class="lineNum">     830 </span>                :<span class="lineNoCov">          0 :                                 authtime_info[curr_constraint].rolname = found_role-&gt;rolname;</span>
+<span class="lineNum">     831 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     832 </span>                :            :                         else
+<span class="lineNum">     833 </span>                :            :                         {
+<span class="lineNum">     834 </span>                :            :                                 /*
+<span class="lineNum">     835 </span>                :            :                                  * pg_auth_time_constraint or pg_authid is corrupt: a role mentioned in
+<span class="lineNum">     836 </span>                :            :                                  * pg_auth_time_constraint was not found in pg_authid. Remove the entry
+<span class="lineNum">     837 </span>                :            :                                  * from the array so that we can start up the system.
+<span class="lineNum">     838 </span>                :            :                                  */
+<span class="lineNum">     839 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(WARNING,</span>
+<span class="lineNum">     840 </span>                :            :                                                 (errmsg(&quot;role with OID %u mentioned in pg_auth_time_constraint does not exist&quot;,
+<span class="lineNum">     841 </span>                :            :                                                                 authtime_info[curr_constraint].roleid)));
+<span class="lineNum">     842 </span>                :<span class="lineNoCov">          0 :                                 total_constraints--;</span>
+<span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :                                 memmove(&amp;authtime_info[curr_constraint],</span>
+<span class="lineNum">     844 </span>                :            :                                                 &amp;authtime_info[curr_constraint + 1],
+<span class="lineNum">     845 </span>                :            :                                                 total_constraints - curr_constraint);
+<span class="lineNum">     846 </span>                :<span class="lineNoCov">          0 :                                 curr_constraint--;</span>
+<span class="lineNum">     847 </span>                :            :                         }
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     849 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>                :            :         /*
+<span class="lineNum">     852 </span>                :            :          * Now sort auth_info into rolname order for output, and write the file.
+<span class="lineNum">     853 </span>                :            :          */
+<span class="lineNum">     854 </span>                :<span class="lineNoCov">          0 :         qsort(authtime_info, total_constraints, sizeof(authtime_entry), time_name_compar);</span>
+<span class="lineNum">     855 </span>                :            : 
+<span class="lineNum">     856 </span>                :            :         /*
+<span class="lineNum">     857 </span>                :            :          * Create a temporary filename to be renamed later.  This prevents the
+<span class="lineNum">     858 </span>                :            :          * backend from clobbering the flat file while the postmaster might be
+<span class="lineNum">     859 </span>                :            :          * reading from it.
+<span class="lineNum">     860 </span>                :            :          */
+<span class="lineNum">     861 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Open(</span>
+<span class="lineNum">     862 </span>                :            :                                         &amp;mirroredOpen,
+<span class="lineNum">     863 </span>                :            :                                         &quot;global&quot;,
+<span class="lineNum">     864 </span>                :            :                                         &quot;pg_auth_time_constraint&quot;,
+<span class="lineNum">     865 </span>                :            :                                         O_CREAT | O_TRUNC | O_WRONLY | PG_BINARY,
+<span class="lineNum">     866 </span>                :            :                                         S_IRUSR | S_IWUSR,
+<span class="lineNum">     867 </span>                :            :                                         /* suppressError */ false,
+<span class="lineNum">     868 </span>                :            :                                         /* atomic operation */ true,
+<span class="lineNum">     869 </span>                :            :                                         /*isMirrorRecovery */ false);
+<span class="lineNum">     870 </span>                :            : 
+<span class="lineNum">     871 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (curr_constraint = 0; curr_constraint &lt; total_constraints; curr_constraint++)</span>
+<span class="lineNum">     872 </span>                :            :         {
+<span class="lineNum">     873 </span>                :<span class="lineNoCov">          0 :                 authtime_entry *atime = &amp;authtime_info[curr_constraint];</span>
+<span class="lineNum">     874 </span>                :            : 
+<span class="lineNum">     875 </span>                :            :                 char    startday[2], endday[2];
+<span class="lineNum">     876 </span>                :            :                 char    *starttime, *endtime;
+<span class="lineNum">     877 </span>                :            : 
+<span class="lineNum">     878 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, atime-&gt;rolname);</span>
+<span class="lineNum">     879 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     880 </span>                :            : 
+<span class="lineNum">     881 </span>                :<span class="lineNoCov">          0 :                 snprintf(&amp;startday[0], 2, &quot;%d&quot;, atime-&gt;startday);</span>
+<span class="lineNum">     882 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, startday);</span>
+<span class="lineNum">     883 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     884 </span>                :            : 
+<span class="lineNum">     885 </span>                :<span class="lineNoCov">          0 :                 starttime = DatumGetCString(DirectFunctionCall1(time_out,</span>
+<span class="lineNum">     886 </span>                :<span class="lineNoCov">          0 :                                                                         TimeADTGetDatum(atime-&gt;starttime)));</span>
+<span class="lineNum">     887 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, starttime);</span>
+<span class="lineNum">     888 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     889 </span>                :            : 
+<span class="lineNum">     890 </span>                :<span class="lineNoCov">          0 :                 snprintf(&amp;endday[0], 2, &quot;%d&quot;, atime-&gt;endday);</span>
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, endday);</span>
+<span class="lineNum">     892 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, ' ');</span>
+<span class="lineNum">     893 </span>                :            : 
+<span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 :                 endtime = DatumGetCString(DirectFunctionCall1(time_out,</span>
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :                                                                   TimeADTGetDatum(atime-&gt;endtime)));</span>
+<span class="lineNum">     896 </span>                :<span class="lineNoCov">          0 :                 sputs_quote(&amp;buffer, endtime);</span>
+<span class="lineNum">     897 </span>                :            : 
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(&amp;buffer, '\n');</span>
+<span class="lineNum">     899 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     900 </span>                :            : 
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Append(&amp;mirroredOpen, buffer.data, buffer.len,</span>
+<span class="lineNum">     902 </span>                :            :                                                         /* suppressError */ false);
+<span class="lineNum">     903 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Flush(&amp;mirroredOpen, /* suppressError */ false);</span>
+<span class="lineNum">     904 </span>                :<span class="lineNoCov">          0 :         MirroredFlatFile_Close(&amp;mirroredOpen);</span>
+<span class="lineNum">     905 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     906 </span>                :            : 
+<span class="lineNum">     907 </span>                :            : /*
+<span class="lineNum">     908 </span>                :            :  * This routine is called once during database startup, after completing
+<span class="lineNum">     909 </span>                :            :  * WAL replay if needed.  Its purpose is to sync the flat files with the
+<span class="lineNum">     910 </span>                :            :  * current state of the database tables.  This is particularly important
+<span class="lineNum">     911 </span>                :            :  * during PITR operation, since the flat files will come from the
+<span class="lineNum">     912 </span>                :            :  * base backup which may be far out of sync with the current state.
+<span class="lineNum">     913 </span>                :            :  *
+<span class="lineNum">     914 </span>                :            :  * In theory we could skip rebuilding the flat files if no WAL replay
+<span class="lineNum">     915 </span>                :            :  * occurred, but it seems best to just do it always.  We have to
+<span class="lineNum">     916 </span>                :            :  * scan pg_database to compute the XID wrap limit anyway.  Also, this
+<span class="lineNum">     917 </span>                :            :  * policy means we need not force initdb to change the format of the
+<span class="lineNum">     918 </span>                :            :  * flat files.
+<span class="lineNum">     919 </span>                :            :  *
+<span class="lineNum">     920 </span>                :            :  * We also cause relcache init files to be flushed, for largely the same
+<span class="lineNum">     921 </span>                :            :  * reasons.
+<span class="lineNum">     922 </span>                :            :  *
+<span class="lineNum">     923 </span>                :            :  * In a standalone backend we pass database_only = true to skip processing
+<span class="lineNum">     924 </span>                :            :  * the auth file.  We won't need it, and building it could fail if there's
+<span class="lineNum">     925 </span>                :            :  * something corrupt in the authid/authmem catalogs.
+<a name="926"><span class="lineNum">     926 </span>                :            :  */</a>
+<span class="lineNum">     927 </span>                :            : void
+<span class="lineNum">     928 </span>                :            : BuildFlatFiles(bool database_only)
+<span class="lineNum">     929 </span>                :            : {
+<span class="lineNum">     930 </span>                :            :         ResourceOwner owner;
+<span class="lineNum">     931 </span>                :            :         RelFileNode rnode;
+<span class="lineNum">     932 </span>                :            :         Relation        rel_db,
+<span class="lineNum">     933 </span>                :            :                                 rel_authid,
+<span class="lineNum">     934 </span>                :            :                                 rel_authmem,
+<span class="lineNum">     935 </span>                :            :                                 rel_authtime;
+<span class="lineNum">     936 </span>                :            : 
+<span class="lineNum">     937 </span>                :            :         /*
+<span class="lineNum">     938 </span>                :            :          * We don't have any hope of running a real relcache, but we can use the
+<span class="lineNum">     939 </span>                :            :          * same fake-relcache facility that WAL replay uses.
+<span class="lineNum">     940 </span>                :            :          */
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :         XLogInitRelationCache();</span>
+<span class="lineNum">     942 </span>                :            : 
+<span class="lineNum">     943 </span>                :            :         /* Need a resowner to keep the heapam and buffer code happy */
+<span class="lineNum">     944 </span>                :<span class="lineNoCov">          0 :         owner = ResourceOwnerCreate(NULL, &quot;BuildFlatFiles&quot;);</span>
+<span class="lineNum">     945 </span>                :<span class="lineNoCov">          0 :         CurrentResourceOwner = owner;</span>
+<span class="lineNum">     946 </span>                :            : 
+<span class="lineNum">     947 </span>                :            :         /* hard-wired path to pg_database */
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :         rnode.spcNode = GLOBALTABLESPACE_OID;</span>
+<span class="lineNum">     949 </span>                :<span class="lineNoCov">          0 :         rnode.dbNode = 0;</span>
+<span class="lineNum">     950 </span>                :<span class="lineNoCov">          0 :         rnode.relNode = DatabaseRelationId;</span>
+<span class="lineNum">     951 </span>                :            : 
+<span class="lineNum">     952 </span>                :            :         /* No locking is needed because no one else is alive yet */
+<span class="lineNum">     953 </span>                :<span class="lineNoCov">          0 :         rel_db = XLogOpenRelation(rnode);</span>
+<span class="lineNum">     954 </span>                :<span class="lineNoCov">          0 :         write_database_file(rel_db, true);</span>
+<span class="lineNum">     955 </span>                :            : 
+<span class="lineNum">     956 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!database_only)</span>
+<span class="lineNum">     957 </span>                :            :         {
+<span class="lineNum">     958 </span>                :            :                 /* hard-wired path to pg_authid */
+<span class="lineNum">     959 </span>                :<span class="lineNoCov">          0 :                 rnode.spcNode = GLOBALTABLESPACE_OID;</span>
+<span class="lineNum">     960 </span>                :<span class="lineNoCov">          0 :                 rnode.dbNode = 0;</span>
+<span class="lineNum">     961 </span>                :<span class="lineNoCov">          0 :                 rnode.relNode = AuthIdRelationId;</span>
+<span class="lineNum">     962 </span>                :<span class="lineNoCov">          0 :                 rel_authid = XLogOpenRelation(rnode);</span>
+<span class="lineNum">     963 </span>                :            : 
+<span class="lineNum">     964 </span>                :            :                 /* hard-wired path to pg_auth_members */
+<span class="lineNum">     965 </span>                :<span class="lineNoCov">          0 :                 rnode.spcNode = GLOBALTABLESPACE_OID;</span>
+<span class="lineNum">     966 </span>                :<span class="lineNoCov">          0 :                 rnode.dbNode = 0;</span>
+<span class="lineNum">     967 </span>                :<span class="lineNoCov">          0 :                 rnode.relNode = AuthMemRelationId;</span>
+<span class="lineNum">     968 </span>                :<span class="lineNoCov">          0 :                 rel_authmem = XLogOpenRelation(rnode);</span>
+<span class="lineNum">     969 </span>                :            : 
+<span class="lineNum">     970 </span>                :<span class="lineNoCov">          0 :                 write_auth_file(rel_authid, rel_authmem);</span>
+<span class="lineNum">     971 </span>                :            : 
+<span class="lineNum">     972 </span>                :            :                 /* hard-wired path to pg_auth_time_constraint */
+<span class="lineNum">     973 </span>                :<span class="lineNoCov">          0 :                 rnode.spcNode = GLOBALTABLESPACE_OID;</span>
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :                 rnode.dbNode = 0;</span>
+<span class="lineNum">     975 </span>                :<span class="lineNoCov">          0 :                 rnode.relNode = AuthTimeConstraintRelationId;</span>
+<span class="lineNum">     976 </span>                :<span class="lineNoCov">          0 :                 rel_authtime = XLogOpenRelation(rnode);</span>
+<span class="lineNum">     977 </span>                :            : 
+<span class="lineNum">     978 </span>                :<span class="lineNoCov">          0 :                 write_auth_time_file(rel_authid, rel_authtime);</span>
+<span class="lineNum">     979 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     980 </span>                :            : 
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :         CurrentResourceOwner = NULL;</span>
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :         ResourceOwnerDelete(owner);</span>
+<span class="lineNum">     983 </span>                :            : 
+<span class="lineNum">     984 </span>                :<span class="lineNoCov">          0 :         XLogCloseRelationCache();</span>
+<span class="lineNum">     985 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     986 </span>                :            : 
+<span class="lineNum">     987 </span>                :            : 
+<span class="lineNum">     988 </span>                :            : /*
+<span class="lineNum">     989 </span>                :            :  * This routine is called during transaction commit or abort.
+<span class="lineNum">     990 </span>                :            :  *
+<span class="lineNum">     991 </span>                :            :  * On commit, if we've written any of the critical database tables during
+<span class="lineNum">     992 </span>                :            :  * the current transaction, update the flat files and signal the postmaster.
+<span class="lineNum">     993 </span>                :            :  *
+<span class="lineNum">     994 </span>                :            :  * On abort, just reset the static flags so we don't try to do it on the
+<span class="lineNum">     995 </span>                :            :  * next successful commit.
+<span class="lineNum">     996 </span>                :            :  *
+<span class="lineNum">     997 </span>                :            :  * NB: this should be the last step before actual transaction commit.
+<span class="lineNum">     998 </span>                :            :  * If any error aborts the transaction after we run this code, the postmaster
+<span class="lineNum">     999 </span>                :            :  * will still have received and cached the changed data; so minimize the
+<span class="lineNum">    1000 </span>                :            :  * window for such problems.
+<a name="1001"><span class="lineNum">    1001 </span>                :            :  */</a>
+<span class="lineNum">    1002 </span>                :            : void
+<span class="lineNum">    1003 </span>                :            : AtEOXact_UpdateFlatFiles(bool isCommit)
+<span class="lineNum">    1004 </span>                :            : {
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :         Relation        drel = NULL;</span>
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :         Relation        arel = NULL;</span>
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 :         Relation        mrel = NULL;</span>
+<span class="lineNum">    1008 </span>                :<span class="lineNoCov">          0 :         Relation        trel = NULL;</span>
+<span class="lineNum">    1009 </span>                :            : 
+<span class="lineNum">    1010 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (database_file_update_subid == InvalidSubTransactionId &amp;&amp;</span>
+<span class="lineNum">    1011 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 auth_file_update_subid == InvalidSubTransactionId &amp;&amp;</span>
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_subid == InvalidSubTransactionId)</span>
+<span class="lineNum">    1013 </span>                :<span class="lineNoCov">          0 :                 return;                                 /* nothing to do */</span>
+<span class="lineNum">    1014 </span>                :            : 
+<span class="lineNum">    1015 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!isCommit)</span>
+<span class="lineNum">    1016 </span>                :            :         {
+<span class="lineNum">    1017 </span>                :<span class="lineNoCov">          0 :                 database_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1018 </span>                :<span class="lineNoCov">          0 :                 auth_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1019 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1020 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1021 </span>                :            :         }
+<span class="lineNum">    1022 </span>                :            : 
+<span class="lineNum">    1023 </span>                :            :         /*
+<span class="lineNum">    1024 </span>                :            :          * Advance command counter to be certain we see all effects of the current
+<span class="lineNum">    1025 </span>                :            :          * transaction.
+<span class="lineNum">    1026 </span>                :            :          */
+<span class="lineNum">    1027 </span>                :<span class="lineNoCov">          0 :         CommandCounterIncrement();</span>
+<span class="lineNum">    1028 </span>                :            : 
+<span class="lineNum">    1029 </span>                :            :         /*
+<span class="lineNum">    1030 </span>                :            :          * Open and lock the needed catalog(s).
+<span class="lineNum">    1031 </span>                :            :          *
+<span class="lineNum">    1032 </span>                :            :          * Even though we only need AccessShareLock, this could theoretically fail
+<span class="lineNum">    1033 </span>                :            :          * due to deadlock.  In practice, however, our transaction already holds
+<span class="lineNum">    1034 </span>                :            :          * RowExclusiveLock or better (it couldn't have updated the catalog
+<span class="lineNum">    1035 </span>                :            :          * without such a lock).  This implies that dbcommands.c and other places
+<span class="lineNum">    1036 </span>                :            :          * that force flat-file updates must not follow the common practice of
+<span class="lineNum">    1037 </span>                :            :          * dropping catalog locks before commit.
+<span class="lineNum">    1038 </span>                :            :          */
+<span class="lineNum">    1039 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (database_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1040 </span>                :<span class="lineNoCov">          0 :                 drel = heap_open(DatabaseRelationId, AccessShareLock);</span>
+<span class="lineNum">    1041 </span>                :            : 
+<span class="lineNum">    1042 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1043 </span>                :<span class="lineNoCov">          0 :                 mrel = heap_open(AuthMemRelationId, AccessShareLock);</span>
+<span class="lineNum">    1044 </span>                :            : 
+<span class="lineNum">    1045 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_time_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1046 </span>                :<span class="lineNoCov">          0 :                 trel = heap_open(AuthTimeConstraintRelationId, AccessShareLock);</span>
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_file_update_subid != InvalidSubTransactionId ||</span>
+<span class="lineNum">    1049 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1050 </span>                :<span class="lineNoCov">          0 :                 arel = heap_open(AuthIdRelationId, AccessShareLock);</span>
+<span class="lineNum">    1051 </span>                :            : 
+<span class="lineNum">    1052 </span>                :            :         /*
+<span class="lineNum">    1053 </span>                :            :          * Obtain special locks to ensure that two transactions don't try to write
+<span class="lineNum">    1054 </span>                :            :          * the same flat file concurrently.  Quite aside from any direct risks of
+<span class="lineNum">    1055 </span>                :            :          * corrupted output, the winning writer probably wouldn't have seen the
+<span class="lineNum">    1056 </span>                :            :          * other writer's updates.  By taking a lock and holding it till commit,
+<span class="lineNum">    1057 </span>                :            :          * we ensure that whichever updater goes second will see the other
+<span class="lineNum">    1058 </span>                :            :          * updater's changes as committed, and thus the final state of the file
+<span class="lineNum">    1059 </span>                :            :          * will include all updates.
+<span class="lineNum">    1060 </span>                :            :          *
+<span class="lineNum">    1061 </span>                :            :          * We use a lock on &quot;database 0&quot; to protect writing the pg_database flat
+<span class="lineNum">    1062 </span>                :            :          * file, and a lock on &quot;role 0&quot; to protect the auth file.  This is a bit
+<span class="lineNum">    1063 </span>                :            :          * ugly but it's not worth inventing any more-general convention.  (Any
+<span class="lineNum">    1064 </span>                :            :          * two locktags that are never used for anything else would do.)
+<span class="lineNum">    1065 </span>                :            :          *
+<span class="lineNum">    1066 </span>                :            :          * This is safe against deadlock as long as these are the very last locks
+<span class="lineNum">    1067 </span>                :            :          * acquired during the transaction.
+<span class="lineNum">    1068 </span>                :            :          */
+<span class="lineNum">    1069 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (database_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1070 </span>                :<span class="lineNoCov">          0 :                 LockSharedObject(DatabaseRelationId, InvalidOid, 0,</span>
+<span class="lineNum">    1071 </span>                :            :                                                  AccessExclusiveLock);
+<span class="lineNum">    1072 </span>                :            : 
+<span class="lineNum">    1073 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1074 </span>                :<span class="lineNoCov">          0 :                 LockSharedObject(AuthIdRelationId, InvalidOid, 0,</span>
+<span class="lineNum">    1075 </span>                :            :                                                  AccessExclusiveLock);
+<span class="lineNum">    1076 </span>                :            : 
+<span class="lineNum">    1077 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_time_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1078 </span>                :<span class="lineNoCov">          0 :                 LockSharedObject(AuthTimeConstraintRelationId, InvalidOid, 0,</span>
+<span class="lineNum">    1079 </span>                :            :                                                  AccessExclusiveLock);
+<span class="lineNum">    1080 </span>                :            : 
+<span class="lineNum">    1081 </span>                :            :         /* Okay to write the files */
+<span class="lineNum">    1082 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (database_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1083 </span>                :            :         {
+<span class="lineNum">    1084 </span>                :<span class="lineNoCov">          0 :                 database_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1085 </span>                :<span class="lineNoCov">          0 :                 write_database_file(drel, false);</span>
+<span class="lineNum">    1086 </span>                :<span class="lineNoCov">          0 :                 heap_close(drel, NoLock);</span>
+<span class="lineNum">    1087 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1088 </span>                :            : 
+<span class="lineNum">    1089 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1090 </span>                :            :         {
+<span class="lineNum">    1091 </span>                :<span class="lineNoCov">          0 :                 auth_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1092 </span>                :<span class="lineNoCov">          0 :                 write_auth_file(arel, mrel);</span>
+<span class="lineNum">    1093 </span>                :<span class="lineNoCov">          0 :                 heap_close(mrel, NoLock);</span>
+<span class="lineNum">    1094 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1095 </span>                :            : 
+<span class="lineNum">    1096 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_time_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1097 </span>                :            :         {
+<span class="lineNum">    1098 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1099 </span>                :<span class="lineNoCov">          0 :                 write_auth_time_file(arel, trel);</span>
+<span class="lineNum">    1100 </span>                :<span class="lineNoCov">          0 :                 heap_close(trel, NoLock);</span>
+<span class="lineNum">    1101 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1102 </span>                :            : 
+<span class="lineNum">    1103 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (arel != NULL)</span>
+<span class="lineNum">    1104 </span>                :<span class="lineNoCov">          0 :                 heap_close(arel, NoLock);</span>
+<span class="lineNum">    1105 </span>                :            : 
+<span class="lineNum">    1106 </span>                :            :         /*
+<span class="lineNum">    1107 </span>                :            :          * Signal the postmaster to reload its caches.
+<span class="lineNum">    1108 </span>                :            :          */
+<span class="lineNum">    1109 </span>                :<span class="lineNoCov">          0 :         SendPostmasterSignal(PMSIGNAL_PASSWORD_CHANGE);</span>
+<span class="lineNum">    1110 </span>                :            : 
+<span class="lineNum">    1111 </span>                :            :         /*
+<span class="lineNum">    1112 </span>                :            :          * Force synchronous commit, to minimize the window between changing the
+<span class="lineNum">    1113 </span>                :            :          * flat files on-disk and marking the transaction committed.  It's not
+<span class="lineNum">    1114 </span>                :            :          * great that there is any window at all, but definitely we don't want to
+<span class="lineNum">    1115 </span>                :            :          * make it larger than necessary.
+<span class="lineNum">    1116 </span>                :            :          */
+<span class="lineNum">    1117 </span>                :<span class="lineNoCov">          0 :         ForceSyncCommit();</span>
+<span class="lineNum">    1118 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1119 </span>                :            : 
+<span class="lineNum">    1120 </span>                :            : 
+<span class="lineNum">    1121 </span>                :            : /*
+<span class="lineNum">    1122 </span>                :            :  * This routine is called during transaction prepare.
+<span class="lineNum">    1123 </span>                :            :  *
+<span class="lineNum">    1124 </span>                :            :  * Record which files need to be refreshed if this transaction later
+<span class="lineNum">    1125 </span>                :            :  * commits.
+<span class="lineNum">    1126 </span>                :            :  *
+<span class="lineNum">    1127 </span>                :            :  * Note: it's OK to clear the flags immediately, since if the PREPARE fails
+<span class="lineNum">    1128 </span>                :            :  * further on, we'd only reset the flags anyway. So there's no need for a
+<span class="lineNum">    1129 </span>                :            :  * separate PostPrepare call.
+<a name="1130"><span class="lineNum">    1130 </span>                :            :  */</a>
+<span class="lineNum">    1131 </span>                :            : void
+<span class="lineNum">    1132 </span>                :            : AtPrepare_UpdateFlatFiles(void)
+<span class="lineNum">    1133 </span>                :            : {
+<span class="lineNum">    1134 </span>                :<span class="lineNoCov">          0 :         uint16          info = 0;</span>
+<span class="lineNum">    1135 </span>                :            : 
+<span class="lineNum">    1136 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (database_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1137 </span>                :            :         {
+<span class="lineNum">    1138 </span>                :<span class="lineNoCov">          0 :                 database_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1139 </span>                :<span class="lineNoCov">          0 :                 info |= FF_BIT_DATABASE;</span>
+<span class="lineNum">    1140 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1141 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1142 </span>                :            :         {
+<span class="lineNum">    1143 </span>                :<span class="lineNoCov">          0 :                 auth_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1144 </span>                :<span class="lineNoCov">          0 :                 info |= FF_BIT_AUTH;</span>
+<span class="lineNum">    1145 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (auth_time_file_update_subid != InvalidSubTransactionId)</span>
+<span class="lineNum">    1147 </span>                :            :         {
+<span class="lineNum">    1148 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1149 </span>                :<span class="lineNoCov">          0 :                 info |= FF_BIT_AUTH_TIME;</span>
+<span class="lineNum">    1150 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (info != 0)</span>
+<span class="lineNum">    1152 </span>                :<span class="lineNoCov">          0 :                 RegisterTwoPhaseRecord(TWOPHASE_RM_FLATFILES_ID, info,</span>
+<span class="lineNum">    1153 </span>                :            :                                                            NULL, 0);
+<span class="lineNum">    1154 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1155 </span>                :            : 
+<span class="lineNum">    1156 </span>                :            : 
+<span class="lineNum">    1157 </span>                :            : /*
+<span class="lineNum">    1158 </span>                :            :  * AtEOSubXact_UpdateFlatFiles
+<span class="lineNum">    1159 </span>                :            :  *
+<span class="lineNum">    1160 </span>                :            :  * Called at subtransaction end, this routine resets or updates the
+<span class="lineNum">    1161 </span>                :            :  * need-to-update-files flags.
+<a name="1162"><span class="lineNum">    1162 </span>                :            :  */</a>
+<span class="lineNum">    1163 </span>                :            : void
+<span class="lineNum">    1164 </span>                :            : AtEOSubXact_UpdateFlatFiles(bool isCommit,
+<span class="lineNum">    1165 </span>                :            :                                                         SubTransactionId mySubid,
+<span class="lineNum">    1166 </span>                :            :                                                         SubTransactionId parentSubid)
+<span class="lineNum">    1167 </span>                :            : {
+<span class="lineNum">    1168 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (isCommit)</span>
+<span class="lineNum">    1169 </span>                :            :         {
+<span class="lineNum">    1170 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (database_file_update_subid == mySubid)</span>
+<span class="lineNum">    1171 </span>                :<span class="lineNoCov">          0 :                         database_file_update_subid = parentSubid;</span>
+<span class="lineNum">    1172 </span>                :            : 
+<span class="lineNum">    1173 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (auth_file_update_subid == mySubid)</span>
+<span class="lineNum">    1174 </span>                :<span class="lineNoCov">          0 :                         auth_file_update_subid = parentSubid;</span>
+<span class="lineNum">    1175 </span>                :            : 
+<span class="lineNum">    1176 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (auth_file_update_subid == mySubid)</span>
+<span class="lineNum">    1177 </span>                :<span class="lineNoCov">          0 :                         auth_time_file_update_subid = parentSubid;</span>
+<span class="lineNum">    1178 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1179 </span>                :            :         else
+<span class="lineNum">    1180 </span>                :            :         {
+<span class="lineNum">    1181 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (database_file_update_subid == mySubid)</span>
+<span class="lineNum">    1182 </span>                :<span class="lineNoCov">          0 :                         database_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1183 </span>                :            : 
+<span class="lineNum">    1184 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (auth_file_update_subid == mySubid)</span>
+<span class="lineNum">    1185 </span>                :<span class="lineNoCov">          0 :                         auth_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1186 </span>                :            : 
+<span class="lineNum">    1187 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (auth_time_file_update_subid == mySubid)</span>
+<span class="lineNum">    1188 </span>                :<span class="lineNoCov">          0 :                         auth_time_file_update_subid = InvalidSubTransactionId;</span>
+<span class="lineNum">    1189 </span>                :            :         }
+<span class="lineNum">    1190 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1191 </span>                :            : 
+<span class="lineNum">    1192 </span>                :            : 
+<span class="lineNum">    1193 </span>                :            : /*
+<span class="lineNum">    1194 </span>                :            :  * This trigger is fired whenever someone modifies pg_database, pg_authid
+<span class="lineNum">    1195 </span>                :            :  * or pg_auth_members via general-purpose INSERT/UPDATE/DELETE commands.
+<span class="lineNum">    1196 </span>                :            :  *
+<span class="lineNum">    1197 </span>                :            :  * It is sufficient for this to be a STATEMENT trigger since we don't
+<span class="lineNum">    1198 </span>                :            :  * care which individual rows changed.  It doesn't much matter whether
+<span class="lineNum">    1199 </span>                :            :  * it's a BEFORE or AFTER trigger.
+<a name="1200"><span class="lineNum">    1200 </span>                :            :  */</a>
+<span class="lineNum">    1201 </span>                :            : Datum
+<span class="lineNum">    1202 </span>                :            : flatfile_update_trigger(PG_FUNCTION_ARGS)
+<span class="lineNum">    1203 </span>                :            : {
+<span class="lineNum">    1204 </span>                :<span class="lineNoCov">          0 :         TriggerData *trigdata = (TriggerData *) fcinfo-&gt;context;</span>
+<span class="lineNum">    1205 </span>                :            : 
+<span class="lineNum">    1206 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!CALLED_AS_TRIGGER(fcinfo))</span>
+<span class="lineNum">    1207 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR,</span>
+<span class="lineNum">    1208 </span>                :            :                          &quot;flatfile_update_trigger was not called by trigger manager&quot;);
+<span class="lineNum">    1209 </span>                :            : 
+<span class="lineNum">    1210 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (RelationGetNamespace(trigdata-&gt;tg_relation) != PG_CATALOG_NAMESPACE)</span>
+<span class="lineNum">    1211 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;flatfile_update_trigger was called for wrong table&quot;);</span>
+<span class="lineNum">    1212 </span>                :            : 
+<span class="lineNum">    1213 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (RelationGetRelid(trigdata-&gt;tg_relation))</span>
+<span class="lineNum">         </span>            <span class="branchNoExec" title="Branch 4 was not executed"> # </span>]
+<span class="lineNum">    1214 </span>                :            :         {
+<span class="lineNum">    1215 </span>                :            :                 case DatabaseRelationId:
+<span class="lineNum">    1216 </span>                :<span class="lineNoCov">          0 :                         database_file_update_needed();</span>
+<span class="lineNum">    1217 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1218 </span>                :            :                 case AuthIdRelationId:
+<span class="lineNum">    1219 </span>                :            :                 case AuthMemRelationId:
+<span class="lineNum">    1220 </span>                :<span class="lineNoCov">          0 :                         auth_file_update_needed();</span>
+<span class="lineNum">    1221 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1222 </span>                :            :                 case AuthTimeConstraintRelationId:
+<span class="lineNum">    1223 </span>                :<span class="lineNoCov">          0 :                         auth_time_file_update_needed();</span>
+<span class="lineNum">    1224 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1225 </span>                :            :                 default:
+<span class="lineNum">    1226 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;flatfile_update_trigger was called for wrong table&quot;);</span>
+<span class="lineNum">    1227 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1228 </span>                :            :         }
+<span class="lineNum">    1229 </span>                :            : 
+<span class="lineNum">    1230 </span>                :<span class="lineNoCov">          0 :         return PointerGetDatum(NULL);</span>
+<span class="lineNum">    1231 </span>                :            : }
+<span class="lineNum">    1232 </span>                :            : 
+<span class="lineNum">    1233 </span>                :            : 
+<span class="lineNum">    1234 </span>                :            : /*
+<span class="lineNum">    1235 </span>                :            :  * 2PC processing routine for COMMIT PREPARED case.
+<span class="lineNum">    1236 </span>                :            :  *
+<span class="lineNum">    1237 </span>                :            :  * (We don't have to do anything for ROLLBACK PREPARED.)
+<a name="1238"><span class="lineNum">    1238 </span>                :            :  */</a>
+<span class="lineNum">    1239 </span>                :            : void
+<span class="lineNum">    1240 </span>                :            : flatfile_twophase_postcommit(TransactionId xid, uint16 info,
+<span class="lineNum">    1241 </span>                :            :                                                          void *recdata, uint32 len)
+<span class="lineNum">    1242 </span>                :            : {
+<span class="lineNum">    1243 </span>                :            :         /*
+<span class="lineNum">    1244 </span>                :            :          * Set flags to do the needed file updates at the end of my own current
+<span class="lineNum">    1245 </span>                :            :          * transaction.  (XXX this has some issues if my own transaction later
+<span class="lineNum">    1246 </span>                :            :          * rolls back, or if there is any significant delay before I commit.  OK
+<span class="lineNum">    1247 </span>                :            :          * for now because we disallow COMMIT PREPARED inside a transaction
+<span class="lineNum">    1248 </span>                :            :          * block.)
+<span class="lineNum">    1249 </span>                :            :          */
+<span class="lineNum">    1250 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (info &amp; FF_BIT_DATABASE)</span>
+<span class="lineNum">    1251 </span>                :<span class="lineNoCov">          0 :                 database_file_update_needed();</span>
+<span class="lineNum">    1252 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (info &amp; FF_BIT_AUTH)</span>
+<span class="lineNum">    1253 </span>                :<span class="lineNoCov">          0 :                 auth_file_update_needed();</span>
+<span class="lineNum">    1254 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (info &amp; FF_BIT_AUTH_TIME)</span>
+<span class="lineNum">    1255 </span>                :<span class="lineNoCov">          0 :                 auth_time_file_update_needed();</span>
+<span class="lineNum">    1256 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1257 </span>                :            : 
+<span class="lineNum">    1258 </span>                :            : /*
+<span class="lineNum">    1259 </span>                :            :  * The routine recovers flat file on mirror side.
+<span class="lineNum">    1260 </span>                :            :  *              a) It drops pg_database and pg_auth file on mirror..
+<span class="lineNum">    1261 </span>                :            :  *              b) It copies pg_database and pg_auth from primary to mirror.
+<span class="lineNum">    1262 </span>                :            :  *
+<span class="lineNum">    1263 </span>                :            :  * Status is not returned, If an error occurs segmentState will be set to Fault.
+<a name="1264"><span class="lineNum">    1264 </span>                :            :  */</a>
+<span class="lineNum">    1265 </span>                :            : int
+<span class="lineNum">    1266 </span>                :            : FlatFilesRecoverMirror(void)
+<span class="lineNum">    1267 </span>                :            : {
+<span class="lineNum">    1268 </span>                :<span class="lineNoCov">          0 :         int retval = 0;</span>
+<span class="lineNum">    1269 </span>                :            :         
+<span class="lineNum">    1270 </span>                :<span class="lineNoCov">          0 :         retval = MirrorFlatFile(&quot;global&quot;, &quot;pg_database&quot;);</span>
+<span class="lineNum">    1271 </span>                :            :         
+<span class="lineNum">    1272 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (retval != 0)</span>
+<span class="lineNum">    1273 </span>                :<span class="lineNoCov">          0 :                 return retval;</span>
+<span class="lineNum">    1274 </span>                :            :         
+<span class="lineNum">    1275 </span>                :<span class="lineNoCov">          0 :         retval = MirrorFlatFile(&quot;global&quot;, &quot;pg_auth&quot;);</span>
+<span class="lineNum">    1276 </span>                :            : 
+<span class="lineNum">    1277 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (retval != 0)</span>
+<span class="lineNum">    1278 </span>                :<span class="lineNoCov">          0 :                 return retval;</span>
+<span class="lineNum">    1279 </span>                :            :         
+<span class="lineNum">    1280 </span>                :<span class="lineNoCov">          0 :         retval = MirrorFlatFile(&quot;global&quot;, &quot;pg_auth_time_constraint&quot;);</span>
+<span class="lineNum">    1281 </span>                :            :         
+<span class="lineNum">    1282 </span>                :<span class="lineNoCov">          0 :         return retval;</span>
+<span class="lineNum">    1283 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1284"><span class="lineNum">    1284 </span>                :            : </a>
+<span class="lineNum">    1285 </span>                :            : int
+<span class="lineNum">    1286 </span>                :            : FlatFilesTemporaryResynchronizeMirror(void)
+<span class="lineNum">    1287 </span>                :            : {
+<span class="lineNum">    1288 </span>                :            :         DIR             *global_dir;
+<span class="lineNum">    1289 </span>                :            :         struct dirent   *de;
+<span class="lineNum">    1290 </span>                :<span class="lineNoCov">          0 :         int             retval = 0;</span>
+<span class="lineNum">    1291 </span>                :            :         
+<span class="lineNum">    1292 </span>                :<span class="lineNoCov">          0 :         global_dir = AllocateDir(&quot;global&quot;);</span>
+<span class="lineNum">    1293 </span>                :            :         
+<span class="lineNum">    1294 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((de = ReadDir(global_dir, &quot;global&quot;)) != NULL) </span>
+<span class="lineNum">    1295 </span>                :            :         {
+<span class="lineNum">    1296 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (strstr(de-&gt;d_name, &quot;pg_database.&quot;) != NULL ||</span>
+<span class="lineNum">    1297 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         strstr(de-&gt;d_name, &quot;pg_auth.&quot;) != NULL ||</span>
+<span class="lineNum">    1298 </span>                :<span class="lineNoCov">          0 :                         strstr(de-&gt;d_name, &quot;pg_auth_time_constraint.&quot;) != NULL)</span>
+<span class="lineNum">    1299 </span>                :            :                 {
+<span class="lineNum">    1300 </span>                :<span class="lineNoCov">          0 :                         retval = MirrorFlatFile(&quot;global&quot;, de-&gt;d_name);</span>
+<span class="lineNum">    1301 </span>                :            :                         
+<span class="lineNum">    1302 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (retval != 0)</span>
+<span class="lineNum">    1303 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">    1304 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1305 </span>                :            :         }
+<span class="lineNum">    1306 </span>                :            :         
+<span class="lineNum">    1307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (global_dir)</span>
+<span class="lineNum">    1308 </span>                :            :         {
+<span class="lineNum">    1309 </span>                :<span class="lineNoCov">          0 :                 FreeDir(global_dir);</span>
+<span class="lineNum">    1310 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1311 </span>                :            :         
+<span class="lineNum">    1312 </span>                :<span class="lineNoCov">          0 :         return retval;</span>
+<span class="lineNum">    1313 </span>                :            : }       
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

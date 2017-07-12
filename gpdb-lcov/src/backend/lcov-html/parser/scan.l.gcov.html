@@ -1,0 +1,1350 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - parser/scan.l</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">parser</a> - scan.l<span style="font-size: 80%;"> (source / <a href="scan.l.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">145</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">122</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : %{</a>
+<span class="lineNum">       2 </span>                :            : /*-------------------------------------------------------------------------
+<span class="lineNum">       3 </span>                :            :  *
+<span class="lineNum">       4 </span>                :            :  * scan.l
+<span class="lineNum">       5 </span>                :            :  *        lexical scanner for PostgreSQL
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * NOTE NOTE NOTE:
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  * The rules in this file must be kept in sync with psql's lexer!!!
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * The rules are designed so that the scanner never has to backtrack,
+<span class="lineNum">      12 </span>                :            :  * in the sense that there is always a rule that can match the input
+<span class="lineNum">      13 </span>                :            :  * consumed so far (the rule action may internally throw back some input
+<span class="lineNum">      14 </span>                :            :  * with yyless(), however).  As explained in the flex manual, this makes
+<span class="lineNum">      15 </span>                :            :  * for a useful speed increase --- about a third faster than a plain -CF
+<span class="lineNum">      16 </span>                :            :  * lexer, in simple testing.  The extra complexity is mostly in the rules
+<span class="lineNum">      17 </span>                :            :  * for handling float numbers and continued string literals.  If you change
+<span class="lineNum">      18 </span>                :            :  * the lexical rules, verify that you haven't broken the no-backtrack
+<span class="lineNum">      19 </span>                :            :  * property by running flex with the &quot;-b&quot; option and checking that the
+<span class="lineNum">      20 </span>                :            :  * resulting &quot;lex.backup&quot; file says that no backing up is needed.
+<span class="lineNum">      21 </span>                :            :  *
+<span class="lineNum">      22 </span>                :            :  *
+<span class="lineNum">      23 </span>                :            :  * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+<span class="lineNum">      24 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      25 </span>                :            :  *
+<span class="lineNum">      26 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      27 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/parser/scan.l,v 1.168 2010/07/20 00:34:44 rhaas Exp $
+<span class="lineNum">      28 </span>                :            :  *
+<span class="lineNum">      29 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      30 </span>                :            :  */
+<span class="lineNum">      31 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      32 </span>                :            : 
+<span class="lineNum">      33 </span>                :            : #include &lt;ctype.h&gt;
+<span class="lineNum">      34 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : #include &quot;parser/gramparse.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;parser/keywords.h&quot;
+<span class="lineNum">      38 </span>                :            : /* Not needed now that this file is compiled as part of gram.y */
+<span class="lineNum">      39 </span>                :            : /* #include &quot;parser/gram.h&quot; */
+<span class="lineNum">      40 </span>                :            : #include &quot;parser/scansup.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;mb/pg_wchar.h&quot;
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>                :            : #define unify_version(a,b,c) ((a&lt;&lt;16)+(b&lt;&lt;8)+c)
+<span class="lineNum">      44 </span>                :            : #if unify_version(YY_FLEX_MAJOR_VERSION,YY_FLEX_MINOR_VERSION,YY_FLEX_SUBMINOR_VERSION) &lt; unify_version(2,5,35)
+<span class="lineNum">      45 </span>                :            : int base_yyget_lineno  (void);
+<span class="lineNum">      46 </span>                :            : FILE *base_yyget_in  (void);
+<span class="lineNum">      47 </span>                :            : FILE *base_yyget_out  (void);
+<span class="lineNum">      48 </span>                :            : int base_yyget_leng  (void);
+<span class="lineNum">      49 </span>                :            : char *base_yyget_text  (void);
+<span class="lineNum">      50 </span>                :            : void base_yyset_lineno (int  line_number );
+<span class="lineNum">      51 </span>                :            : void base_yyset_in (FILE *  in_str );
+<span class="lineNum">      52 </span>                :            : void base_yyset_out (FILE *  out_str );
+<span class="lineNum">      53 </span>                :            : int base_yyget_debug  (void);
+<span class="lineNum">      54 </span>                :            : void base_yyset_debug (int  bdebug );
+<span class="lineNum">      55 </span>                :            : int base_yylex_destroy  (void);
+<span class="lineNum">      56 </span>                :            : #endif
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            : 
+<span class="lineNum">      59 </span>                :            : /* Avoid exit() on fatal scanner errors (a bit ugly -- see yy_fatal_error) */
+<span class="lineNum">      60 </span>                :            : #undef fprintf
+<span class="lineNum">      61 </span>                :            : #define fprintf(file, fmt, msg)  fprintf_to_ereport(fmt, msg)
+<a name="62"><span class="lineNum">      62 </span>                :            : </a>
+<span class="lineNum">      63 </span>                :            : static void
+<span class="lineNum">      64 </span>                :            : fprintf_to_ereport(const char *fmt, const char *msg)
+<span class="lineNum">      65 </span>                :            : {
+<span class="lineNum">      66 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         ereport(ERROR, (errmsg_internal(&quot;%s&quot;, msg)));</span>
+<span class="lineNum">      67 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :            : static int              xcdepth = 0;    /* depth of nesting in slash-star comments */
+<span class="lineNum">      70 </span>                :            : static char    *dolqstart;      /* current $foo$ quote start string */
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            : /* first part of UTF16 surrogate for unicode escapes */
+<span class="lineNum">      73 </span>                :            : static uint32   utf16_top_part;
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : /*
+<span class="lineNum">      77 </span>                :            :  * GUC variables.  This is a DIRECT violation of the warning given at the
+<span class="lineNum">      78 </span>                :            :  * head of gram.y, ie flex/bison code must not depend on any GUC variables;
+<span class="lineNum">      79 </span>                :            :  * as such, changing their values can induce very unintuitive behavior.
+<span class="lineNum">      80 </span>                :            :  * But we shall have to live with it as a short-term thing until the switch
+<span class="lineNum">      81 </span>                :            :  * to SQL-standard string syntax is complete.
+<span class="lineNum">      82 </span>                :            :  */
+<span class="lineNum">      83 </span>                :            : int                             backslash_quote = BACKSLASH_QUOTE_SAFE_ENCODING;
+<span class="lineNum">      84 </span>                :            : bool                    escape_string_warning = true;
+<span class="lineNum">      85 </span>                :            : bool                    standard_conforming_strings = true;
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :            : static bool             warn_on_first_escape;
+<span class="lineNum">      88 </span>                :            : static bool             saw_non_ascii = false;
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : /*
+<span class="lineNum">      91 </span>                :            :  * literalbuf is used to accumulate literal values when multiple rules
+<span class="lineNum">      92 </span>                :            :  * are needed to parse a single literal.  Call startlit to reset buffer
+<span class="lineNum">      93 </span>                :            :  * to empty, addlit to add text.  Note that the buffer is palloc'd and
+<span class="lineNum">      94 </span>                :            :  * starts life afresh on every parse cycle.
+<span class="lineNum">      95 </span>                :            :  */
+<span class="lineNum">      96 </span>                :            : static char        *literalbuf;         /* expandable buffer */
+<span class="lineNum">      97 </span>                :            : static int              literallen;             /* actual current length */
+<span class="lineNum">      98 </span>                :            : static int              literalalloc;   /* current allocated buffer size */
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            : #define startlit()  (literalbuf[0] = '\0', literallen = 0)
+<span class="lineNum">     101 </span>                :            : static void addlit(char *ytext, int yleng);
+<span class="lineNum">     102 </span>                :            : static void addlitchar(unsigned char ychar);
+<span class="lineNum">     103 </span>                :            : static char *litbufdup(void);
+<span class="lineNum">     104 </span>                :            : static char *litbuf_udeescape(unsigned char escape);
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>                :            : #define lexer_errposition()  scanner_errposition(yylloc)
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :            : static void check_escape_warning(void);
+<span class="lineNum">     109 </span>                :            : static void check_string_escape_warning(unsigned char ychar);
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            : /*
+<span class="lineNum">     112 </span>                :            :  * Each call to yylex must set yylloc to the location of the found token
+<span class="lineNum">     113 </span>                :            :  * (expressed as a byte offset from the start of the input text).
+<span class="lineNum">     114 </span>                :            :  * When we parse a token that requires multiple lexer rules to process,
+<span class="lineNum">     115 </span>                :            :  * this should be done in the first such rule, else yylloc will point
+<span class="lineNum">     116 </span>                :            :  * into the middle of the token.
+<span class="lineNum">     117 </span>                :            :  */
+<span class="lineNum">     118 </span>                :            : #define SET_YYLLOC()  (yylloc = yytext - scanbuf)
+<span class="lineNum">     119 </span>                :            : 
+<span class="lineNum">     120 </span>                :            : /* Handles to the buffer that the lexer uses internally */
+<span class="lineNum">     121 </span>                :            : static YY_BUFFER_STATE scanbufhandle;
+<span class="lineNum">     122 </span>                :            : static char *scanbuf;
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :            : static unsigned char unescape_single_char(unsigned char c);
+<span class="lineNum">     125 </span>                :            : static void addunicode(pg_wchar c);
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>                :            : %}
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :            : %option 8bit
+<span class="lineNum">     130 </span>                :            : %option never-interactive
+<span class="lineNum">     131 </span>                :            : %option nodefault
+<span class="lineNum">     132 </span>                :            : %option noinput
+<span class="lineNum">     133 </span>                :            : %option nounput
+<span class="lineNum">     134 </span>                :            : %option noyywrap
+<span class="lineNum">     135 </span>                :            : %option prefix=&quot;base_yy&quot;
+<span class="lineNum">     136 </span>                :            : 
+<span class="lineNum">     137 </span>                :            : /*
+<span class="lineNum">     138 </span>                :            :  * OK, here is a short description of lex/flex rules behavior.
+<span class="lineNum">     139 </span>                :            :  * The longest pattern which matches an input string is always chosen.
+<span class="lineNum">     140 </span>                :            :  * For equal-length patterns, the first occurring in the rules list is chosen.
+<span class="lineNum">     141 </span>                :            :  * INITIAL is the starting state, to which all non-conditional rules apply.
+<span class="lineNum">     142 </span>                :            :  * Exclusive states change parsing rules while the state is active.  When in
+<span class="lineNum">     143 </span>                :            :  * an exclusive state, only those rules defined for that state apply.
+<span class="lineNum">     144 </span>                :            :  *
+<span class="lineNum">     145 </span>                :            :  * We use exclusive states for quoted strings, extended comments,
+<span class="lineNum">     146 </span>                :            :  * and to eliminate parsing troubles for numeric strings.
+<span class="lineNum">     147 </span>                :            :  * Exclusive states:
+<span class="lineNum">     148 </span>                :            :  *  &lt;xb&gt; bit string literal
+<span class="lineNum">     149 </span>                :            :  *  &lt;xc&gt; extended C-style comments
+<span class="lineNum">     150 </span>                :            :  *  &lt;xd&gt; delimited identifiers (double-quoted identifiers)
+<span class="lineNum">     151 </span>                :            :  *  &lt;xh&gt; hexadecimal numeric string
+<span class="lineNum">     152 </span>                :            :  *  &lt;xq&gt; standard quoted strings
+<span class="lineNum">     153 </span>                :            :  *  &lt;xe&gt; extended quoted strings (support backslash escape sequences)
+<span class="lineNum">     154 </span>                :            :  *  &lt;xdolq&gt; $foo$ quoted strings
+<span class="lineNum">     155 </span>                :            :  *  &lt;xui&gt; quoted identifier with Unicode escapes
+<span class="lineNum">     156 </span>                :            :  *  &lt;xus&gt; quoted string with Unicode escapes
+<span class="lineNum">     157 </span>                :            :  *  &lt;xeu&gt; Unicode surrogate escape in extended string
+<span class="lineNum">     158 </span>                :            :  */
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            : %x xb
+<span class="lineNum">     161 </span>                :            : %x xc
+<span class="lineNum">     162 </span>                :            : %x xd
+<span class="lineNum">     163 </span>                :            : %x xh
+<span class="lineNum">     164 </span>                :            : %x xe
+<span class="lineNum">     165 </span>                :            : %x xq
+<span class="lineNum">     166 </span>                :            : %x xdolq
+<span class="lineNum">     167 </span>                :            : %x xui
+<span class="lineNum">     168 </span>                :            : %x xus
+<span class="lineNum">     169 </span>                :            : %x xeu
+<span class="lineNum">     170 </span>                :            : 
+<span class="lineNum">     171 </span>                :            : /*
+<span class="lineNum">     172 </span>                :            :  * In order to make the world safe for Windows and Mac clients as well as
+<span class="lineNum">     173 </span>                :            :  * Unix ones, we accept either \n or \r as a newline.  A DOS-style \r\n
+<span class="lineNum">     174 </span>                :            :  * sequence will be seen as two successive newlines, but that doesn't cause
+<span class="lineNum">     175 </span>                :            :  * any problems.  Comments that start with -- and extend to the next
+<span class="lineNum">     176 </span>                :            :  * newline are treated as equivalent to a single whitespace character.
+<span class="lineNum">     177 </span>                :            :  *
+<span class="lineNum">     178 </span>                :            :  * NOTE a fine point: if there is no newline following --, we will absorb
+<span class="lineNum">     179 </span>                :            :  * everything to the end of the input as a comment.  This is correct.  Older
+<span class="lineNum">     180 </span>                :            :  * versions of Postgres failed to recognize -- as a comment if the input
+<span class="lineNum">     181 </span>                :            :  * did not end with a newline.
+<span class="lineNum">     182 </span>                :            :  *
+<span class="lineNum">     183 </span>                :            :  * XXX perhaps \f (formfeed) should be treated as a newline as well?
+<span class="lineNum">     184 </span>                :            :  *
+<span class="lineNum">     185 </span>                :            :  * XXX if you change the set of whitespace characters, fix scanner_isspace()
+<span class="lineNum">     186 </span>                :            :  * to agree, and see also the plpgsql lexer.
+<span class="lineNum">     187 </span>                :            :  */
+<span class="lineNum">     188 </span>                :            : 
+<span class="lineNum">     189 </span>                :            : space                   [ \t\n\r\f]
+<span class="lineNum">     190 </span>                :            : horiz_space             [ \t\f]
+<span class="lineNum">     191 </span>                :            : newline                 [\n\r]
+<span class="lineNum">     192 </span>                :            : non_newline             [^\n\r]
+<span class="lineNum">     193 </span>                :            : 
+<span class="lineNum">     194 </span>                :            : comment                 (&quot;--&quot;{non_newline}*)
+<span class="lineNum">     195 </span>                :            : 
+<span class="lineNum">     196 </span>                :            : whitespace              ({space}+|{comment})
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            : /*
+<span class="lineNum">     199 </span>                :            :  * SQL requires at least one newline in the whitespace separating
+<span class="lineNum">     200 </span>                :            :  * string literals that are to be concatenated.  Silly, but who are we
+<span class="lineNum">     201 </span>                :            :  * to argue?  Note that {whitespace_with_newline} should not have * after
+<span class="lineNum">     202 </span>                :            :  * it, whereas {whitespace} should generally have a * after it...
+<span class="lineNum">     203 </span>                :            :  */
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :            : special_whitespace              ({space}+|{comment}{newline})
+<span class="lineNum">     206 </span>                :            : horiz_whitespace                ({horiz_space}|{comment})
+<span class="lineNum">     207 </span>                :            : whitespace_with_newline ({horiz_whitespace}*{newline}{special_whitespace}*)
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :            : /*
+<span class="lineNum">     210 </span>                :            :  * To ensure that {quotecontinue} can be scanned without having to back up
+<span class="lineNum">     211 </span>                :            :  * if the full pattern isn't matched, we include trailing whitespace in
+<span class="lineNum">     212 </span>                :            :  * {quotestop}.  This matches all cases where {quotecontinue} fails to match,
+<span class="lineNum">     213 </span>                :            :  * except for {quote} followed by whitespace and just one &quot;-&quot; (not two,
+<span class="lineNum">     214 </span>                :            :  * which would start a {comment}).  To cover that we have {quotefail}.
+<span class="lineNum">     215 </span>                :            :  * The actions for {quotestop} and {quotefail} must throw back characters
+<span class="lineNum">     216 </span>                :            :  * beyond the quote proper.
+<span class="lineNum">     217 </span>                :            :  */
+<span class="lineNum">     218 </span>                :            : quote                   '
+<span class="lineNum">     219 </span>                :            : quotestop               {quote}{whitespace}*
+<span class="lineNum">     220 </span>                :            : quotecontinue   {quote}{whitespace_with_newline}{quote}
+<span class="lineNum">     221 </span>                :            : quotefail               {quote}{whitespace}*&quot;-&quot;
+<span class="lineNum">     222 </span>                :            : 
+<span class="lineNum">     223 </span>                :            : /* Bit string
+<span class="lineNum">     224 </span>                :            :  * It is tempting to scan the string for only those characters
+<span class="lineNum">     225 </span>                :            :  * which are allowed. However, this leads to silently swallowed
+<span class="lineNum">     226 </span>                :            :  * characters if illegal characters are included in the string.
+<span class="lineNum">     227 </span>                :            :  * For example, if xbinside is [01] then B'ABCD' is interpreted
+<span class="lineNum">     228 </span>                :            :  * as a zero-length string, and the ABCD' is lost!
+<span class="lineNum">     229 </span>                :            :  * Better to pass the string forward and let the input routines
+<span class="lineNum">     230 </span>                :            :  * validate the contents.
+<span class="lineNum">     231 </span>                :            :  */
+<span class="lineNum">     232 </span>                :            : xbstart                 [bB]{quote}
+<span class="lineNum">     233 </span>                :            : xbinside                [^']*
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>                :            : /* Hexadecimal number */
+<span class="lineNum">     236 </span>                :            : xhstart                 [xX]{quote}
+<span class="lineNum">     237 </span>                :            : xhinside                [^']*
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>                :            : /* National character */
+<span class="lineNum">     240 </span>                :            : xnstart                 [nN]{quote}
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :            : /* Quoted string that allows backslash escapes */
+<span class="lineNum">     243 </span>                :            : xestart                 [eE]{quote}
+<span class="lineNum">     244 </span>                :            : xeinside                [^\\']+
+<span class="lineNum">     245 </span>                :            : xeescape                [\\][^0-7]
+<span class="lineNum">     246 </span>                :            : xeoctesc                [\\][0-7]{1,3}
+<span class="lineNum">     247 </span>                :            : xehexesc                [\\]x[0-9A-Fa-f]{1,2}
+<span class="lineNum">     248 </span>                :            : xeunicode               [\\](u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})
+<span class="lineNum">     249 </span>                :            : xeunicodebad    [\\]([uU])
+<span class="lineNum">     250 </span>                :            : 
+<span class="lineNum">     251 </span>                :            : /* Extended quote
+<span class="lineNum">     252 </span>                :            :  * xqdouble implements embedded quote, ''''
+<span class="lineNum">     253 </span>                :            :  */
+<span class="lineNum">     254 </span>                :            : xqstart                 {quote}
+<span class="lineNum">     255 </span>                :            : xqdouble                {quote}{quote}
+<span class="lineNum">     256 </span>                :            : xqinside                [^']+
+<span class="lineNum">     257 </span>                :            : 
+<span class="lineNum">     258 </span>                :            : /* $foo$ style quotes (&quot;dollar quoting&quot;)
+<span class="lineNum">     259 </span>                :            :  * The quoted string starts with $foo$ where &quot;foo&quot; is an optional string
+<span class="lineNum">     260 </span>                :            :  * in the form of an identifier, except that it may not contain &quot;$&quot;, 
+<span class="lineNum">     261 </span>                :            :  * and extends to the first occurrence of an identical string.  
+<span class="lineNum">     262 </span>                :            :  * There is *no* processing of the quoted text.
+<span class="lineNum">     263 </span>                :            :  *
+<span class="lineNum">     264 </span>                :            :  * {dolqfailed} is an error rule to avoid scanner backup when {dolqdelim}
+<span class="lineNum">     265 </span>                :            :  * fails to match its trailing &quot;$&quot;.
+<span class="lineNum">     266 </span>                :            :  */
+<span class="lineNum">     267 </span>                :            : dolq_start              [A-Za-z\200-\377_]
+<span class="lineNum">     268 </span>                :            : dolq_cont               [A-Za-z\200-\377_0-9]
+<span class="lineNum">     269 </span>                :            : dolqdelim               \$({dolq_start}{dolq_cont}*)?\$
+<span class="lineNum">     270 </span>                :            : dolqfailed              \${dolq_start}{dolq_cont}*
+<span class="lineNum">     271 </span>                :            : dolqinside              [^$]+
+<span class="lineNum">     272 </span>                :            : 
+<span class="lineNum">     273 </span>                :            : /* Double quote
+<span class="lineNum">     274 </span>                :            :  * Allows embedded spaces and other special characters into identifiers.
+<span class="lineNum">     275 </span>                :            :  */
+<span class="lineNum">     276 </span>                :            : dquote                  \&quot;
+<span class="lineNum">     277 </span>                :            : xdstart                 {dquote}
+<span class="lineNum">     278 </span>                :            : xdstop                  {dquote}
+<span class="lineNum">     279 </span>                :            : xddouble                {dquote}{dquote}
+<span class="lineNum">     280 </span>                :            : xdinside                [^&quot;]+
+<span class="lineNum">     281 </span>                :            : 
+<span class="lineNum">     282 </span>                :            : /* Unicode escapes */
+<span class="lineNum">     283 </span>                :            : uescape                 [uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}[^']{quote}
+<span class="lineNum">     284 </span>                :            : /* error rule to avoid backup */
+<span class="lineNum">     285 </span>                :            : uescapefail             (&quot;-&quot;|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*&quot;-&quot;|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}[^']|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*{quote}|[uU][eE][sS][cC][aA][pP][eE]{whitespace}*|[uU][eE][sS][cC][aA][pP]|[uU][eE][sS][cC][aA]|[uU][eE][sS][cC]|[uU][eE][sS]|[uU][eE]|[uU])
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            : /* Quoted identifier with Unicode escapes */
+<span class="lineNum">     288 </span>                :            : xuistart                [uU]&amp;{dquote}
+<span class="lineNum">     289 </span>                :            : xuistop1                {dquote}{whitespace}*{uescapefail}?
+<span class="lineNum">     290 </span>                :            : xuistop2                {dquote}{whitespace}*{uescape}
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            : /* Quoted string with Unicode escapes */
+<span class="lineNum">     293 </span>                :            : xusstart                [uU]&amp;{quote}
+<span class="lineNum">     294 </span>                :            : xusstop1                {quote}{whitespace}*{uescapefail}?
+<span class="lineNum">     295 </span>                :            : xusstop2                {quote}{whitespace}*{uescape}
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :            : /* error rule to avoid backup */
+<span class="lineNum">     298 </span>                :            : xufailed                [uU]&amp;
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :            : /* C-style comments
+<span class="lineNum">     302 </span>                :            :  *
+<span class="lineNum">     303 </span>                :            :  * The &quot;extended comment&quot; syntax closely resembles allowable operator syntax.
+<span class="lineNum">     304 </span>                :            :  * The tricky part here is to get lex to recognize a string starting with
+<span class="lineNum">     305 </span>                :            :  * slash-star as a comment, when interpreting it as an operator would produce
+<span class="lineNum">     306 </span>                :            :  * a longer match --- remember lex will prefer a longer match!  Also, if we
+<span class="lineNum">     307 </span>                :            :  * have something like plus-slash-star, lex will think this is a 3-character
+<span class="lineNum">     308 </span>                :            :  * operator whereas we want to see it as a + operator and a comment start.
+<span class="lineNum">     309 </span>                :            :  * The solution is two-fold:
+<span class="lineNum">     310 </span>                :            :  * 1. append {op_chars}* to xcstart so that it matches as much text as
+<span class="lineNum">     311 </span>                :            :  *    {operator} would. Then the tie-breaker (first matching rule of same
+<span class="lineNum">     312 </span>                :            :  *    length) ensures xcstart wins.  We put back the extra stuff with yyless()
+<span class="lineNum">     313 </span>                :            :  *    in case it contains a star-slash that should terminate the comment.
+<span class="lineNum">     314 </span>                :            :  * 2. In the operator rule, check for slash-star within the operator, and
+<span class="lineNum">     315 </span>                :            :  *    if found throw it back with yyless().  This handles the plus-slash-star
+<span class="lineNum">     316 </span>                :            :  *    problem.
+<span class="lineNum">     317 </span>                :            :  * Dash-dash comments have similar interactions with the operator rule.
+<span class="lineNum">     318 </span>                :            :  */
+<span class="lineNum">     319 </span>                :            : xcstart                 \/\*{op_chars}*
+<span class="lineNum">     320 </span>                :            : xcstop                  \*+\/
+<span class="lineNum">     321 </span>                :            : xcinside                [^*/]+
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :            : digit                   [0-9]
+<span class="lineNum">     324 </span>                :            : ident_start             [A-Za-z\200-\377_]
+<span class="lineNum">     325 </span>                :            : ident_cont              [A-Za-z\200-\377_0-9\$]
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :            : identifier              {ident_start}{ident_cont}*
+<span class="lineNum">     328 </span>                :            : 
+<span class="lineNum">     329 </span>                :            : typecast                &quot;::&quot;
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :            : /*
+<span class="lineNum">     332 </span>                :            :  * &quot;self&quot; is the set of chars that should be returned as single-character
+<span class="lineNum">     333 </span>                :            :  * tokens.  &quot;op_chars&quot; is the set of chars that can make up &quot;Op&quot; tokens,
+<span class="lineNum">     334 </span>                :            :  * which can be one or more characters long (but if a single-char token
+<span class="lineNum">     335 </span>                :            :  * appears in the &quot;self&quot; set, it is not to be returned as an Op).  Note
+<span class="lineNum">     336 </span>                :            :  * that the sets overlap, but each has some chars that are not in the other.
+<span class="lineNum">     337 </span>                :            :  *
+<span class="lineNum">     338 </span>                :            :  * If you change either set, adjust the character lists appearing in the
+<span class="lineNum">     339 </span>                :            :  * rule for &quot;operator&quot;!
+<span class="lineNum">     340 </span>                :            :  */
+<span class="lineNum">     341 </span>                :            : self                    [,()\[\].;\:\+\-\*\/\%\^\&lt;\&gt;\=]
+<span class="lineNum">     342 </span>                :            : op_chars                [\~\!\@\#\^\&amp;\|\`\?\+\-\*\/\%\&lt;\&gt;\=]
+<span class="lineNum">     343 </span>                :            : operator                {op_chars}+
+<span class="lineNum">     344 </span>                :            : 
+<span class="lineNum">     345 </span>                :            : /* we no longer allow unary minus in numbers. 
+<span class="lineNum">     346 </span>                :            :  * instead we pass it separately to parser. there it gets
+<span class="lineNum">     347 </span>                :            :  * coerced via doNegate() -- Leon aug 20 1999
+<span class="lineNum">     348 </span>                :            :  *
+<span class="lineNum">     349 </span>                :            :  * {realfail1} and {realfail2} are added to prevent the need for scanner
+<span class="lineNum">     350 </span>                :            :  * backup when the {real} rule fails to match completely.
+<span class="lineNum">     351 </span>                :            :  */
+<span class="lineNum">     352 </span>                :            : 
+<span class="lineNum">     353 </span>                :            : integer                 {digit}+
+<span class="lineNum">     354 </span>                :            : decimal                 (({digit}*\.{digit}+)|({digit}+\.{digit}*))
+<span class="lineNum">     355 </span>                :            : real                    ({integer}|{decimal})[Ee][-+]?{digit}+
+<span class="lineNum">     356 </span>                :            : realfail1               ({integer}|{decimal})[Ee]
+<span class="lineNum">     357 </span>                :            : realfail2               ({integer}|{decimal})[Ee][-+]
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            : param                   \${integer}
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>                :            : other                   .
+<span class="lineNum">     362 </span>                :            : 
+<span class="lineNum">     363 </span>                :            : /*
+<span class="lineNum">     364 </span>                :            :  * Dollar quoted strings are totally opaque, and no escaping is done on them.
+<span class="lineNum">     365 </span>                :            :  * Other quoted strings must allow some special characters such as single-quote
+<span class="lineNum">     366 </span>                :            :  *  and newline.
+<span class="lineNum">     367 </span>                :            :  * Embedded single-quotes are implemented both in the SQL standard
+<span class="lineNum">     368 </span>                :            :  *  style of two adjacent single quotes &quot;''&quot; and in the Postgres/Java style
+<span class="lineNum">     369 </span>                :            :  *  of escaped-quote &quot;\'&quot;.
+<span class="lineNum">     370 </span>                :            :  * Other embedded escaped characters are matched explicitly and the leading
+<span class="lineNum">     371 </span>                :            :  *  backslash is dropped from the string.
+<span class="lineNum">     372 </span>                :            :  * Note that xcstart must appear before operator, as explained above!
+<span class="lineNum">     373 </span>                :            :  *  Also whitespace (comment) must appear before operator.
+<span class="lineNum">     374 </span>                :            :  */
+<span class="lineNum">     375 </span>                :            : 
+<span class="lineNum">     376 </span>                :            : %%
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :            : {whitespace}    {
+<span class="lineNum">     379 </span>                :            :                                         /* ignore */
+<span class="lineNum">     380 </span>                :            :                                 }
+<span class="lineNum">     381 </span>                :            : 
+<span class="lineNum">     382 </span>                :            : {xcstart}               {
+<span class="lineNum">     383 </span>                :            :                                         /* Set location in case of syntax error in comment */
+<span class="lineNum">     384 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     385 </span>                :            :                                         xcdepth = 0;
+<span class="lineNum">     386 </span>                :            :                                         BEGIN(xc);
+<span class="lineNum">     387 </span>                :            :                                         /* Put back any characters past slash-star; see above */
+<span class="lineNum">     388 </span>                :            :                                         yyless(2);
+<span class="lineNum">     389 </span>                :            :                                 }
+<span class="lineNum">     390 </span>                :            : 
+<span class="lineNum">     391 </span>                :            : &lt;xc&gt;{xcstart}     {
+<span class="lineNum">     392 </span>                :            :                                         xcdepth++;
+<span class="lineNum">     393 </span>                :            :                                         /* Put back any characters past slash-star; see above */
+<span class="lineNum">     394 </span>                :            :                                         yyless(2);
+<span class="lineNum">     395 </span>                :            :                                 }
+<span class="lineNum">     396 </span>                :            : 
+<span class="lineNum">     397 </span>                :            : &lt;xc&gt;{xcstop}      {
+<span class="lineNum">     398 </span>                :            :                                         if (xcdepth &lt;= 0)
+<span class="lineNum">     399 </span>                :            :                                                 BEGIN(INITIAL);
+<span class="lineNum">     400 </span>                :            :                                         else
+<span class="lineNum">     401 </span>                :            :                                                 xcdepth--;
+<span class="lineNum">     402 </span>                :            :                                 }
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>                :            : &lt;xc&gt;{xcinside}    {
+<span class="lineNum">     405 </span>                :            :                                         /* ignore */
+<span class="lineNum">     406 </span>                :            :                                 }
+<span class="lineNum">     407 </span>                :            : 
+<span class="lineNum">     408 </span>                :            : &lt;xc&gt;{op_chars}    {
+<span class="lineNum">     409 </span>                :            :                                         /* ignore */
+<span class="lineNum">     410 </span>                :            :                                 }
+<span class="lineNum">     411 </span>                :            : 
+<span class="lineNum">     412 </span>                :            : &lt;xc&gt;\*+                   {
+<span class="lineNum">     413 </span>                :            :                                         /* ignore */
+<span class="lineNum">     414 </span>                :            :                                 }
+<span class="lineNum">     415 </span>                :            : 
+<span class="lineNum">     416 </span>                :            : &lt;xc&gt;&lt;&lt;EOF&gt;&gt;           { yyerror(&quot;unterminated /* comment&quot;); }
+<span class="lineNum">     417 </span>                :            : 
+<span class="lineNum">     418 </span>                :            : {xbstart}               {
+<span class="lineNum">     419 </span>                :            :                                         /* Binary bit type.
+<span class="lineNum">     420 </span>                :            :                                          * At some point we should simply pass the string
+<span class="lineNum">     421 </span>                :            :                                          * forward to the parser and label it there.
+<span class="lineNum">     422 </span>                :            :                                          * In the meantime, place a leading &quot;b&quot; on the string
+<span class="lineNum">     423 </span>                :            :                                          * to mark it for the input routine as a binary string.
+<span class="lineNum">     424 </span>                :            :                                          */
+<span class="lineNum">     425 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     426 </span>                :            :                                         BEGIN(xb);
+<span class="lineNum">     427 </span>                :            :                                         startlit();
+<span class="lineNum">     428 </span>                :            :                                         addlitchar('b');
+<span class="lineNum">     429 </span>                :            :                                 }
+<span class="lineNum">     430 </span>                :            : &lt;xb&gt;{quotestop}   |
+<span class="lineNum">     431 </span>                :            : &lt;xb&gt;{quotefail} {
+<span class="lineNum">     432 </span>                :            :                                         yyless(1);
+<span class="lineNum">     433 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     434 </span>                :            :                                         yylval.str = litbufdup();
+<span class="lineNum">     435 </span>                :            :                                         return BCONST;
+<span class="lineNum">     436 </span>                :            :                                 }
+<span class="lineNum">     437 </span>                :            : &lt;xh&gt;{xhinside}    |
+<span class="lineNum">     438 </span>                :            : &lt;xb&gt;{xbinside}    {
+<span class="lineNum">     439 </span>                :            :                                         addlit(yytext, yyleng);
+<span class="lineNum">     440 </span>                :            :                                 }
+<span class="lineNum">     441 </span>                :            : &lt;xh&gt;{quotecontinue}       |
+<span class="lineNum">     442 </span>                :            : &lt;xb&gt;{quotecontinue}       {
+<span class="lineNum">     443 </span>                :            :                                         /* ignore */
+<span class="lineNum">     444 </span>                :            :                                 }
+<span class="lineNum">     445 </span>                :            : &lt;xb&gt;&lt;&lt;EOF&gt;&gt;           { yyerror(&quot;unterminated bit string literal&quot;); }
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :            : {xhstart}               {
+<span class="lineNum">     448 </span>                :            :                                         /* Hexadecimal bit type.
+<span class="lineNum">     449 </span>                :            :                                          * At some point we should simply pass the string
+<span class="lineNum">     450 </span>                :            :                                          * forward to the parser and label it there.
+<span class="lineNum">     451 </span>                :            :                                          * In the meantime, place a leading &quot;x&quot; on the string
+<span class="lineNum">     452 </span>                :            :                                          * to mark it for the input routine as a hex string.
+<span class="lineNum">     453 </span>                :            :                                          */
+<span class="lineNum">     454 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     455 </span>                :            :                                         BEGIN(xh);
+<span class="lineNum">     456 </span>                :            :                                         startlit();
+<span class="lineNum">     457 </span>                :            :                                         addlitchar('x');
+<span class="lineNum">     458 </span>                :            :                                 }
+<span class="lineNum">     459 </span>                :            : &lt;xh&gt;{quotestop}   |
+<span class="lineNum">     460 </span>                :            : &lt;xh&gt;{quotefail} {
+<span class="lineNum">     461 </span>                :            :                                         yyless(1);
+<span class="lineNum">     462 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     463 </span>                :            :                                         yylval.str = litbufdup();
+<span class="lineNum">     464 </span>                :            :                                         return XCONST;
+<span class="lineNum">     465 </span>                :            :                                 }
+<span class="lineNum">     466 </span>                :            : &lt;xh&gt;&lt;&lt;EOF&gt;&gt;           { yyerror(&quot;unterminated hexadecimal string literal&quot;); }
+<span class="lineNum">     467 </span>                :            : 
+<span class="lineNum">     468 </span>                :            : {xnstart}               {
+<span class="lineNum">     469 </span>                :            :                                         /* National character.
+<span class="lineNum">     470 </span>                :            :                                          * We will pass this along as a normal character string,
+<span class="lineNum">     471 </span>                :            :                                          * but preceded with an internally-generated &quot;NCHAR&quot;.
+<span class="lineNum">     472 </span>                :            :                                          */
+<span class="lineNum">     473 </span>                :            :                                         const ScanKeyword *keyword;
+<span class="lineNum">     474 </span>                :            : 
+<span class="lineNum">     475 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     476 </span>                :            :                                         yyless(1);                              /* eat only 'n' this time */
+<span class="lineNum">     477 </span>                :            :                                         /* nchar had better be a keyword! */
+<span class="lineNum">     478 </span>                :            :                                         keyword = ScanKeywordLookup(&quot;nchar&quot;);
+<span class="lineNum">     479 </span>                :            :                                         Assert(keyword != NULL);
+<span class="lineNum">     480 </span>                :            :                                         yylval.keyword = keyword-&gt;name;
+<span class="lineNum">     481 </span>                :            :                                         return keyword-&gt;value;
+<span class="lineNum">     482 </span>                :            :                                 }
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>                :            : {xqstart}               {
+<span class="lineNum">     485 </span>                :            :                                         warn_on_first_escape = true;
+<span class="lineNum">     486 </span>                :            :                                         saw_non_ascii = false;
+<span class="lineNum">     487 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     488 </span>                :            :                                         if (standard_conforming_strings)
+<span class="lineNum">     489 </span>                :            :                                                 BEGIN(xq);
+<span class="lineNum">     490 </span>                :            :                                         else
+<span class="lineNum">     491 </span>                :            :                                                 BEGIN(xe);
+<span class="lineNum">     492 </span>                :            :                                         startlit();
+<span class="lineNum">     493 </span>                :            :                                 }
+<span class="lineNum">     494 </span>                :            : {xestart}               {
+<span class="lineNum">     495 </span>                :            :                                         warn_on_first_escape = false;
+<span class="lineNum">     496 </span>                :            :                                         saw_non_ascii = false;
+<span class="lineNum">     497 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     498 </span>                :            :                                         BEGIN(xe);
+<span class="lineNum">     499 </span>                :            :                                         startlit();
+<span class="lineNum">     500 </span>                :            :                                 }
+<span class="lineNum">     501 </span>                :            : {xusstart}              {
+<span class="lineNum">     502 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     503 </span>                :            :                                         if (!standard_conforming_strings)
+<span class="lineNum">     504 </span>                :            :                                                 ereport(ERROR,
+<span class="lineNum">     505 </span>                :            :                                                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     506 </span>                :            :                                                                  errmsg(&quot;unsafe use of string constant with Unicode escapes&quot;),
+<span class="lineNum">     507 </span>                :            :                                                                  errdetail(&quot;String constants with Unicode escapes cannot be used when standard_conforming_strings is off.&quot;),
+<span class="lineNum">     508 </span>                :            :                                                                  lexer_errposition()));
+<span class="lineNum">     509 </span>                :            :                                         BEGIN(xus);
+<span class="lineNum">     510 </span>                :            :                                         startlit();
+<span class="lineNum">     511 </span>                :            :                                 }
+<span class="lineNum">     512 </span>                :            : &lt;xq,xe&gt;{quotestop}        |
+<span class="lineNum">     513 </span>                :            : &lt;xq,xe&gt;{quotefail} {
+<span class="lineNum">     514 </span>                :            :                                         yyless(1);
+<span class="lineNum">     515 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     516 </span>                :            :                                         /*
+<span class="lineNum">     517 </span>                :            :                                          * check that the data remains valid if it might have been
+<span class="lineNum">     518 </span>                :            :                                          * made invalid by unescaping any chars.
+<span class="lineNum">     519 </span>                :            :                                          */
+<span class="lineNum">     520 </span>                :            :                                         if (saw_non_ascii)
+<span class="lineNum">     521 </span>                :            :                                                 pg_verifymbstr(literalbuf, literallen, false);
+<span class="lineNum">     522 </span>                :            :                                         yylval.str = litbufdup();
+<span class="lineNum">     523 </span>                :            :                                         return SCONST;
+<span class="lineNum">     524 </span>                :            :                                 }
+<span class="lineNum">     525 </span>                :            : &lt;xus&gt;{xusstop1} {
+<span class="lineNum">     526 </span>                :            :                                         /* throw back all but the quote */
+<span class="lineNum">     527 </span>                :            :                                         yyless(1);
+<span class="lineNum">     528 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     529 </span>                :            :                                         yylval.str = litbuf_udeescape('\\');
+<span class="lineNum">     530 </span>                :            :                                         return SCONST;
+<span class="lineNum">     531 </span>                :            :                                 }
+<span class="lineNum">     532 </span>                :            : &lt;xus&gt;{xusstop2} {
+<span class="lineNum">     533 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     534 </span>                :            :                                         yylval.str = litbuf_udeescape(yytext[yyleng-2]);
+<span class="lineNum">     535 </span>                :            :                                         return SCONST;
+<span class="lineNum">     536 </span>                :            :                                 }
+<span class="lineNum">     537 </span>                :            : &lt;xq,xe,xus&gt;{xqdouble} {
+<span class="lineNum">     538 </span>                :            :                                         addlitchar('\'');
+<span class="lineNum">     539 </span>                :            :                                 }
+<span class="lineNum">     540 </span>                :            : &lt;xq,xus&gt;{xqinside}  {
+<span class="lineNum">     541 </span>                :            :                                         addlit(yytext, yyleng);
+<span class="lineNum">     542 </span>                :            :                                 }
+<span class="lineNum">     543 </span>                :            : &lt;xe&gt;{xeinside}  {
+<span class="lineNum">     544 </span>                :            :                                         addlit(yytext, yyleng);
+<span class="lineNum">     545 </span>                :            :                                 }
+<span class="lineNum">     546 </span>                :            : &lt;xe&gt;{xeunicode} {
+<span class="lineNum">     547 </span>                :            :                                         pg_wchar c = strtoul(yytext+2, NULL, 16);
+<span class="lineNum">     548 </span>                :            : 
+<span class="lineNum">     549 </span>                :            :                                         check_escape_warning();
+<span class="lineNum">     550 </span>                :            : 
+<span class="lineNum">     551 </span>                :            :                                         /*
+<span class="lineNum">     552 </span>                :            :                                          * handle UTF-16 surrogates:
+<span class="lineNum">     553 </span>                :            :                                          *   [0xD800..0xDC00) - first elem.
+<span class="lineNum">     554 </span>                :            :                                          *   [0xDC00..0xE000) - second elem.
+<span class="lineNum">     555 </span>                :            :                                          */
+<span class="lineNum">     556 </span>                :            :                                         if (c &gt;= 0xD800 &amp;&amp; c &lt; 0xE000)
+<span class="lineNum">     557 </span>                :            :                                         {
+<span class="lineNum">     558 </span>                :            :                                                 if (c &gt;= 0xDC00)
+<span class="lineNum">     559 </span>                :            :                                                         yyerror(&quot;invalid Unicode surrogate pair&quot;);
+<span class="lineNum">     560 </span>                :            : 
+<span class="lineNum">     561 </span>                :            :                                                 utf16_top_part = ((c &amp; 0x3FF) &lt;&lt; 10) + 0x10000;
+<span class="lineNum">     562 </span>                :            :                                                 BEGIN(xeu);
+<span class="lineNum">     563 </span>                :            :                                         }
+<span class="lineNum">     564 </span>                :            :                                         else
+<span class="lineNum">     565 </span>                :            :                                                 addunicode(c);
+<span class="lineNum">     566 </span>                :            :                                 }
+<span class="lineNum">     567 </span>                :            : &lt;xeu&gt;{xeunicode} {
+<span class="lineNum">     568 </span>                :            :                                         pg_wchar c = strtoul(yytext+2, NULL, 16);
+<span class="lineNum">     569 </span>                :            : 
+<span class="lineNum">     570 </span>                :            :                                         if (c &lt; 0xDC00 || c &gt;= 0xE000)
+<span class="lineNum">     571 </span>                :            :                                                 yyerror(&quot;invalid Unicode surrogate pair&quot;);
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :            :                                         c = (c &amp; 0x3FF) + utf16_top_part;
+<span class="lineNum">     574 </span>                :            : 
+<span class="lineNum">     575 </span>                :            :                                         addunicode(c);
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>                :            :                                         BEGIN(xe);
+<span class="lineNum">     578 </span>                :            :                                 }
+<span class="lineNum">     579 </span>                :            : &lt;xeu&gt;.                    |
+<span class="lineNum">     580 </span>                :            : &lt;xeu&gt;\n                   |
+<span class="lineNum">     581 </span>                :            : &lt;xeu&gt;&lt;&lt;EOF&gt;&gt;  { yyerror(&quot;invalid Unicode surrogate pair&quot;); }
+<span class="lineNum">     582 </span>                :            : 
+<span class="lineNum">     583 </span>                :            : &lt;xe&gt;{xeunicodebad}        {
+<span class="lineNum">     584 </span>                :            :                                                 ereport(ERROR,
+<span class="lineNum">     585 </span>                :            :                                                                 (errcode(ERRCODE_INVALID_ESCAPE_SEQUENCE),
+<span class="lineNum">     586 </span>                :            :                                                                  errmsg(&quot;invalid Unicode escape&quot;),
+<span class="lineNum">     587 </span>                :            :                                                                  errhint(&quot;Unicode escapes must be full-length: \\uXXXX or \\UXXXXXXXX.&quot;),
+<span class="lineNum">     588 </span>                :            :                                                                  lexer_errposition()));
+<span class="lineNum">     589 </span>                :            :                                         }
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :            : &lt;xe&gt;{xeescape}  {
+<span class="lineNum">     592 </span>                :            :                                         if (yytext[1] == '\'')
+<span class="lineNum">     593 </span>                :            :                                         {
+<span class="lineNum">     594 </span>                :            :                                                 if (backslash_quote == BACKSLASH_QUOTE_OFF ||
+<span class="lineNum">     595 </span>                :            :                                                         (backslash_quote == BACKSLASH_QUOTE_SAFE_ENCODING &amp;&amp;
+<span class="lineNum">     596 </span>                :            :                                                          PG_ENCODING_IS_CLIENT_ONLY(pg_get_client_encoding())))
+<span class="lineNum">     597 </span>                :            :                                                         ereport(ERROR,
+<span class="lineNum">     598 </span>                :            :                                                                         (errcode(ERRCODE_NONSTANDARD_USE_OF_ESCAPE_CHARACTER),
+<span class="lineNum">     599 </span>                :            :                                                                          errmsg(&quot;unsafe use of \\' in a string literal&quot;),
+<span class="lineNum">     600 </span>                :            :                                                                          errhint(&quot;Use '' to write quotes in strings. \\' is insecure in client-only encodings.&quot;),
+<span class="lineNum">     601 </span>                :            :                                                                          lexer_errposition()));
+<span class="lineNum">     602 </span>                :            :                                         }
+<span class="lineNum">     603 </span>                :            :                                         check_string_escape_warning(yytext[1]);
+<span class="lineNum">     604 </span>                :            :                                         addlitchar(unescape_single_char(yytext[1]));
+<span class="lineNum">     605 </span>                :            :                                 }
+<span class="lineNum">     606 </span>                :            : &lt;xe&gt;{xeoctesc}  {
+<span class="lineNum">     607 </span>                :            :                                         unsigned char c = strtoul(yytext+1, NULL, 8);
+<span class="lineNum">     608 </span>                :            : 
+<span class="lineNum">     609 </span>                :            :                                         check_escape_warning();
+<span class="lineNum">     610 </span>                :            :                                         addlitchar(c);
+<span class="lineNum">     611 </span>                :            :                                         if (c == '\0' || IS_HIGHBIT_SET(c))
+<span class="lineNum">     612 </span>                :            :                                                 saw_non_ascii = true;
+<span class="lineNum">     613 </span>                :            :                                 }
+<span class="lineNum">     614 </span>                :            : &lt;xe&gt;{xehexesc}  {
+<span class="lineNum">     615 </span>                :            :                                         unsigned char c = strtoul(yytext+2, NULL, 16);
+<span class="lineNum">     616 </span>                :            : 
+<span class="lineNum">     617 </span>                :            :                                         check_escape_warning();
+<span class="lineNum">     618 </span>                :            :                                         addlitchar(c);
+<span class="lineNum">     619 </span>                :            :                                         if (c == '\0' || IS_HIGHBIT_SET(c))
+<span class="lineNum">     620 </span>                :            :                                                 saw_non_ascii = true;
+<span class="lineNum">     621 </span>                :            :                                 }
+<span class="lineNum">     622 </span>                :            : &lt;xq,xe,xus&gt;{quotecontinue} {
+<span class="lineNum">     623 </span>                :            :                                         /* ignore */
+<span class="lineNum">     624 </span>                :            :                                 }
+<span class="lineNum">     625 </span>                :            : &lt;xe&gt;.                     {
+<span class="lineNum">     626 </span>                :            :                                         /* This is only needed for \ just before EOF */
+<span class="lineNum">     627 </span>                :            :                                         addlitchar(yytext[0]);
+<span class="lineNum">     628 </span>                :            :                                 }
+<span class="lineNum">     629 </span>                :            : &lt;xq,xe,xus&gt;&lt;&lt;EOF&gt;&gt;            { yyerror(&quot;unterminated quoted string&quot;); }
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :            : {dolqdelim}             {
+<span class="lineNum">     632 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     633 </span>                :            :                                         dolqstart = pstrdup(yytext);
+<span class="lineNum">     634 </span>                :            :                                         BEGIN(xdolq);
+<span class="lineNum">     635 </span>                :            :                                         startlit();
+<span class="lineNum">     636 </span>                :            :                                 }
+<span class="lineNum">     637 </span>                :            : {dolqfailed}    {
+<span class="lineNum">     638 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     639 </span>                :            :                                         /* throw back all but the initial &quot;$&quot; */
+<span class="lineNum">     640 </span>                :            :                                         yyless(1);
+<span class="lineNum">     641 </span>                :            :                                         /* and treat it as {other} */
+<span class="lineNum">     642 </span>                :            :                                         return yytext[0];
+<span class="lineNum">     643 </span>                :            :                                 }
+<span class="lineNum">     644 </span>                :            : &lt;xdolq&gt;{dolqdelim} {
+<span class="lineNum">     645 </span>                :            :                                         if (strcmp(yytext, dolqstart) == 0)
+<span class="lineNum">     646 </span>                :            :                                         {
+<span class="lineNum">     647 </span>                :            :                                                 pfree(dolqstart);
+<span class="lineNum">     648 </span>                :            :                                                 BEGIN(INITIAL);
+<span class="lineNum">     649 </span>                :            :                                                 yylval.str = litbufdup();
+<span class="lineNum">     650 </span>                :            :                                                 return SCONST;
+<span class="lineNum">     651 </span>                :            :                                         }
+<span class="lineNum">     652 </span>                :            :                                         else
+<span class="lineNum">     653 </span>                :            :                                         {
+<span class="lineNum">     654 </span>                :            :                                                 /*
+<span class="lineNum">     655 </span>                :            :                                                  * When we fail to match $...$ to dolqstart, transfer
+<span class="lineNum">     656 </span>                :            :                                                  * the $... part to the output, but put back the final
+<span class="lineNum">     657 </span>                :            :                                                  * $ for rescanning.  Consider $delim$...$junk$delim$
+<span class="lineNum">     658 </span>                :            :                                                  */
+<span class="lineNum">     659 </span>                :            :                                                 addlit(yytext, yyleng-1);
+<span class="lineNum">     660 </span>                :            :                                                 yyless(yyleng-1);
+<span class="lineNum">     661 </span>                :            :                                         }
+<span class="lineNum">     662 </span>                :            :                                 }
+<span class="lineNum">     663 </span>                :            : &lt;xdolq&gt;{dolqinside} {
+<span class="lineNum">     664 </span>                :            :                                         addlit(yytext, yyleng);
+<span class="lineNum">     665 </span>                :            :                                 }
+<span class="lineNum">     666 </span>                :            : &lt;xdolq&gt;{dolqfailed} {
+<span class="lineNum">     667 </span>                :            :                                         addlit(yytext, yyleng);
+<span class="lineNum">     668 </span>                :            :                                 }
+<span class="lineNum">     669 </span>                :            : &lt;xdolq&gt;.          {
+<span class="lineNum">     670 </span>                :            :                                         /* This is only needed for $ inside the quoted text */
+<span class="lineNum">     671 </span>                :            :                                         addlitchar(yytext[0]);
+<span class="lineNum">     672 </span>                :            :                                 }
+<span class="lineNum">     673 </span>                :            : &lt;xdolq&gt;&lt;&lt;EOF&gt;&gt;        { yyerror(&quot;unterminated dollar-quoted string&quot;); }
+<span class="lineNum">     674 </span>                :            : 
+<span class="lineNum">     675 </span>                :            : {xdstart}               {
+<span class="lineNum">     676 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     677 </span>                :            :                                         BEGIN(xd);
+<span class="lineNum">     678 </span>                :            :                                         startlit();
+<span class="lineNum">     679 </span>                :            :                                 }
+<span class="lineNum">     680 </span>                :            : {xuistart}              {
+<span class="lineNum">     681 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     682 </span>                :            :                                         BEGIN(xui);
+<span class="lineNum">     683 </span>                :            :                                         startlit();
+<span class="lineNum">     684 </span>                :            :                                 }
+<span class="lineNum">     685 </span>                :            : &lt;xd&gt;{xdstop}      {
+<span class="lineNum">     686 </span>                :            :                                         char               *ident;
+<span class="lineNum">     687 </span>                :            : 
+<span class="lineNum">     688 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     689 </span>                :            :                                         if (literallen == 0)
+<span class="lineNum">     690 </span>                :            :                                                 yyerror(&quot;zero-length delimited identifier&quot;);
+<span class="lineNum">     691 </span>                :            :                                         ident = litbufdup();
+<span class="lineNum">     692 </span>                :            :                                         if (literallen &gt;= NAMEDATALEN)
+<span class="lineNum">     693 </span>                :            :                                                 truncate_identifier(ident, literallen, true);
+<span class="lineNum">     694 </span>                :            :                                         yylval.str = ident;
+<span class="lineNum">     695 </span>                :            :                                         return IDENT;
+<span class="lineNum">     696 </span>                :            :                                 }
+<span class="lineNum">     697 </span>                :            : &lt;xui&gt;{xuistop1}   {
+<span class="lineNum">     698 </span>                :            :                                         char               *ident;
+<span class="lineNum">     699 </span>                :            : 
+<span class="lineNum">     700 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     701 </span>                :            :                                         if (literallen == 0)
+<span class="lineNum">     702 </span>                :            :                                                 yyerror(&quot;zero-length delimited identifier&quot;);
+<span class="lineNum">     703 </span>                :            :                                         ident = litbuf_udeescape('\\');
+<span class="lineNum">     704 </span>                :            :                                         if (literallen &gt;= NAMEDATALEN)
+<span class="lineNum">     705 </span>                :            :                                                 truncate_identifier(ident, literallen, true);
+<span class="lineNum">     706 </span>                :            :                                         yylval.str = ident;
+<span class="lineNum">     707 </span>                :            :                                         /* throw back all but the quote */
+<span class="lineNum">     708 </span>                :            :                                         yyless(1);
+<span class="lineNum">     709 </span>                :            :                                         return IDENT;
+<span class="lineNum">     710 </span>                :            :                                 }
+<span class="lineNum">     711 </span>                :            : &lt;xui&gt;{xuistop2}   {
+<span class="lineNum">     712 </span>                :            :                                         char               *ident;
+<span class="lineNum">     713 </span>                :            : 
+<span class="lineNum">     714 </span>                :            :                                         BEGIN(INITIAL);
+<span class="lineNum">     715 </span>                :            :                                         if (literallen == 0)
+<span class="lineNum">     716 </span>                :            :                                                 yyerror(&quot;zero-length delimited identifier&quot;);
+<span class="lineNum">     717 </span>                :            :                                         ident = litbuf_udeescape(yytext[yyleng - 2]);
+<span class="lineNum">     718 </span>                :            :                                         if (literallen &gt;= NAMEDATALEN)
+<span class="lineNum">     719 </span>                :            :                                                 truncate_identifier(ident, literallen, true);
+<span class="lineNum">     720 </span>                :            :                                         yylval.str = ident;
+<span class="lineNum">     721 </span>                :            :                                         return IDENT;
+<span class="lineNum">     722 </span>                :            :                                 }
+<span class="lineNum">     723 </span>                :            : &lt;xd,xui&gt;{xddouble}        {
+<span class="lineNum">     724 </span>                :            :                                         addlitchar('&quot;');
+<span class="lineNum">     725 </span>                :            :                                 }
+<span class="lineNum">     726 </span>                :            : &lt;xd,xui&gt;{xdinside}        {
+<span class="lineNum">     727 </span>                :            :                                         addlit(yytext, yyleng);
+<span class="lineNum">     728 </span>                :            :                                 }
+<span class="lineNum">     729 </span>                :            : &lt;xd,xui&gt;&lt;&lt;EOF&gt;&gt;               { yyerror(&quot;unterminated quoted identifier&quot;); }
+<span class="lineNum">     730 </span>                :            : 
+<span class="lineNum">     731 </span>                :            : {xufailed}      {
+<span class="lineNum">     732 </span>                :            :                                         char               *ident;
+<span class="lineNum">     733 </span>                :            : 
+<span class="lineNum">     734 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     735 </span>                :            :                                         /* throw back all but the initial u/U */
+<span class="lineNum">     736 </span>                :            :                                         yyless(1);
+<span class="lineNum">     737 </span>                :            :                                         /* and treat it as {identifier} */
+<span class="lineNum">     738 </span>                :            :                                         ident = downcase_truncate_identifier(yytext, yyleng, true);
+<span class="lineNum">     739 </span>                :            :                                         yylval.str = ident;
+<span class="lineNum">     740 </span>                :            :                                         return IDENT;
+<span class="lineNum">     741 </span>                :            :                                 }
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            : {typecast}              {
+<span class="lineNum">     744 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     745 </span>                :            :                                         return TYPECAST;
+<span class="lineNum">     746 </span>                :            :                                 }
+<span class="lineNum">     747 </span>                :            : 
+<span class="lineNum">     748 </span>                :            : {self}                  {
+<span class="lineNum">     749 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     750 </span>                :            :                                         return yytext[0];
+<span class="lineNum">     751 </span>                :            :                                 }
+<span class="lineNum">     752 </span>                :            : 
+<span class="lineNum">     753 </span>                :            : {operator}              {
+<span class="lineNum">     754 </span>                :            :                                         /*
+<span class="lineNum">     755 </span>                :            :                                          * Check for embedded slash-star or dash-dash; those
+<span class="lineNum">     756 </span>                :            :                                          * are comment starts, so operator must stop there.
+<span class="lineNum">     757 </span>                :            :                                          * Note that slash-star or dash-dash at the first
+<span class="lineNum">     758 </span>                :            :                                          * character will match a prior rule, not this one.
+<span class="lineNum">     759 </span>                :            :                                          */
+<span class="lineNum">     760 </span>                :            :                                         int             nchars = yyleng;
+<span class="lineNum">     761 </span>                :            :                                         char   *slashstar = strstr(yytext, &quot;/*&quot;);
+<span class="lineNum">     762 </span>                :            :                                         char   *dashdash = strstr(yytext, &quot;--&quot;);
+<span class="lineNum">     763 </span>                :            : 
+<span class="lineNum">     764 </span>                :            :                                         if (slashstar &amp;&amp; dashdash)
+<span class="lineNum">     765 </span>                :            :                                         {
+<span class="lineNum">     766 </span>                :            :                                                 /* if both appear, take the first one */
+<span class="lineNum">     767 </span>                :            :                                                 if (slashstar &gt; dashdash)
+<span class="lineNum">     768 </span>                :            :                                                         slashstar = dashdash;
+<span class="lineNum">     769 </span>                :            :                                         }
+<span class="lineNum">     770 </span>                :            :                                         else if (!slashstar)
+<span class="lineNum">     771 </span>                :            :                                                 slashstar = dashdash;
+<span class="lineNum">     772 </span>                :            :                                         if (slashstar)
+<span class="lineNum">     773 </span>                :            :                                                 nchars = slashstar - yytext;
+<span class="lineNum">     774 </span>                :            : 
+<span class="lineNum">     775 </span>                :            :                                         /*
+<span class="lineNum">     776 </span>                :            :                                          * For SQL compatibility, '+' and '-' cannot be the
+<span class="lineNum">     777 </span>                :            :                                          * last char of a multi-char operator unless the operator
+<span class="lineNum">     778 </span>                :            :                                          * contains chars that are not in SQL operators.
+<span class="lineNum">     779 </span>                :            :                                          * The idea is to lex '=-' as two operators, but not
+<span class="lineNum">     780 </span>                :            :                                          * to forbid operator names like '?-' that could not be
+<span class="lineNum">     781 </span>                :            :                                          * sequences of SQL operators.
+<span class="lineNum">     782 </span>                :            :                                          */
+<span class="lineNum">     783 </span>                :            :                                         while (nchars &gt; 1 &amp;&amp;
+<span class="lineNum">     784 </span>                :            :                                                    (yytext[nchars-1] == '+' ||
+<span class="lineNum">     785 </span>                :            :                                                         yytext[nchars-1] == '-'))
+<span class="lineNum">     786 </span>                :            :                                         {
+<span class="lineNum">     787 </span>                :            :                                                 int             ic;
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>                :            :                                                 for (ic = nchars-2; ic &gt;= 0; ic--)
+<span class="lineNum">     790 </span>                :            :                                                 {
+<span class="lineNum">     791 </span>                :            :                                                         if (strchr(&quot;~!@#^&amp;|`?%&quot;, yytext[ic]))
+<span class="lineNum">     792 </span>                :            :                                                                 break;
+<span class="lineNum">     793 </span>                :            :                                                 }
+<span class="lineNum">     794 </span>                :            :                                                 if (ic &gt;= 0)
+<span class="lineNum">     795 </span>                :            :                                                         break; /* found a char that makes it OK */
+<span class="lineNum">     796 </span>                :            :                                                 nchars--; /* else remove the +/-, and check again */
+<span class="lineNum">     797 </span>                :            :                                         }
+<span class="lineNum">     798 </span>                :            : 
+<span class="lineNum">     799 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     800 </span>                :            : 
+<span class="lineNum">     801 </span>                :            :                                         if (nchars &lt; yyleng)
+<span class="lineNum">     802 </span>                :            :                                         {
+<span class="lineNum">     803 </span>                :            :                                                 /* Strip the unwanted chars from the token */
+<span class="lineNum">     804 </span>                :            :                                                 yyless(nchars);
+<span class="lineNum">     805 </span>                :            :                                                 /*
+<span class="lineNum">     806 </span>                :            :                                                  * If what we have left is only one char, and it's
+<span class="lineNum">     807 </span>                :            :                                                  * one of the characters matching &quot;self&quot;, then
+<span class="lineNum">     808 </span>                :            :                                                  * return it as a character token the same way
+<span class="lineNum">     809 </span>                :            :                                                  * that the &quot;self&quot; rule would have.
+<span class="lineNum">     810 </span>                :            :                                                  */
+<span class="lineNum">     811 </span>                :            :                                                 if (nchars == 1 &amp;&amp;
+<span class="lineNum">     812 </span>                :            :                                                         strchr(&quot;,()[].;:+-*/%^&lt;&gt;=&quot;, yytext[0]))
+<span class="lineNum">     813 </span>                :            :                                                         return yytext[0];
+<span class="lineNum">     814 </span>                :            :                                         }
+<span class="lineNum">     815 </span>                :            : 
+<span class="lineNum">     816 </span>                :            :                                         /*
+<span class="lineNum">     817 </span>                :            :                                          * Complain if operator is too long.  Unlike the case
+<span class="lineNum">     818 </span>                :            :                                          * for identifiers, we make this an error not a notice-
+<span class="lineNum">     819 </span>                :            :                                          * and-truncate, because the odds are we are looking at
+<span class="lineNum">     820 </span>                :            :                                          * a syntactic mistake anyway.
+<span class="lineNum">     821 </span>                :            :                                          */
+<span class="lineNum">     822 </span>                :            :                                         if (nchars &gt;= NAMEDATALEN)
+<span class="lineNum">     823 </span>                :            :                                                 yyerror(&quot;operator too long&quot;);
+<span class="lineNum">     824 </span>                :            : 
+<span class="lineNum">     825 </span>                :            :                                         /* Convert &quot;!=&quot; operator to &quot;&lt;&gt;&quot; for compatibility */
+<span class="lineNum">     826 </span>                :            :                                         if (strcmp(yytext, &quot;!=&quot;) == 0)
+<span class="lineNum">     827 </span>                :            :                                                 yylval.str = pstrdup(&quot;&lt;&gt;&quot;);
+<span class="lineNum">     828 </span>                :            :                                         else
+<span class="lineNum">     829 </span>                :            :                                                 yylval.str = pstrdup(yytext);
+<span class="lineNum">     830 </span>                :            :                                         return Op;
+<span class="lineNum">     831 </span>                :            :                                 }
+<span class="lineNum">     832 </span>                :            : 
+<span class="lineNum">     833 </span>                :            : {param}                 {
+<span class="lineNum">     834 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     835 </span>                :            :                                         yylval.ival = atol(yytext + 1);
+<span class="lineNum">     836 </span>                :            :                                         return PARAM;
+<span class="lineNum">     837 </span>                :            :                                 }
+<span class="lineNum">     838 </span>                :            : 
+<span class="lineNum">     839 </span>                :            : {integer}               {
+<span class="lineNum">     840 </span>                :            :                                         long val;
+<span class="lineNum">     841 </span>                :            :                                         char* endptr;
+<span class="lineNum">     842 </span>                :            : 
+<span class="lineNum">     843 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     844 </span>                :            :                                         errno = 0;
+<span class="lineNum">     845 </span>                :            :                                         val = strtol(yytext, &amp;endptr, 10);
+<span class="lineNum">     846 </span>                :            :                                         if (*endptr != '\0' || errno == ERANGE
+<span class="lineNum">     847 </span>                :            : #ifdef HAVE_LONG_INT_64
+<span class="lineNum">     848 </span>                :            :                                                 /* if long &gt; 32 bits, check for overflow of int4 */
+<span class="lineNum">     849 </span>                :            :                                                 || val != (long) ((int32) val)
+<span class="lineNum">     850 </span>                :            : #endif
+<span class="lineNum">     851 </span>                :            :                                                 )
+<span class="lineNum">     852 </span>                :            :                                         {
+<span class="lineNum">     853 </span>                :            :                                                 /* integer too large, treat it as a float */
+<span class="lineNum">     854 </span>                :            :                                                 yylval.str = pstrdup(yytext);
+<span class="lineNum">     855 </span>                :            :                                                 return FCONST;
+<span class="lineNum">     856 </span>                :            :                                         }
+<span class="lineNum">     857 </span>                :            :                                         yylval.ival = val;
+<span class="lineNum">     858 </span>                :            :                                         return ICONST;
+<span class="lineNum">     859 </span>                :            :                                 }
+<span class="lineNum">     860 </span>                :            : {decimal}               {
+<span class="lineNum">     861 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     862 </span>                :            :                                         yylval.str = pstrdup(yytext);
+<span class="lineNum">     863 </span>                :            :                                         return FCONST;
+<span class="lineNum">     864 </span>                :            :                                 }
+<span class="lineNum">     865 </span>                :            : {real}                  {
+<span class="lineNum">     866 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     867 </span>                :            :                                         yylval.str = pstrdup(yytext);
+<span class="lineNum">     868 </span>                :            :                                         return FCONST;
+<span class="lineNum">     869 </span>                :            :                                 }
+<span class="lineNum">     870 </span>                :            : {realfail1}             {
+<span class="lineNum">     871 </span>                :            :                                         /*
+<span class="lineNum">     872 </span>                :            :                                          * throw back the [Ee], and treat as {decimal}.  Note
+<span class="lineNum">     873 </span>                :            :                                          * that it is possible the input is actually {integer},
+<span class="lineNum">     874 </span>                :            :                                          * but since this case will almost certainly lead to a
+<span class="lineNum">     875 </span>                :            :                                          * syntax error anyway, we don't bother to distinguish.
+<span class="lineNum">     876 </span>                :            :                                          */
+<span class="lineNum">     877 </span>                :            :                                         yyless(yyleng-1);
+<span class="lineNum">     878 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     879 </span>                :            :                                         yylval.str = pstrdup(yytext);
+<span class="lineNum">     880 </span>                :            :                                         return FCONST;
+<span class="lineNum">     881 </span>                :            :                                 }
+<span class="lineNum">     882 </span>                :            : {realfail2}             {
+<span class="lineNum">     883 </span>                :            :                                         /* throw back the [Ee][+-], and proceed as above */
+<span class="lineNum">     884 </span>                :            :                                         yyless(yyleng-2);
+<span class="lineNum">     885 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     886 </span>                :            :                                         yylval.str = pstrdup(yytext);
+<span class="lineNum">     887 </span>                :            :                                         return FCONST;
+<span class="lineNum">     888 </span>                :            :                                 }
+<span class="lineNum">     889 </span>                :            : 
+<span class="lineNum">     890 </span>                :            : 
+<span class="lineNum">     891 </span>                :            : {identifier}    {
+<span class="lineNum">     892 </span>                :            :                                         const ScanKeyword *keyword;
+<span class="lineNum">     893 </span>                :            :                                         char               *ident;
+<span class="lineNum">     894 </span>                :            : 
+<span class="lineNum">     895 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     896 </span>                :            : 
+<span class="lineNum">     897 </span>                :            :                                         /* Is it a keyword? */
+<span class="lineNum">     898 </span>                :            :                                         keyword = ScanKeywordLookup(yytext);
+<span class="lineNum">     899 </span>                :            :                                         if (keyword != NULL)
+<span class="lineNum">     900 </span>                :            :                                         {
+<span class="lineNum">     901 </span>                :            :                                                 yylval.keyword = keyword-&gt;name;
+<span class="lineNum">     902 </span>                :            :                                                 return keyword-&gt;value;
+<span class="lineNum">     903 </span>                :            :                                         }
+<span class="lineNum">     904 </span>                :            : 
+<span class="lineNum">     905 </span>                :            :                                         /*
+<span class="lineNum">     906 </span>                :            :                                          * No.  Convert the identifier to lower case, and truncate
+<span class="lineNum">     907 </span>                :            :                                          * if necessary.
+<span class="lineNum">     908 </span>                :            :                                          */
+<span class="lineNum">     909 </span>                :            :                                         ident = downcase_truncate_identifier(yytext, yyleng, true);
+<span class="lineNum">     910 </span>                :            :                                         yylval.str = ident;
+<span class="lineNum">     911 </span>                :            :                                         return IDENT;
+<span class="lineNum">     912 </span>                :            :                                 }
+<span class="lineNum">     913 </span>                :            : 
+<span class="lineNum">     914 </span>                :            : {other}                 {
+<span class="lineNum">     915 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     916 </span>                :            :                                         return yytext[0];
+<span class="lineNum">     917 </span>                :            :                                 }
+<span class="lineNum">     918 </span>                :            : 
+<span class="lineNum">     919 </span>                :            : &lt;&lt;EOF&gt;&gt;                     {
+<span class="lineNum">     920 </span>                :            :                                         SET_YYLLOC();
+<span class="lineNum">     921 </span>                :            :                                         yyterminate();
+<span class="lineNum">     922 </span>                :            :                                 }
+<span class="lineNum">     923 </span>                :            : 
+<span class="lineNum">     924 </span>                :            : %%
+<span class="lineNum">     925 </span>                :            : 
+<span class="lineNum">     926 </span>                :            : /*
+<span class="lineNum">     927 </span>                :            :  * scanner_errposition
+<span class="lineNum">     928 </span>                :            :  *              Report a lexer or grammar error cursor position, if possible.
+<span class="lineNum">     929 </span>                :            :  *
+<span class="lineNum">     930 </span>                :            :  * This is expected to be used within an ereport() call.  The return value
+<span class="lineNum">     931 </span>                :            :  * is a dummy (always 0, in fact).
+<span class="lineNum">     932 </span>                :            :  *
+<span class="lineNum">     933 </span>                :            :  * Note that this can only be used for messages emitted during raw parsing
+<span class="lineNum">     934 </span>                :            :  * (essentially, scan.l and gram.y), since it requires scanbuf to still be
+<span class="lineNum">     935 </span>                :            :  * valid.
+<span class="lineNum">     936 </span>                :            :  */
+<a name="937"><span class="lineNum">     937 </span>                :            : int</a>
+<span class="lineNum">     938 </span>                :            : scanner_errposition(int location)
+<span class="lineNum">     939 </span>                :            : {
+<span class="lineNum">     940 </span>                :            :         int             pos;
+<span class="lineNum">     941 </span>                :            : 
+<span class="lineNum">     942 </span>                :            :         Assert(scanbuf != NULL);        /* else called from wrong place */
+<span class="lineNum">     943 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (location &lt; 0)</span>
+<span class="lineNum">     944 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 return 0;                               /* no-op if location is unknown */</span>
+<span class="lineNum">     945 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">     946 </span>                :            :         /* Convert byte offset to character number */
+<span class="lineNum">     947 </span>                :            :         pos = pg_mbstrlen_with_len(scanbuf, location) + 1;
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :         /* And pass it to the ereport mechanism */</span>
+<span class="lineNum">     949 </span>                :            :         return errposition(pos);
+<span class="lineNum">     950 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     951 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">     952 </span>                :            : /*
+<span class="lineNum">     953 </span>                :            :  * yyerror
+<span class="lineNum">     954 </span>                :            :  *              Report a lexer or grammar error.
+<span class="lineNum">     955 </span>                :            :  *
+<span class="lineNum">     956 </span>                :            :  * The message's cursor position identifies the most recently lexed token.
+<span class="lineNum">     957 </span>                :            :  * This is OK for syntax error messages from the Bison parser, because Bison
+<span class="lineNum">     958 </span>                :            :  * parsers report error as soon as the first unparsable token is reached.
+<span class="lineNum">     959 </span>                :            :  * Beware of using yyerror for other purposes, as the cursor position might
+<span class="lineNum">     960 </span>                :            :  * be misleading!
+<span class="lineNum">     961 </span>                :            :  */
+<a name="962"><span class="lineNum">     962 </span>                :            : void</a>
+<span class="lineNum">     963 </span>                :            : yyerror(const char *message)
+<span class="lineNum">     964 </span>                :            : {
+<span class="lineNum">     965 </span>                :            :         const char *loc = scanbuf + yylloc;
+<span class="lineNum">     966 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">     967 </span>                :            :         if (*loc == YY_END_OF_BUFFER_CHAR)
+<span class="lineNum">     968 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">     969 </span>                :            :                 ereport(ERROR,
+<span class="lineNum">     970 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (errcode(ERRCODE_SYNTAX_ERROR),</span>
+<span class="lineNum">     971 </span>                :            :                                  /* translator: %s is typically the translation of &quot;syntax error&quot; */
+<span class="lineNum">     972 </span>                :            :                                  errmsg(&quot;%s at end of input&quot;, _(message)),
+<span class="lineNum">     973 </span>                :            :                                  lexer_errposition()));
+<span class="lineNum">     974 </span>                :            :         }
+<span class="lineNum">     975 </span>                :<span class="lineNoCov">          0 :         else</span>
+<span class="lineNum">     976 </span>                :            :         {
+<span class="lineNum">     977 </span>                :            :                 ereport(ERROR,
+<span class="lineNum">     978 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (errcode(ERRCODE_SYNTAX_ERROR),</span>
+<span class="lineNum">     979 </span>                :            :                                  /* translator: first %s is typically the translation of &quot;syntax error&quot; */
+<span class="lineNum">     980 </span>                :            :                                  errmsg(&quot;%s at or near \&quot;%s\&quot;&quot;, _(message), loc),
+<span class="lineNum">     981 </span>                :            :                                  lexer_errposition()));
+<span class="lineNum">     982 </span>                :            :         }
+<span class="lineNum">     983 </span>                :            : }
+<span class="lineNum">     984 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">     985 </span>                :            : 
+<span class="lineNum">     986 </span>                :            : /*
+<span class="lineNum">     987 </span>                :            :  * Called before any actual parsing is done
+<span class="lineNum">     988 </span>                :            :  */
+<a name="989"><span class="lineNum">     989 </span>                :            : void</a>
+<span class="lineNum">     990 </span>                :            : scanner_init(const char *str)
+<span class="lineNum">     991 </span>                :            : {
+<span class="lineNum">     992 </span>                :            :         Size    slen = strlen(str);
+<span class="lineNum">     993 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">     994 </span>                :            :         /*
+<span class="lineNum">     995 </span>                :            :          * Might be left over after ereport()
+<span class="lineNum">     996 </span>                :            :          */
+<span class="lineNum">     997 </span>                :            :         if (YY_CURRENT_BUFFER)
+<span class="lineNum">     998 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 yy_delete_buffer(YY_CURRENT_BUFFER);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     999 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1000 </span>                :            :         /*
+<span class="lineNum">    1001 </span>                :            :          * Make a scan buffer with special termination needed by flex.
+<span class="lineNum">    1002 </span>                :            :          */
+<span class="lineNum">    1003 </span>                :            :         scanbuf = palloc(slen + 2);
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :         memcpy(scanbuf, str, slen);</span>
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :         scanbuf[slen] = scanbuf[slen + 1] = YY_END_OF_BUFFER_CHAR;</span>
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :         scanbufhandle = yy_scan_buffer(scanbuf, slen + 2);</span>
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1008 </span>                :            :         /* initialize literal buffer to a reasonable but expansible size */
+<span class="lineNum">    1009 </span>                :            :         literalalloc = 1024;
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :         literalbuf = (char *) palloc(literalalloc);</span>
+<span class="lineNum">    1011 </span>                :<span class="lineNoCov">          0 :         startlit();</span>
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1013 </span>                :            :         BEGIN(INITIAL);
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1015 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1016 </span>                :            : 
+<span class="lineNum">    1017 </span>                :            : /*
+<span class="lineNum">    1018 </span>                :            :  * Called after parsing is done to clean up after scanner_init()
+<span class="lineNum">    1019 </span>                :            :  */
+<a name="1020"><span class="lineNum">    1020 </span>                :            : void</a>
+<span class="lineNum">    1021 </span>                :            : scanner_finish(void)
+<span class="lineNum">    1022 </span>                :            : {
+<span class="lineNum">    1023 </span>                :            :         yy_delete_buffer(scanbufhandle);
+<span class="lineNum">    1024 </span>                :<span class="lineNoCov">          0 :         pfree(scanbuf);</span>
+<span class="lineNum">    1025 </span>                :<span class="lineNoCov">          0 :         scanbuf = NULL;</span>
+<span class="lineNum">    1026 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1027 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1028 </span>                :            : 
+<a name="1029"><span class="lineNum">    1029 </span>                :            : static void</a>
+<span class="lineNum">    1030 </span>                :            : addlit(char *ytext, int yleng)
+<span class="lineNum">    1031 </span>                :            : {
+<span class="lineNum">    1032 </span>                :            :         /* enlarge buffer if needed */
+<span class="lineNum">    1033 </span>                :            :         if ((literallen+yleng) &gt;= literalalloc)
+<span class="lineNum">    1034 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1035 </span>                :            :                 do {
+<span class="lineNum">    1036 </span>                :<span class="lineNoCov">          0 :                         literalalloc *= 2;</span>
+<span class="lineNum">    1037 </span>                :<span class="lineNoCov">          0 :                 } while ((literallen+yleng) &gt;= literalalloc);</span>
+<span class="lineNum">    1038 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 literalbuf = (char *) repalloc(literalbuf, literalalloc);</span>
+<span class="lineNum">    1039 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1040 </span>                :<span class="lineNoCov">          0 :         /* append new data, add trailing null */</span>
+<span class="lineNum">    1041 </span>                :            :         memcpy(literalbuf+literallen, ytext, yleng);
+<span class="lineNum">    1042 </span>                :<span class="lineNoCov">          0 :         literallen += yleng;</span>
+<span class="lineNum">    1043 </span>                :<span class="lineNoCov">          0 :         literalbuf[literallen] = '\0';</span>
+<span class="lineNum">    1044 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1045 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1046 </span>                :            : 
+<a name="1047"><span class="lineNum">    1047 </span>                :            : static void</a>
+<span class="lineNum">    1048 </span>                :            : addlitchar(unsigned char ychar)
+<span class="lineNum">    1049 </span>                :            : {
+<span class="lineNum">    1050 </span>                :            :         /* enlarge buffer if needed */
+<span class="lineNum">    1051 </span>                :            :         if ((literallen+1) &gt;= literalalloc)
+<span class="lineNum">    1052 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1053 </span>                :            :                 literalalloc *= 2;
+<span class="lineNum">    1054 </span>                :<span class="lineNoCov">          0 :                 literalbuf = (char *) repalloc(literalbuf, literalalloc);</span>
+<span class="lineNum">    1055 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1056 </span>                :<span class="lineNoCov">          0 :         /* append new data, add trailing null */</span>
+<span class="lineNum">    1057 </span>                :            :         literalbuf[literallen] = ychar;
+<span class="lineNum">    1058 </span>                :<span class="lineNoCov">          0 :         literallen += 1;</span>
+<span class="lineNum">    1059 </span>                :<span class="lineNoCov">          0 :         literalbuf[literallen] = '\0';</span>
+<span class="lineNum">    1060 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1061 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1062 </span>                :            : 
+<span class="lineNum">    1063 </span>                :            : /*
+<span class="lineNum">    1064 </span>                :            :  * One might be tempted to write pstrdup(literalbuf) instead of this,
+<span class="lineNum">    1065 </span>                :            :  * but for long literals this is much faster because the length is
+<span class="lineNum">    1066 </span>                :            :  * already known.
+<span class="lineNum">    1067 </span>                :            :  */
+<a name="1068"><span class="lineNum">    1068 </span>                :            : static char *</a>
+<span class="lineNum">    1069 </span>                :            : litbufdup(void)
+<span class="lineNum">    1070 </span>                :            : {
+<span class="lineNum">    1071 </span>                :            :         char *new;
+<span class="lineNum">    1072 </span>                :            : 
+<span class="lineNum">    1073 </span>                :            :         new = palloc(literallen + 1);
+<span class="lineNum">    1074 </span>                :<span class="lineNoCov">          0 :         memcpy(new, literalbuf, literallen+1);</span>
+<span class="lineNum">    1075 </span>                :<span class="lineNoCov">          0 :         return new;</span>
+<span class="lineNum">    1076 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1077 </span>                :            : 
+<a name="1078"><span class="lineNum">    1078 </span>                :            : static int</a>
+<span class="lineNum">    1079 </span>                :            : hexval(unsigned char c)
+<span class="lineNum">    1080 </span>                :            : {
+<span class="lineNum">    1081 </span>                :            :         if (c &gt;= '0' &amp;&amp; c &lt;= '9')
+<span class="lineNum">    1082 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 return c - '0';</span>
+<span class="lineNum">    1083 </span>                :<span class="lineNoCov">          0 :         if (c &gt;= 'a' &amp;&amp; c &lt;= 'f')</span>
+<span class="lineNum">    1084 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 return c - 'a' + 0xA;</span>
+<span class="lineNum">    1085 </span>                :<span class="lineNoCov">          0 :         if (c &gt;= 'A' &amp;&amp; c &lt;= 'F')</span>
+<span class="lineNum">    1086 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 return c - 'A' + 0xA;</span>
+<span class="lineNum">    1087 </span>                :<span class="lineNoCov">          0 :         elog(ERROR, &quot;invalid hexadecimal digit&quot;);</span>
+<span class="lineNum">    1088 </span>                :<span class="lineNoCov">          0 :         return 0; /* not reached */</span>
+<span class="lineNum">    1089 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1090 </span>                :<span class="lineNoCov">          0 : </span>
+<a name="1091"><span class="lineNum">    1091 </span>                :            : static void</a>
+<span class="lineNum">    1092 </span>                :            : check_unicode_value(pg_wchar c, char * loc)
+<span class="lineNum">    1093 </span>                :            : {
+<span class="lineNum">    1094 </span>                :            :         if (GetDatabaseEncoding() == PG_UTF8)
+<span class="lineNum">    1095 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1096 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1097 </span>                :            :         if (c &gt; 0x7F)
+<span class="lineNum">    1098 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1099 </span>                :            :                 yylloc += (char *) loc - literalbuf + 3;   /* 3 for U&amp;&quot; */
+<span class="lineNum">    1100 </span>                :<span class="lineNoCov">          0 :                 yyerror(&quot;Unicode escape values cannot be used for code point values above 007F when the server encoding is not UTF8&quot;);</span>
+<span class="lineNum">    1101 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1102 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1103 </span>                :<span class="lineNoCov">          0 : </span>
+<a name="1104"><span class="lineNum">    1104 </span>                :            : static char *</a>
+<span class="lineNum">    1105 </span>                :            : litbuf_udeescape(unsigned char escape)
+<span class="lineNum">    1106 </span>                :            : {
+<span class="lineNum">    1107 </span>                :            :         char *new;
+<span class="lineNum">    1108 </span>                :            :         char *in, *out;
+<span class="lineNum">    1109 </span>                :            : 
+<span class="lineNum">    1110 </span>                :            :         if (isxdigit(escape)
+<span class="lineNum">    1111 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 || escape == '+'</span>
+<span class="lineNum">    1112 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 || escape == '\''</span>
+<span class="lineNum">    1113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 || escape == '&quot;'</span>
+<span class="lineNum">    1114 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 || scanner_isspace(escape))</span>
+<span class="lineNum">    1115 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1116 </span>                :            :                 yylloc += literallen + yyleng + 1;
+<span class="lineNum">    1117 </span>                :<span class="lineNoCov">          0 :                 yyerror(&quot;invalid Unicode escape character&quot;);</span>
+<span class="lineNum">    1118 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1119 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1120 </span>                :            :         /*
+<span class="lineNum">    1121 </span>                :            :          * This relies on the subtle assumption that a UTF-8 expansion
+<span class="lineNum">    1122 </span>                :            :          * cannot be longer than its escaped representation.
+<span class="lineNum">    1123 </span>                :            :          */
+<span class="lineNum">    1124 </span>                :            :         new = palloc(literallen + 1);
+<span class="lineNum">    1125 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1126 </span>                :            :         in = literalbuf;
+<span class="lineNum">    1127 </span>                :<span class="lineNoCov">          0 :         out = new;</span>
+<span class="lineNum">    1128 </span>                :<span class="lineNoCov">          0 :         while (*in)</span>
+<span class="lineNum">    1129 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1130 </span>                :            :                 if (in[0] == escape)
+<span class="lineNum">    1131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 {</span>
+<span class="lineNum">    1132 </span>                :            :                         if (in[1] == escape)
+<span class="lineNum">    1133 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         {</span>
+<span class="lineNum">    1134 </span>                :            :                                 *out++ = escape;
+<span class="lineNum">    1135 </span>                :<span class="lineNoCov">          0 :                                 in += 2;</span>
+<span class="lineNum">    1136 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1137 </span>                :<span class="lineNoCov">          0 :                         else if (isxdigit(in[1]) &amp;&amp; isxdigit(in[2]) &amp;&amp; isxdigit(in[3]) &amp;&amp; isxdigit(in[4]))</span>
+<span class="lineNum">    1138 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         {</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">    1139 </span>                :            :                                 pg_wchar unicode = hexval(in[1]) * 16*16*16 + hexval(in[2]) * 16*16 + hexval(in[3]) * 16 + hexval(in[4]);
+<span class="lineNum">    1140 </span>                :<span class="lineNoCov">          0 :                                 check_unicode_value(unicode, in);</span>
+<span class="lineNum">    1141 </span>                :<span class="lineNoCov">          0 :                                 unicode_to_utf8(unicode, (unsigned char *) out);</span>
+<span class="lineNum">    1142 </span>                :<span class="lineNoCov">          0 :                                 in += 5;</span>
+<span class="lineNum">    1143 </span>                :<span class="lineNoCov">          0 :                                 out += pg_mblen(out);</span>
+<span class="lineNum">    1144 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1145 </span>                :<span class="lineNoCov">          0 :                         else if (in[1] == '+'</span>
+<span class="lineNum">    1146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                          &amp;&amp; isxdigit(in[2]) &amp;&amp; isxdigit(in[3])</span>
+<span class="lineNum">    1147 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                          &amp;&amp; isxdigit(in[4]) &amp;&amp; isxdigit(in[5])</span>
+<span class="lineNum">    1148 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                          &amp;&amp; isxdigit(in[6]) &amp;&amp; isxdigit(in[7]))</span>
+<span class="lineNum">    1149 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         {</span>
+<span class="lineNum">    1150 </span>                :            :                                 pg_wchar unicode = hexval(in[2]) * 16*16*16*16*16 + hexval(in[3]) * 16*16*16*16 + hexval(in[4]) * 16*16*16
+<span class="lineNum">    1151 </span>                :<span class="lineNoCov">          0 :                                                                         + hexval(in[5]) * 16*16 + hexval(in[6]) * 16 + hexval(in[7]);</span>
+<span class="lineNum">    1152 </span>                :<span class="lineNoCov">          0 :                                 check_unicode_value(unicode, in);</span>
+<span class="lineNum">    1153 </span>                :<span class="lineNoCov">          0 :                                 unicode_to_utf8(unicode, (unsigned char *) out);</span>
+<span class="lineNum">    1154 </span>                :<span class="lineNoCov">          0 :                                 in += 8;</span>
+<span class="lineNum">    1155 </span>                :<span class="lineNoCov">          0 :                                 out += pg_mblen(out);</span>
+<span class="lineNum">    1156 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1157 </span>                :<span class="lineNoCov">          0 :                         else</span>
+<span class="lineNum">    1158 </span>                :            :                         {
+<span class="lineNum">    1159 </span>                :            :                                 yylloc += in - literalbuf + 3;   /* 3 for U&amp;&quot; */
+<span class="lineNum">    1160 </span>                :<span class="lineNoCov">          0 :                                 yyerror(&quot;invalid Unicode escape value&quot;);</span>
+<span class="lineNum">    1161 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1162 </span>                :            :                 }
+<span class="lineNum">    1163 </span>                :<span class="lineNoCov">          0 :                 else</span>
+<span class="lineNum">    1164 </span>                :            :                         *out++ = *in++;
+<span class="lineNum">    1165 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1166 </span>                :            : 
+<span class="lineNum">    1167 </span>                :            :         *out = '\0';
+<span class="lineNum">    1168 </span>                :<span class="lineNoCov">          0 :         /*</span>
+<span class="lineNum">    1169 </span>                :            :          * We could skip pg_verifymbstr if we didn't process any non-7-bit-ASCII
+<span class="lineNum">    1170 </span>                :            :          * codes; but it's probably not worth the trouble, since this isn't
+<span class="lineNum">    1171 </span>                :            :          * likely to be a performance-critical path.
+<span class="lineNum">    1172 </span>                :            :          */
+<span class="lineNum">    1173 </span>                :            :         pg_verifymbstr(new, out - new, false);
+<span class="lineNum">    1174 </span>                :<span class="lineNoCov">          0 :         return new;</span>
+<span class="lineNum">    1175 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1176 </span>                :            : 
+<a name="1177"><span class="lineNum">    1177 </span>                :            : static unsigned char</a>
+<span class="lineNum">    1178 </span>                :            : unescape_single_char(unsigned char c)
+<span class="lineNum">    1179 </span>                :            : {
+<span class="lineNum">    1180 </span>                :            :         switch (c)
+<span class="lineNum">    1181 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">         </span>         <span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1182 </span>                :            :                 case 'b':
+<span class="lineNum">    1183 </span>                :            :                         return '\b';
+<span class="lineNum">    1184 </span>                :<span class="lineNoCov">          0 :                 case 'f':</span>
+<span class="lineNum">    1185 </span>                :            :                         return '\f';
+<span class="lineNum">    1186 </span>                :<span class="lineNoCov">          0 :                 case 'n':</span>
+<span class="lineNum">    1187 </span>                :            :                         return '\n';
+<span class="lineNum">    1188 </span>                :<span class="lineNoCov">          0 :                 case 'r':</span>
+<span class="lineNum">    1189 </span>                :            :                         return '\r';
+<span class="lineNum">    1190 </span>                :<span class="lineNoCov">          0 :                 case 't':</span>
+<span class="lineNum">    1191 </span>                :            :                         return '\t';
+<span class="lineNum">    1192 </span>                :<span class="lineNoCov">          0 :                 default:</span>
+<span class="lineNum">    1193 </span>                :            :                         /* check for backslash followed by non-7-bit-ASCII */
+<span class="lineNum">    1194 </span>                :            :                         if (c == '\0' || IS_HIGHBIT_SET(c))
+<span class="lineNum">    1195 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 saw_non_ascii = true;</span>
+<span class="lineNum">    1196 </span>                :<span class="lineNoCov">          0 : </span>
+<span class="lineNum">    1197 </span>                :            :                         return c;
+<span class="lineNum">    1198 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1199 </span>                :            : }
+<span class="lineNum">    1200 </span>                :<span class="lineNoCov">          0 : </span>
+<a name="1201"><span class="lineNum">    1201 </span>                :            : static void</a>
+<span class="lineNum">    1202 </span>                :            : addunicode(pg_wchar c)
+<span class="lineNum">    1203 </span>                :            : {
+<span class="lineNum">    1204 </span>                :            :         char buf[8];
+<span class="lineNum">    1205 </span>                :            : 
+<span class="lineNum">    1206 </span>                :            :         if (c == 0 || c &gt; 0x10FFFF)
+<span class="lineNum">    1207 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 yyerror(&quot;invalid Unicode escape value&quot;);</span>
+<span class="lineNum">    1208 </span>                :<span class="lineNoCov">          0 :         if (c &gt; 0x7F)</span>
+<span class="lineNum">    1209 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1210 </span>                :            :                 if (GetDatabaseEncoding() != PG_UTF8)
+<span class="lineNum">    1211 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         yyerror(&quot;Unicode escape values cannot be used for code point values above 007F when the server encoding is not UTF8&quot;);</span>
+<span class="lineNum">    1212 </span>                :<span class="lineNoCov">          0 :                 saw_non_ascii = true;</span>
+<span class="lineNum">    1213 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1214 </span>                :<span class="lineNoCov">          0 :         unicode_to_utf8(c, (unsigned char *)buf);</span>
+<span class="lineNum">    1215 </span>                :<span class="lineNoCov">          0 :         addlit(buf, pg_mblen(buf));</span>
+<span class="lineNum">    1216 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1217 </span>                :<span class="lineNoCov">          0 : </span>
+<a name="1218"><span class="lineNum">    1218 </span>                :            : static void</a>
+<span class="lineNum">    1219 </span>                :            : check_string_escape_warning(unsigned char ychar)
+<span class="lineNum">    1220 </span>                :            : {
+<span class="lineNum">    1221 </span>                :            :         if (ychar == '\'')
+<span class="lineNum">    1222 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1223 </span>                :            :                 if (warn_on_first_escape &amp;&amp; escape_string_warning)
+<span class="lineNum">    1224 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(WARNING,</span>
+<span class="lineNum">    1225 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         (errcode(ERRCODE_NONSTANDARD_USE_OF_ESCAPE_CHARACTER),</span>
+<span class="lineNum">    1226 </span>                :            :                                          errmsg(&quot;nonstandard use of \\' in a string literal&quot;),
+<span class="lineNum">    1227 </span>                :            :                                          errhint(&quot;Use '' to write quotes in strings, or use the escape string syntax (E'...').&quot;),
+<span class="lineNum">    1228 </span>                :            :                                          lexer_errposition()));
+<span class="lineNum">    1229 </span>                :            :                 warn_on_first_escape = false;   /* warn only once per string */
+<span class="lineNum">    1230 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1231 </span>                :<span class="lineNoCov">          0 :         else if (ychar == '\\')</span>
+<span class="lineNum">    1232 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         {</span>
+<span class="lineNum">    1233 </span>                :            :                 if (warn_on_first_escape &amp;&amp; escape_string_warning)
+<span class="lineNum">    1234 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(WARNING,</span>
+<span class="lineNum">    1235 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         (errcode(ERRCODE_NONSTANDARD_USE_OF_ESCAPE_CHARACTER),</span>
+<span class="lineNum">    1236 </span>                :            :                                          errmsg(&quot;nonstandard use of \\\\ in a string literal&quot;),
+<span class="lineNum">    1237 </span>                :            :                                          errhint(&quot;Use the escape string syntax for backslashes, e.g., E'\\\\'.&quot;),
+<span class="lineNum">    1238 </span>                :            :                                          lexer_errposition()));
+<span class="lineNum">    1239 </span>                :            :                 warn_on_first_escape = false;   /* warn only once per string */
+<span class="lineNum">    1240 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1241 </span>                :<span class="lineNoCov">          0 :         else</span>
+<span class="lineNum">    1242 </span>                :            :                 check_escape_warning();
+<span class="lineNum">    1243 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1244 </span>                :<span class="lineNoCov">          0 : </span>
+<a name="1245"><span class="lineNum">    1245 </span>                :            : static void</a>
+<span class="lineNum">    1246 </span>                :            : check_escape_warning(void)
+<span class="lineNum">    1247 </span>                :            : {
+<span class="lineNum">    1248 </span>                :            :         if (warn_on_first_escape &amp;&amp; escape_string_warning)
+<span class="lineNum">    1249 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(WARNING,</span>
+<span class="lineNum">    1250 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (errcode(ERRCODE_NONSTANDARD_USE_OF_ESCAPE_CHARACTER),</span>
+<span class="lineNum">    1251 </span>                :            :                                  errmsg(&quot;nonstandard use of escape in a string literal&quot;),
+<span class="lineNum">    1252 </span>                :            :                                  errhint(&quot;Use the escape string syntax for escapes, e.g., E'\\r\\n'.&quot;),
+<span class="lineNum">    1253 </span>                :            :                                  lexer_errposition()));
+<span class="lineNum">    1254 </span>                :            :         warn_on_first_escape = false;   /* warn only once per string */
+<span class="lineNum">    1255 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,525 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - storage/ipc/ipci.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">storage/ipc</a> - ipci.c<span style="font-size: 80%;"> (source / <a href="ipci.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">134</td>
+            <td class="headerCovTableEntry">147</td>
+            <td class="headerCovTableEntryHi">91.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">50.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">20</td>
+            <td class="headerCovTableEntry">50</td>
+            <td class="headerCovTableEntryLo">40.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * ipci.c
+<span class="lineNum">       4 </span>                :            :  *        POSTGRES inter-process communication initialization code.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/storage/ipc/ipci.c,v 1.100 2009/05/05 19:59:00 tgl Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &lt;signal.h&gt;
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : #include &quot;access/clog.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;access/multixact.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;access/nbtree.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;access/subtrans.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;access/twophase.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;access/distributedlog.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;access/appendonlywriter.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;cdb/cdbfilerep.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;cdb/cdbfilerepprimaryack.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;cdb/cdbfilerepprimaryrecovery.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;cdb/cdbfilerepresyncmanager.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;cdb/cdblocaldistribxact.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;cdb/cdbpersistentfilesysobj.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;cdb/cdbpersistentfilespace.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;cdb/cdbpersistenttablespace.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;cdb/cdbpersistentdatabase.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;cdb/cdbpersistentrelation.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;cdb/cdbpersistentcheck.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;cdb/cdbresynchronizechangetracking.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      42 </span>                :            : #include &quot;postmaster/autovacuum.h&quot;
+<span class="lineNum">      43 </span>                :            : #include &quot;postmaster/bgwriter.h&quot;
+<span class="lineNum">      44 </span>                :            : #include &quot;postmaster/postmaster.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;postmaster/primary_mirror_mode.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;postmaster/seqserver.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;replication/walsender.h&quot;
+<span class="lineNum">      48 </span>                :            : #include &quot;replication/walreceiver.h&quot;
+<span class="lineNum">      49 </span>                :            : #include &quot;storage/freespace.h&quot;
+<span class="lineNum">      50 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      51 </span>                :            : #include &quot;storage/pg_shmem.h&quot;
+<span class="lineNum">      52 </span>                :            : #include &quot;storage/pmsignal.h&quot;
+<span class="lineNum">      53 </span>                :            : #include &quot;storage/procarray.h&quot;
+<span class="lineNum">      54 </span>                :            : #include &quot;storage/procsignal.h&quot;
+<span class="lineNum">      55 </span>                :            : #include &quot;storage/sinvaladt.h&quot;
+<span class="lineNum">      56 </span>                :            : #include &quot;storage/spin.h&quot;
+<span class="lineNum">      57 </span>                :            : #include &quot;utils/resscheduler.h&quot;
+<span class="lineNum">      58 </span>                :            : #include &quot;utils/resgroup.h&quot;
+<span class="lineNum">      59 </span>                :            : #include &quot;utils/faultinjector.h&quot;
+<span class="lineNum">      60 </span>                :            : #include &quot;utils/sharedsnapshot.h&quot;
+<span class="lineNum">      61 </span>                :            : #include &quot;utils/simex.h&quot;
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : #include &quot;cdb/cdbfts.h&quot;
+<span class="lineNum">      64 </span>                :            : #include &quot;cdb/cdbtm.h&quot;
+<span class="lineNum">      65 </span>                :            : #include &quot;utils/tqual.h&quot;
+<span class="lineNum">      66 </span>                :            : #include &quot;postmaster/backoff.h&quot;
+<span class="lineNum">      67 </span>                :            : #include &quot;cdb/memquota.h&quot;
+<span class="lineNum">      68 </span>                :            : #include &quot;executor/spi.h&quot;
+<span class="lineNum">      69 </span>                :            : #include &quot;utils/workfile_mgr.h&quot;
+<span class="lineNum">      70 </span>                :            : #include &quot;utils/session_state.h&quot;
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            : shmem_startup_hook_type shmem_startup_hook = NULL;
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : static Size total_addin_request = 0;
+<span class="lineNum">      75 </span>                :            : static bool addin_request_allowed = true;
+<span class="lineNum">      76 </span>                :            : 
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :            : /*
+<span class="lineNum">      79 </span>                :            :  * RequestAddinShmemSpace
+<span class="lineNum">      80 </span>                :            :  *              Request that extra shmem space be allocated for use by
+<span class="lineNum">      81 </span>                :            :  *              a loadable module.
+<span class="lineNum">      82 </span>                :            :  *
+<span class="lineNum">      83 </span>                :            :  * This is only useful if called from the _PG_init hook of a library that
+<span class="lineNum">      84 </span>                :            :  * is loaded into the postmaster via shared_preload_libraries.  Once
+<span class="lineNum">      85 </span>                :            :  * shared memory has been allocated, calls will be ignored.  (We could
+<span class="lineNum">      86 </span>                :            :  * raise an error, but it seems better to make it a no-op, so that
+<span class="lineNum">      87 </span>                :            :  * libraries containing such calls can be reloaded if needed.)
+<a name="88"><span class="lineNum">      88 </span>                :            :  */</a>
+<span class="lineNum">      89 </span>                :            : void
+<span class="lineNum">      90 </span>                :            : RequestAddinShmemSpace(Size size)
+<span class="lineNum">      91 </span>                :            : {
+<span class="lineNum">      92 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsUnderPostmaster || !addin_request_allowed)</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :                 return;                                 /* too late */</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :         total_addin_request = add_size(total_addin_request, size);</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            : 
+<span class="lineNum">      98 </span>                :            : /*
+<span class="lineNum">      99 </span>                :            :  * CreateSharedMemoryAndSemaphores
+<span class="lineNum">     100 </span>                :            :  *              Creates and initializes shared memory and semaphores.
+<span class="lineNum">     101 </span>                :            :  *
+<span class="lineNum">     102 </span>                :            :  * This is called by the postmaster or by a standalone backend.
+<span class="lineNum">     103 </span>                :            :  * It is also called by a backend forked from the postmaster in the
+<span class="lineNum">     104 </span>                :            :  * EXEC_BACKEND case.  In the latter case, the shared memory segment
+<span class="lineNum">     105 </span>                :            :  * already exists and has been physically attached to, but we have to
+<span class="lineNum">     106 </span>                :            :  * initialize pointers in local memory that reference the shared structures,
+<span class="lineNum">     107 </span>                :            :  * because we didn't inherit the correct pointer values from the postmaster
+<span class="lineNum">     108 </span>                :            :  * as we do in the fork() scenario.  The easiest way to do that is to run
+<span class="lineNum">     109 </span>                :            :  * through the same code as before.  (Note that the called routines mostly
+<span class="lineNum">     110 </span>                :            :  * check IsUnderPostmaster, rather than EXEC_BACKEND, to detect this case.
+<span class="lineNum">     111 </span>                :            :  * This is a bit code-wasteful and could be cleaned up.)
+<span class="lineNum">     112 </span>                :            :  *
+<span class="lineNum">     113 </span>                :            :  * If &quot;makePrivate&quot; is true then we only need private memory, not shared
+<span class="lineNum">     114 </span>                :            :  * memory.      This is true for a standalone backend, false for a postmaster.
+<a name="115"><span class="lineNum">     115 </span>                :            :  */</a>
+<span class="lineNum">     116 </span>                :            : void
+<span class="lineNum">     117 </span>                :            : CreateSharedMemoryAndSemaphores(bool makePrivate, int port)
+<span class="lineNum">     118 </span>                :            : {
+<span class="lineNum">     119 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (!IsUnderPostmaster)</span>
+<span class="lineNum">     120 </span>                :            :         {
+<span class="lineNum">     121 </span>                :            :                 PGShmemHeader *seghdr;
+<span class="lineNum">     122 </span>                :            :                 Size            size;
+<span class="lineNum">     123 </span>                :            :                 int                     numSemas;
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>                :            :                 /*
+<span class="lineNum">     126 </span>                :            :                  * Size of the Postgres shared-memory block is estimated via
+<span class="lineNum">     127 </span>                :            :                  * moderately-accurate estimates for the big hogs, plus 100K for the
+<span class="lineNum">     128 </span>                :            :                  * stuff that's too small to bother with estimating.
+<span class="lineNum">     129 </span>                :            :                  *
+<span class="lineNum">     130 </span>                :            :                  * We take some care during this phase to ensure that the total size
+<span class="lineNum">     131 </span>                :            :                  * request doesn't overflow size_t.  If this gets through, we don't
+<span class="lineNum">     132 </span>                :            :                  * need to be so careful during the actual allocation phase.
+<span class="lineNum">     133 </span>                :            :                  */
+<span class="lineNum">     134 </span>                :<span class="lineCov">         54 :                 size = 150000;</span>
+<span class="lineNum">     135 </span>                :<span class="lineCov">         54 :                 size = add_size(size, hash_estimate_size(SHMEM_INDEX_SIZE,</span>
+<span class="lineNum">     136 </span>                :            :                                                                                                  sizeof(ShmemIndexEnt)));
+<span class="lineNum">     137 </span>                :<span class="lineCov">         54 :                 size = add_size(size, BufferShmemSize());</span>
+<span class="lineNum">     138 </span>                :<span class="lineCov">         54 :                 size = add_size(size, LockShmemSize());</span>
+<span class="lineNum">     139 </span>                :<span class="lineCov">         54 :                 size = add_size(size, workfile_mgr_shmem_size());</span>
+<span class="lineNum">     140 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :                 if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     141 </span>                :<span class="lineCov">         54 :                         size = add_size(size, AppendOnlyWriterShmemSize());</span>
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>[<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         54 :                 if (IsResQueueEnabled() &amp;&amp; Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     144 </span>                :            :                 {
+<span class="lineNum">     145 </span>                :<span class="lineCov">         54 :                         size = add_size(size, ResSchedulerShmemSize());</span>
+<span class="lineNum">     146 </span>                :<span class="lineCov">         54 :                         size = add_size(size, ResPortalIncrementShmemSize());</span>
+<span class="lineNum">     147 </span>                :<span class="lineCov">         54 :                 }</span>
+<span class="lineNum">     148 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (IsResGroupEnabled())</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                         size = add_size(size, ResGroupShmemSize());</span>
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>                :<span class="lineCov">         54 :                 size = add_size(size, ProcGlobalShmemSize());</span>
+<span class="lineNum">     152 </span>                :<span class="lineCov">         54 :                 size = add_size(size, XLOGShmemSize());</span>
+<span class="lineNum">     153 </span>                :<span class="lineCov">         54 :                 size = add_size(size, DistributedLog_ShmemSize());</span>
+<span class="lineNum">     154 </span>                :<span class="lineCov">         54 :                 size = add_size(size, CLOGShmemSize());</span>
+<span class="lineNum">     155 </span>                :<span class="lineCov">         54 :                 size = add_size(size, ChangeTrackingShmemSize());</span>
+<span class="lineNum">     156 </span>                :<span class="lineCov">         54 :                 size = add_size(size, SUBTRANSShmemSize());</span>
+<span class="lineNum">     157 </span>                :<span class="lineCov">         54 :                 size = add_size(size, TwoPhaseShmemSize());</span>
+<span class="lineNum">     158 </span>                :<span class="lineCov">         54 :                 size = add_size(size, MultiXactShmemSize());</span>
+<span class="lineNum">     159 </span>                :<span class="lineCov">         54 :                 size = add_size(size, LWLockShmemSize());</span>
+<span class="lineNum">     160 </span>                :<span class="lineCov">         54 :                 size = add_size(size, ProcArrayShmemSize());</span>
+<span class="lineNum">     161 </span>                :<span class="lineCov">         54 :                 size = add_size(size, BackendStatusShmemSize());</span>
+<span class="lineNum">     162 </span>                :<span class="lineCov">         54 :                 size = add_size(size, SharedSnapshotShmemSize());</span>
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :<span class="lineCov">         54 :                 size = add_size(size, SInvalShmemSize());</span>
+<span class="lineNum">     165 </span>                :<span class="lineCov">         54 :                 size = add_size(size, PMSignalShmemSize());</span>
+<span class="lineNum">     166 </span>                :<span class="lineCov">         54 :                 size = add_size(size, ProcSignalShmemSize());</span>
+<span class="lineNum">     167 </span>                :<span class="lineCov">         54 :                 size = add_size(size, primaryMirrorModeShmemSize());</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">         54 :                 size = add_size(size, FreeSpaceShmemSize());</span>
+<span class="lineNum">     169 </span>                :            :                 //size = add_size(size, AutoVacuumShmemSize());
+<span class="lineNum">     170 </span>                :<span class="lineCov">         54 :                 size = add_size(size, FtsShmemSize());</span>
+<span class="lineNum">     171 </span>                :<span class="lineCov">         54 :                 size = add_size(size, tmShmemSize());</span>
+<span class="lineNum">     172 </span>                :<span class="lineCov">         54 :                 size = add_size(size, SeqServerShmemSize());</span>
+<span class="lineNum">     173 </span>                :<span class="lineCov">         54 :                 size = add_size(size, PersistentFileSysObj_ShmemSize());</span>
+<span class="lineNum">     174 </span>                :<span class="lineCov">         54 :                 size = add_size(size, PersistentFilespace_ShmemSize());</span>
+<span class="lineNum">     175 </span>                :<span class="lineCov">         54 :                 size = add_size(size, PersistentTablespace_ShmemSize());</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">         54 :                 size = add_size(size, PersistentDatabase_ShmemSize());</span>
+<span class="lineNum">     177 </span>                :<span class="lineCov">         54 :                 size = add_size(size, PersistentRelation_ShmemSize());</span>
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :            :                 /*Add shared memory for PT verification checks*/
+<span class="lineNum">     180 </span>[<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 54 times"> + </span>]:<span class="lineCov">         54 :                 if (Gp_role == GP_ROLE_DISPATCH &amp;&amp; debug_persistent_ptcat_verification)</span>
+<span class="lineNum">     181 </span>                :            :                 {
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                         size = add_size(size, Persistent_PostDTMRecv_ShmemSize());</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :                 if (GPAreFileReplicationStructuresRequired()) {</span>
+<span class="lineNum">     186 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRep_SubProcShmemSize());</span>
+<span class="lineNum">     187 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRep_ShmemSize());</span>
+<span class="lineNum">     188 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRepAck_ShmemSize());</span>
+<span class="lineNum">     189 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRepAckPrimary_ShmemSize());</span>
+<span class="lineNum">     190 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRepResync_ShmemSize()); </span>
+<span class="lineNum">     191 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRepIpc_ShmemSize());</span>
+<span class="lineNum">     192 </span>                :<span class="lineCov">         54 :                         size = add_size(size, FileRepLog_ShmemSize());</span>
+<span class="lineNum">     193 </span>                :<span class="lineCov">         54 :                 }</span>
+<span class="lineNum">     194 </span>                :            :                 
+<span class="lineNum">     195 </span>                :            : #ifdef FAULT_INJECTOR
+<span class="lineNum">     196 </span>                :<span class="lineCov">         54 :                 size = add_size(size, FaultInjector_ShmemSize());</span>
+<span class="lineNum">     197 </span>                :            : #endif                  
+<span class="lineNum">     198 </span>                :            :                 
+<span class="lineNum">     199 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">     200 </span>                :            :                 size = add_size(size, ShmemBackendArraySize());
+<span class="lineNum">     201 </span>                :            : #endif
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            : #ifdef USE_TEST_UTILS
+<span class="lineNum">     204 </span>                :            :                 if (gp_simex_init)
+<span class="lineNum">     205 </span>                :            :                 {
+<span class="lineNum">     206 </span>                :            :                         // initialize SimEx
+<span class="lineNum">     207 </span>                :            :                         simex_init();
+<span class="lineNum">     208 </span>                :            :                         size = add_size(size, SyncBitVector_ShmemSize(simex_get_subclass_count()));
+<span class="lineNum">     209 </span>                :            :                 }
+<span class="lineNum">     210 </span>                :            : #endif
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :            :                 /* This elog happens before we know the name of the log file we are supposed to use */
+<span class="lineNum">     213 </span>                :<span class="lineCov">         54 :                 elog(DEBUG1, &quot;Size not including the buffer pool %lu&quot;,</span>
+<span class="lineNum">     214 </span>                :            :                          (unsigned long) size);
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :<span class="lineCov">         54 :                 size = add_size(size, AutoVacuumShmemSize());</span>
+<span class="lineNum">     217 </span>                :<span class="lineCov">         54 :                 size = add_size(size, BTreeShmemSize());</span>
+<span class="lineNum">     218 </span>                :<span class="lineCov">         54 :                 size = add_size(size, SyncScanShmemSize());</span>
+<span class="lineNum">     219 </span>                :<span class="lineCov">         54 :                 size = add_size(size, CheckpointerShmemSize());</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :<span class="lineCov">         54 :                 size = add_size(size, WalSndShmemSize());</span>
+<span class="lineNum">     222 </span>                :<span class="lineCov">         54 :                 size = add_size(size, WalRcvShmemSize());</span>
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :            :                 /* freeze the addin request size and include it */
+<span class="lineNum">     225 </span>                :<span class="lineCov">         54 :                 addin_request_allowed = false;</span>
+<span class="lineNum">     226 </span>                :<span class="lineCov">         54 :                 size = add_size(size, total_addin_request);</span>
+<span class="lineNum">     227 </span>                :            : 
+<span class="lineNum">     228 </span>                :            :                 /* might as well round it off to a multiple of a typical page size */
+<span class="lineNum">     229 </span>                :<span class="lineCov">         54 :                 size = add_size(size, BLCKSZ - (size % BLCKSZ));</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>                :            :                 /* Consider the size of the SessionState array */
+<span class="lineNum">     232 </span>                :<span class="lineCov">         54 :                 size = add_size(size, SessionState_ShmemSize());</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>                :            :                 /*
+<span class="lineNum">     235 </span>                :            :                  * Create the shmem segment
+<span class="lineNum">     236 </span>                :            :                  */
+<span class="lineNum">     237 </span>                :<span class="lineCov">         54 :                 seghdr = PGSharedMemoryCreate(size, makePrivate, port);</span>
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>                :<span class="lineCov">         54 :                 InitShmemAccess(seghdr);</span>
+<span class="lineNum">     240 </span>                :            : 
+<span class="lineNum">     241 </span>                :            :                 /*
+<span class="lineNum">     242 </span>                :            :                  * Create semaphores
+<span class="lineNum">     243 </span>                :            :                  */
+<span class="lineNum">     244 </span>                :<span class="lineCov">         54 :                 numSemas = ProcGlobalSemas();</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">         54 :                 numSemas += SpinlockSemas();</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :                 if (GPAreFileReplicationStructuresRequired()) </span>
+<span class="lineNum">     248 </span>                :            :                 {
+<span class="lineNum">     249 </span>                :<span class="lineCov">         54 :                         numSemas += FileRepSemas();</span>
+<span class="lineNum">     250 </span>                :<span class="lineCov">         54 :                 }</span>
+<span class="lineNum">     251 </span>                :            :                 
+<span class="lineNum">     252 </span>                :<span class="lineCov">         54 :                 elog(DEBUG3,&quot;reserving %d semaphores&quot;,numSemas);</span>
+<span class="lineNum">     253 </span>                :<span class="lineCov">         54 :                 PGReserveSemaphores(numSemas, port);</span>
+<span class="lineNum">     254 </span>                :            :                 
+<span class="lineNum">     255 </span>                :<span class="lineCov">         54 :         }</span>
+<span class="lineNum">     256 </span>                :            :         else
+<span class="lineNum">     257 </span>                :            :         {
+<span class="lineNum">     258 </span>                :            :                 /*
+<span class="lineNum">     259 </span>                :            :                  * We are reattaching to an existing shared memory segment. This
+<span class="lineNum">     260 </span>                :            :                  * should only be reached in the EXEC_BACKEND case, and even then only
+<span class="lineNum">     261 </span>                :            :                  * with makePrivate == false.
+<span class="lineNum">     262 </span>                :            :                  */
+<span class="lineNum">     263 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">     264 </span>                :            :                 Assert(!makePrivate);
+<span class="lineNum">     265 </span>                :            : #else
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :                 elog(PANIC, &quot;should be attached to shared memory already&quot;);</span>
+<span class="lineNum">     267 </span>                :            : #endif
+<span class="lineNum">     268 </span>                :            :         }
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :         /*
+<span class="lineNum">     271 </span>                :            :          * Set up shared memory allocation mechanism
+<span class="lineNum">     272 </span>                :            :          */
+<span class="lineNum">     273 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (!IsUnderPostmaster)</span>
+<span class="lineNum">     274 </span>                :<span class="lineCov">         54 :                 InitShmemAllocation();</span>
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :            :         /*
+<span class="lineNum">     277 </span>                :            :          * Now initialize LWLocks, which do shared memory allocation and are
+<span class="lineNum">     278 </span>                :            :          * needed for InitShmemIndex.
+<span class="lineNum">     279 </span>                :            :          */
+<span class="lineNum">     280 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (!IsUnderPostmaster)</span>
+<span class="lineNum">     281 </span>                :<span class="lineCov">         54 :                 CreateLWLocks();</span>
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>                :            :         /*
+<span class="lineNum">     284 </span>                :            :          * Set up shmem.c index hashtable
+<span class="lineNum">     285 </span>                :            :          */
+<span class="lineNum">     286 </span>                :<span class="lineCov">         54 :         InitShmemIndex();</span>
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :<span class="lineCov">         54 :         primaryMirrorModeShmemInit();</span>
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :            :         /*
+<span class="lineNum">     291 </span>                :            :          * Set up xlog, clog, and buffers
+<span class="lineNum">     292 </span>                :            :          */
+<span class="lineNum">     293 </span>                :<span class="lineCov">         54 :         XLOGShmemInit();</span>
+<span class="lineNum">     294 </span>                :<span class="lineCov">         54 :         CLOGShmemInit();</span>
+<span class="lineNum">     295 </span>                :<span class="lineCov">         54 :         ChangeTrackingShmemInit();</span>
+<span class="lineNum">     296 </span>                :<span class="lineCov">         54 :         DistributedLog_ShmemInit();</span>
+<span class="lineNum">     297 </span>                :<span class="lineCov">         54 :         SUBTRANSShmemInit();</span>
+<span class="lineNum">     298 </span>                :<span class="lineCov">         54 :         TwoPhaseShmemInit();</span>
+<span class="lineNum">     299 </span>                :<span class="lineCov">         54 :         MultiXactShmemInit();</span>
+<span class="lineNum">     300 </span>                :<span class="lineCov">         54 :     FtsShmemInit();</span>
+<span class="lineNum">     301 </span>                :<span class="lineCov">         54 :     tmShmemInit();</span>
+<span class="lineNum">     302 </span>                :<span class="lineCov">         54 :         InitBufferPool();</span>
+<span class="lineNum">     303 </span>                :            : 
+<span class="lineNum">     304 </span>                :            :         /*
+<span class="lineNum">     305 </span>                :            :          * Set up lock manager
+<span class="lineNum">     306 </span>                :            :          */
+<span class="lineNum">     307 </span>                :<span class="lineCov">         54 :         InitLocks();</span>
+<span class="lineNum">     308 </span>                :            : 
+<span class="lineNum">     309 </span>                :            :         /*
+<span class="lineNum">     310 </span>                :            :          * Set up append only writer
+<span class="lineNum">     311 </span>                :            :          */
+<span class="lineNum">     312 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     313 </span>                :<span class="lineCov">         54 :                 InitAppendOnlyWriter();</span>
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>                :<span class="lineCov">         54 :         PersistentFileSysObj_ShmemInit();</span>
+<span class="lineNum">     316 </span>                :<span class="lineCov">         54 :         PersistentFilespace_ShmemInit();</span>
+<span class="lineNum">     317 </span>                :<span class="lineCov">         54 :         PersistentTablespace_ShmemInit();</span>
+<span class="lineNum">     318 </span>                :<span class="lineCov">         54 :         PersistentDatabase_ShmemInit();</span>
+<span class="lineNum">     319 </span>                :<span class="lineCov">         54 :         PersistentRelation_ShmemInit();</span>
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>[<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 54 times"> + </span>]:<span class="lineCov">         54 :         if (Gp_role == GP_ROLE_DISPATCH &amp;&amp; debug_persistent_ptcat_verification)</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :                 Persistent_PostDTMRecv_ShmemInit();</span>
+<span class="lineNum">     323 </span>                :            : 
+<span class="lineNum">     324 </span>                :            :         /*
+<span class="lineNum">     325 </span>                :            :          * Set up resource schedular
+<span class="lineNum">     326 </span>                :            :          */
+<span class="lineNum">     327 </span>[<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         54 :         if (IsResQueueEnabled() &amp;&amp; Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     328 </span>                :            :         {
+<span class="lineNum">     329 </span>                :<span class="lineCov">         54 :                 InitResScheduler();</span>
+<span class="lineNum">     330 </span>                :<span class="lineCov">         54 :                 InitResPortalIncrementHash();</span>
+<span class="lineNum">     331 </span>                :<span class="lineCov">         54 :         }</span>
+<span class="lineNum">     332 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (IsResGroupEnabled() &amp;&amp; !IsUnderPostmaster)</span>
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :                 ResGroupControlInit();</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (!IsUnderPostmaster)</span>
+<span class="lineNum">     336 </span>                :            :         {
+<span class="lineNum">     337 </span>                :            :                 /* Set up process table */
+<span class="lineNum">     338 </span>                :<span class="lineCov">         54 :                 InitProcGlobal(PostmasterGetMppLocalProcessCounter());</span>
+<span class="lineNum">     339 </span>                :<span class="lineCov">         54 :         }</span>
+<span class="lineNum">     340 </span>                :            : 
+<span class="lineNum">     341 </span>                :            :         /* Initialize SessionState shared memory array */
+<span class="lineNum">     342 </span>                :<span class="lineCov">         54 :         SessionState_ShmemInit();</span>
+<span class="lineNum">     343 </span>                :            :         /* Initialize vmem protection */
+<span class="lineNum">     344 </span>                :<span class="lineCov">         54 :         GPMemoryProtect_ShmemInit();</span>
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>                :<span class="lineCov">         54 :         CreateSharedProcArray();</span>
+<span class="lineNum">     347 </span>                :<span class="lineCov">         54 :         CreateSharedBackendStatus();</span>
+<span class="lineNum">     348 </span>                :            :         
+<span class="lineNum">     349 </span>                :            :         /*
+<span class="lineNum">     350 </span>                :            :          * Set up Shared snapshot slots
+<span class="lineNum">     351 </span>                :            :          *
+<span class="lineNum">     352 </span>                :            :          * TODO: only need to do this if we aren't the QD. for now we are just 
+<span class="lineNum">     353 </span>                :            :          *               doing it all the time and wasting shemem on the QD.  This is 
+<span class="lineNum">     354 </span>                :            :          *               because this happens at postmaster startup time when we don't
+<span class="lineNum">     355 </span>                :            :          *               know who we are.  
+<span class="lineNum">     356 </span>                :            :          */
+<span class="lineNum">     357 </span>                :<span class="lineCov">         54 :         CreateSharedSnapshotArray();</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            :         /*
+<span class="lineNum">     360 </span>                :            :          * Set up shared-inval messaging
+<span class="lineNum">     361 </span>                :            :          */
+<span class="lineNum">     362 </span>                :<span class="lineCov">         54 :         CreateSharedInvalidationState();</span>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :            :         /*
+<span class="lineNum">     365 </span>                :            :          * Set up free-space map
+<span class="lineNum">     366 </span>                :            :          */
+<span class="lineNum">     367 </span>                :<span class="lineCov">         54 :         InitFreeSpaceMap();</span>
+<span class="lineNum">     368 </span>                :            : 
+<span class="lineNum">     369 </span>                :            :         /*
+<span class="lineNum">     370 </span>                :            :          * Set up interprocess signaling mechanisms
+<span class="lineNum">     371 </span>                :            :          */
+<span class="lineNum">     372 </span>                :<span class="lineCov">         54 :         PMSignalShmemInit();</span>
+<span class="lineNum">     373 </span>                :<span class="lineCov">         54 :         ProcSignalShmemInit();</span>
+<span class="lineNum">     374 </span>                :<span class="lineCov">         54 :         CheckpointerShmemInit();</span>
+<span class="lineNum">     375 </span>                :<span class="lineCov">         54 :         WalSndShmemInit();</span>
+<span class="lineNum">     376 </span>                :<span class="lineCov">         54 :         WalRcvShmemInit();</span>
+<span class="lineNum">     377 </span>                :            :         //AutoVacuumShmemInit();
+<span class="lineNum">     378 </span>                :<span class="lineCov">         54 :         SeqServerShmemInit();</span>
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (GPAreFileReplicationStructuresRequired()) {</span>
+<span class="lineNum">     381 </span>                :            :         
+<span class="lineNum">     382 </span>                :<span class="lineCov">         54 :                 FileRep_SubProcShmemInit();</span>
+<span class="lineNum">     383 </span>                :<span class="lineCov">         54 :                 FileRep_ShmemInit();</span>
+<span class="lineNum">     384 </span>                :<span class="lineCov">         54 :                 FileRepAck_ShmemInit();</span>
+<span class="lineNum">     385 </span>                :<span class="lineCov">         54 :                 FileRepAckPrimary_ShmemInit();</span>
+<span class="lineNum">     386 </span>                :<span class="lineCov">         54 :                 FileRepResync_ShmemInit();</span>
+<span class="lineNum">     387 </span>                :<span class="lineCov">         54 :                 FileRepIpc_ShmemInit();</span>
+<span class="lineNum">     388 </span>                :<span class="lineCov">         54 :                 FileRepLog_ShmemInit();</span>
+<span class="lineNum">     389 </span>                :<span class="lineCov">         54 :         }</span>
+<span class="lineNum">     390 </span>                :            :         
+<span class="lineNum">     391 </span>                :            : #ifdef FAULT_INJECTOR
+<span class="lineNum">     392 </span>                :<span class="lineCov">         54 :         FaultInjector_ShmemInit();</span>
+<span class="lineNum">     393 </span>                :            : #endif
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :            : #ifdef USE_TEST_UTILS
+<span class="lineNum">     396 </span>                :            :         if (gp_simex_init)
+<span class="lineNum">     397 </span>                :            :         {
+<span class="lineNum">     398 </span>                :            :                 // initialize shmem segment for SimEx
+<span class="lineNum">     399 </span>                :            :                 simex_set_sync_bitvector_container(
+<span class="lineNum">     400 </span>                :            :                         SyncBitVector_ShmemInit(&quot;SimEx bit vector container&quot;, simex_get_subclass_count()));
+<span class="lineNum">     401 </span>                :            :         }
+<span class="lineNum">     402 </span>                :            : #endif /* USE_TEST_UTILS */
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>                :            :         /*
+<span class="lineNum">     405 </span>                :            :          * Set up other modules that need some shared memory space
+<span class="lineNum">     406 </span>                :            :          */
+<span class="lineNum">     407 </span>                :<span class="lineCov">         54 :         BTreeShmemInit();</span>
+<span class="lineNum">     408 </span>                :<span class="lineCov">         54 :         SyncScanShmemInit();</span>
+<span class="lineNum">     409 </span>                :<span class="lineCov">         54 :         workfile_mgr_cache_init();</span>
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">     412 </span>                :            : 
+<span class="lineNum">     413 </span>                :            :         /*
+<span class="lineNum">     414 </span>                :            :          * Alloc the win32 shared backend array
+<span class="lineNum">     415 </span>                :            :          */
+<span class="lineNum">     416 </span>                :            :         if (!IsUnderPostmaster)
+<span class="lineNum">     417 </span>                :            :                 ShmemBackendArrayAllocation();
+<span class="lineNum">     418 </span>                :            : #endif
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (gp_enable_resqueue_priority)</span>
+<span class="lineNum">     421 </span>                :<span class="lineCov">         54 :                 BackoffStateInit();</span>
+<span class="lineNum">     422 </span>                :            :         
+<span class="lineNum">     423 </span>        [<span class="branchCov" title="Branch 0 was taken 54 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         54 :         if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)</span>
+<span class="lineNum">     424 </span>                :            :         {
+<span class="lineNum">     425 </span>                :<span class="lineCov">         54 :                 SPI_InitMemoryReservation();</span>
+<span class="lineNum">     426 </span>                :<span class="lineCov">         54 :         }</span>
+<span class="lineNum">     427 </span>                :            :         
+<span class="lineNum">     428 </span>                :            :         /*
+<span class="lineNum">     429 </span>                :            :          * Now give loadable modules a chance to set up their shmem allocations
+<span class="lineNum">     430 </span>                :            :          */
+<span class="lineNum">     431 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 54 times"> + </span>]:<span class="lineCov">         54 :         if (shmem_startup_hook)</span>
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :                 shmem_startup_hook();</span>
+<span class="lineNum">     433 </span>                :<span class="lineCov">         54 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

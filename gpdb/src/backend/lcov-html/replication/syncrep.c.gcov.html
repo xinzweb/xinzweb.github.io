@@ -1,0 +1,757 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - replication/syncrep.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">replication</a> - syncrep.c<span style="font-size: 80%;"> (source / <a href="syncrep.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">202</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">194</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * syncrep.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * If requested, transaction commits wait until their commit LSN is
+<span class="lineNum">       6 </span>                :            :  * acknowledged by the sync standby.
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * This module contains the code for waiting and release of backends.
+<span class="lineNum">       9 </span>                :            :  * All code in this module executes on the primary. The core streaming
+<span class="lineNum">      10 </span>                :            :  * replication transport remains within WALreceiver/WALsender modules.
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  * The essence of this design is that it isolates all logic about
+<span class="lineNum">      13 </span>                :            :  * waiting/releasing onto the primary. The primary looks for an active and
+<span class="lineNum">      14 </span>                :            :  * a sync-requesting standby and then based on that makes the backends wait
+<span class="lineNum">      15 </span>                :            :  * for completion of replication.
+<span class="lineNum">      16 </span>                :            :  *
+<span class="lineNum">      17 </span>                :            :  * Replication is either synchronous or not synchronous (async). If it is
+<span class="lineNum">      18 </span>                :            :  * async, we just fastpath out of here. If it is sync, then we wait for
+<span class="lineNum">      19 </span>                :            :  * the write or flush location on the standby before releasing the waiting backend.
+<span class="lineNum">      20 </span>                :            :  *
+<span class="lineNum">      21 </span>                :            :  * The best performing way to manage the waiting backends is to have a
+<span class="lineNum">      22 </span>                :            :  * single ordered queue of waiting backends, so that we can avoid
+<span class="lineNum">      23 </span>                :            :  * searching them through all waiters each time we receive a reply.
+<span class="lineNum">      24 </span>                :            :  *
+<span class="lineNum">      25 </span>                :            :  * Portions Copyright (c) 2010-2012, PostgreSQL Global Development Group
+<span class="lineNum">      26 </span>                :            :  *
+<span class="lineNum">      27 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      28 </span>                :            :  *        src/backend/replication/syncrep.c
+<span class="lineNum">      29 </span>                :            :  *
+<span class="lineNum">      30 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      31 </span>                :            :  */
+<span class="lineNum">      32 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      33 </span>                :            : 
+<span class="lineNum">      34 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;replication/syncrep.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;replication/walsender.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;replication/walsender_private.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;storage/pmsignal.h&quot;
+<span class="lineNum">      42 </span>                :            : #include &quot;storage/proc.h&quot;
+<span class="lineNum">      43 </span>                :            : #include &quot;storage/procsignal.h&quot;
+<span class="lineNum">      44 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;utils/ps_status.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : static bool announce_next_takeover = true;
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : static int      SyncRepWaitMode = SYNC_REP_WAIT_FLUSH;
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>                :            : static void SyncRepQueueInsert(int mode);
+<span class="lineNum">      54 </span>                :            : static void SyncRepCancelWait(void);
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :            : static int      SyncRepGetStandbyPriority(void);
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">      59 </span>                :            : static bool SyncRepQueueIsOrderedByLSN(int mode);
+<span class="lineNum">      60 </span>                :            : #endif
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :            : /*
+<span class="lineNum">      63 </span>                :            :  * ===========================================================
+<span class="lineNum">      64 </span>                :            :  * Synchronous Replication functions for normal user backends
+<span class="lineNum">      65 </span>                :            :  * ===========================================================
+<span class="lineNum">      66 </span>                :            :  */
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :            : /*
+<span class="lineNum">      69 </span>                :            :  * Wait for synchronous replication, if requested by user.
+<span class="lineNum">      70 </span>                :            :  *
+<span class="lineNum">      71 </span>                :            :  * Initially backends start in state SYNC_REP_NOT_WAITING and then
+<span class="lineNum">      72 </span>                :            :  * change that state to SYNC_REP_WAITING before adding ourselves
+<span class="lineNum">      73 </span>                :            :  * to the wait queue. During SyncRepWakeQueue() a WALSender changes
+<span class="lineNum">      74 </span>                :            :  * the state to SYNC_REP_WAIT_COMPLETE once replication is confirmed.
+<span class="lineNum">      75 </span>                :            :  * This backend then resets its state to SYNC_REP_NOT_WAITING.
+<a name="76"><span class="lineNum">      76 </span>                :            :  */</a>
+<span class="lineNum">      77 </span>                :            : void
+<span class="lineNum">      78 </span>                :            : SyncRepWaitForLSN(XLogRecPtr XactCommitLSN)
+<span class="lineNum">      79 </span>                :            : {
+<span class="lineNum">      80 </span>                :            :         const char      *old_status;
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :         char            *old_status_saved = NULL;</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         int                     len=0;</span>
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :         int                     mode = SyncRepWaitMode;</span>
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :         bool            syncStandbyPresent = false;</span>
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         int                     i = 0;</span>
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :            :         /*
+<span class="lineNum">      88 </span>                :            :          * SIGUSR1 is used to wake us up, cannot wait from inside SIGUSR1 handler
+<span class="lineNum">      89 </span>                :            :          * as its non-reentrant, so check for the same and avoid waiting.
+<span class="lineNum">      90 </span>                :            :          */
+<span class="lineNum">      91 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (AmIInSIGUSR1Handler())</span>
+<span class="lineNum">      92 </span>                :            :         {
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">      94 </span>                :            :         }
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">      97 </span>                :            :                         &quot;syncrep wait -- This backend's commit LSN for syncrep is %X/%X.&quot;,
+<span class="lineNum">      98 </span>                :            :                         XactCommitLSN.xlogid,XactCommitLSN.xrecoff);
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            :         /*
+<span class="lineNum">     101 </span>                :            :          * Walsenders are not supposed to call this function, but currently
+<span class="lineNum">     102 </span>                :            :          * basebackup needs to access catalog, hence open/close transaction.
+<span class="lineNum">     103 </span>                :            :          * It doesn't make sense to wait for myself anyway.
+<span class="lineNum">     104 </span>                :            :          */
+<span class="lineNum">     105 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (am_walsender)</span>
+<span class="lineNum">     106 </span>                :            :         {
+<span class="lineNum">     107 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     108 </span>                :            :                                 &quot;syncrep wait -- Not waiting for syncrep as this process is a walsender.&quot;);
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     110 </span>                :            :         }
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            :         /*
+<span class="lineNum">     113 </span>                :            :          * XXX: Some processes (e.g. auxiliary processes) don't need even
+<span class="lineNum">     114 </span>                :            :          * check the walsenders.  We just stay away from any of the shared
+<span class="lineNum">     115 </span>                :            :          * memory values.  When we move to fully-synchronous replication,
+<span class="lineNum">     116 </span>                :            :          * any xlog change needs to be considered to be synchronous,
+<span class="lineNum">     117 </span>                :            :          * but for now this is acceptable.
+<span class="lineNum">     118 </span>                :            :          */
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MyProc-&gt;syncRepState == SYNC_REP_DISABLED)</span>
+<span class="lineNum">     120 </span>                :            :         {
+<span class="lineNum">     121 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     122 </span>                :            :                                 &quot;syncrep wait -- Not waiting for syncrep as synrep state for this process is disabled.&quot;);
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     125 </span>                :            :         }
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(SHMQueueIsDetached(&amp;(MyProc-&gt;syncRepLinks)));</span>
+<span class="lineNum">     128 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(WalSndCtl != NULL);</span>
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(SyncRepLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     131 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(MyProc-&gt;syncRepState == SYNC_REP_NOT_WAITING);</span>
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :            :         /*
+<span class="lineNum">     134 </span>                :            :          * There could be a better way to figure out if there is any active
+<span class="lineNum">     135 </span>                :            :          * standby.  But currently, let's move ahead by looking at the per WAL
+<span class="lineNum">     136 </span>                :            :          * sender structure to see if anyone is really active, streaming (or
+<span class="lineNum">     137 </span>                :            :          * still catching up within limits) and wants to be synchronous.
+<span class="lineNum">     138 </span>                :            :          */
+<span class="lineNum">     139 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; max_wal_senders; i++)</span>
+<span class="lineNum">     140 </span>                :            :         {
+<span class="lineNum">     141 </span>                :            :                 /* use volatile pointer to prevent code rearrangement */
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :                 volatile WalSnd *walsnd = &amp;WalSndCtl-&gt;walsnds[i];</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 SpinLockAcquire(&amp;walsnd-&gt;mutex);</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                 syncStandbyPresent = (walsnd-&gt;pid != 0)</span>
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                          &amp;&amp; (walsnd-&gt;synchronous)</span>
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                          &amp;&amp; ((walsnd-&gt;state == WALSNDSTATE_STREAMING)</span>
+<span class="lineNum">     148 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                                   || (walsnd-&gt;state == WALSNDSTATE_CATCHUP &amp;&amp;</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                                                                           walsnd-&gt;caughtup_within_range));</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :                 SpinLockRelease(&amp;walsnd-&gt;mutex);</span>
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (syncStandbyPresent)</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :            :         /* See if we found any active standby connected. If NO, no need to wait.*/
+<span class="lineNum">     157 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!syncStandbyPresent)</span>
+<span class="lineNum">     158 </span>                :            :         {
+<span class="lineNum">     159 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     160 </span>                :            :                                 &quot;syncrep wait -- Not waiting for syncrep because no active and synchronous &quot;
+<span class="lineNum">     161 </span>                :            :                                 &quot;standby (walsender) was found.&quot;);
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     165 </span>                :            :         }
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>                :            :         /*
+<span class="lineNum">     168 </span>                :            :          * Check that the standby hasn't already replied. Unlikely race
+<span class="lineNum">     169 </span>                :            :          * condition but we'll be fetching that cache line anyway so its likely to
+<span class="lineNum">     170 </span>                :            :          * be a low cost check.
+<span class="lineNum">     171 </span>                :            :          */
+<span class="lineNum">     172 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (XLByteLE(XactCommitLSN, WalSndCtl-&gt;lsn[mode]))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     173 </span>                :            :         {
+<span class="lineNum">     174 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     175 </span>                :            :                                 &quot;syncrep wait -- Not waiting for syncrep because xlog upto LSN (%X/%X) which is &quot;
+<span class="lineNum">     176 </span>                :            :                                 &quot;greater than this backend's commit LSN (%X/%X) has already &quot;
+<span class="lineNum">     177 </span>                :            :                                 &quot;been replicated.&quot;,
+<span class="lineNum">     178 </span>                :            :                                 WalSndCtl-&gt;lsn[mode].xlogid, WalSndCtl-&gt;lsn[mode].xrecoff,
+<span class="lineNum">     179 </span>                :            :                                 XactCommitLSN.xlogid, XactCommitLSN.xrecoff);
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     183 </span>                :            :         }
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>                :            :         /*
+<span class="lineNum">     186 </span>                :            :          * Set our waitLSN so WALSender will know when to wake us, and add
+<span class="lineNum">     187 </span>                :            :          * ourselves to the queue.
+<span class="lineNum">     188 </span>                :            :          */
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;waitLSN = XactCommitLSN;</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;syncRepState = SYNC_REP_WAITING;</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :         SyncRepQueueInsert(mode);</span>
+<span class="lineNum">     192 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(SyncRepQueueIsOrderedByLSN(mode));</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     196 </span>                :            :                         &quot;syncrep wait -- This backend is now inserted in the syncrep queue.&quot;);
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :         /* Alter ps display to show waiting for sync rep. */
+<span class="lineNum">     199 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (update_process_title)</span>
+<span class="lineNum">     200 </span>                :            :         {
+<span class="lineNum">     201 </span>                :            :                 char            activitymsg[35];
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                 snprintf(activitymsg, sizeof(activitymsg), &quot; waiting for %X/%X replication&quot;,</span>
+<span class="lineNum">     204 </span>                :            :                                 XactCommitLSN.xlogid, XactCommitLSN.xrecoff);
+<span class="lineNum">     205 </span>                :            : 
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                 old_status = get_ps_display(&amp;len);</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 old_status_saved = (char *) palloc(len + 1);</span>
+<span class="lineNum">     208 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert (old_status_saved);</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                 memcpy(old_status_saved, old_status, len);</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                 set_ps_display(activitymsg, false);</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     212 </span>                :            : 
+<span class="lineNum">     213 </span>                :            :         /* Inform this backend is waiting for replication to pg_stat_activity */
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :         pgstat_report_waiting(PGBE_WAITING_REPLICATION);</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :            :         /*
+<span class="lineNum">     217 </span>                :            :          * Wait for specified LSN to be confirmed.
+<span class="lineNum">     218 </span>                :            :          *
+<span class="lineNum">     219 </span>                :            :          * Each proc has its own wait latch, so we perform a normal latch
+<span class="lineNum">     220 </span>                :            :          * check/wait loop here.
+<span class="lineNum">     221 </span>                :            :          */
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     223 </span>                :            :         {
+<span class="lineNum">     224 </span>                :            :                 int                     syncRepState;
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :            :                 /* Must reset the latch before testing state. */
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :                 ResetLatch(&amp;MyProc-&gt;procLatch);</span>
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :            :                 /*
+<span class="lineNum">     230 </span>                :            :                  * Try checking the state without the lock first.  There's no
+<span class="lineNum">     231 </span>                :            :                  * guarantee that we'll read the most up-to-date value, so if it looks
+<span class="lineNum">     232 </span>                :            :                  * like we're still waiting, recheck while holding the lock.  But if
+<span class="lineNum">     233 </span>                :            :                  * it looks like we're done, we must really be done, because once
+<span class="lineNum">     234 </span>                :            :                  * walsender changes the state to SYNC_REP_WAIT_COMPLETE, it will
+<span class="lineNum">     235 </span>                :            :                  * never update it again, so we can't be seeing a stale value in that
+<span class="lineNum">     236 </span>                :            :                  * case.
+<span class="lineNum">     237 </span>                :            :                  *
+<span class="lineNum">     238 </span>                :            :                  * Note: on machines with weak memory ordering, the acquisition of the
+<span class="lineNum">     239 </span>                :            :                  * lock is essential to avoid race conditions: we cannot be sure the
+<span class="lineNum">     240 </span>                :            :                  * sender's state update has reached main memory until we acquire the
+<span class="lineNum">     241 </span>                :            :                  * lock.  We could get rid of this dance if SetLatch/ResetLatch
+<span class="lineNum">     242 </span>                :            :                  * contained memory barriers.
+<span class="lineNum">     243 </span>                :            :                  */
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 syncRepState = MyProc-&gt;syncRepState;</span>
+<span class="lineNum">     245 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (syncRepState == SYNC_REP_WAITING)</span>
+<span class="lineNum">     246 </span>                :            :                 {
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :                         LWLockAcquire(SyncRepLock, LW_SHARED);</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                         syncRepState = MyProc-&gt;syncRepState;</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     251 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (syncRepState == SYNC_REP_WAIT_COMPLETE)</span>
+<span class="lineNum">     252 </span>                :            :                 {
+<span class="lineNum">     253 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     254 </span>                :            :                                         &quot;syncrep wait -- This backend's syncrep state is now 'wait complete'.&quot;);
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     256 </span>                :            :                 }
+<span class="lineNum">     257 </span>                :            : 
+<span class="lineNum">     258 </span>                :            :                 /*
+<span class="lineNum">     259 </span>                :            :                  * If a wait for synchronous replication is pending, we can neither
+<span class="lineNum">     260 </span>                :            :                  * acknowledge the commit nor raise ERROR or FATAL.  The latter would
+<span class="lineNum">     261 </span>                :            :                  * lead the client to believe that that the transaction aborted, which
+<span class="lineNum">     262 </span>                :            :                  * is not true: it's already committed locally. The former is no good
+<span class="lineNum">     263 </span>                :            :                  * either: the client has requested synchronous replication, and is
+<span class="lineNum">     264 </span>                :            :                  * entitled to assume that an acknowledged commit is also replicated,
+<span class="lineNum">     265 </span>                :            :                  * which might not be true. So in this case we issue a WARNING (which
+<span class="lineNum">     266 </span>                :            :                  * some clients may be able to interpret) and shut off further output.
+<span class="lineNum">     267 </span>                :            :                  * We do NOT reset ProcDiePending, so that the process will die after
+<span class="lineNum">     268 </span>                :            :                  * the commit is cleaned up.
+<span class="lineNum">     269 </span>                :            :                  */
+<span class="lineNum">     270 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ProcDiePending)</span>
+<span class="lineNum">     271 </span>                :            :                 {
+<span class="lineNum">     272 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(WARNING,</span>
+<span class="lineNum">     273 </span>                :            :                                         (errcode(ERRCODE_ADMIN_SHUTDOWN),
+<span class="lineNum">     274 </span>                :            :                                          errmsg(&quot;canceling the wait for synchronous replication and terminating connection due to administrator command&quot;),
+<span class="lineNum">     275 </span>                :            :                                          errdetail(&quot;The transaction has already committed locally, but might not have been replicated to the standby.&quot;)));
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :                         whereToSendOutput = DestNone;</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :                         SyncRepCancelWait();</span>
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     279 </span>                :            :                 }
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>                :            :                 /*
+<span class="lineNum">     282 </span>                :            :                  * It's unclear what to do if a query cancel interrupt arrives.  We
+<span class="lineNum">     283 </span>                :            :                  * can't actually abort at this point, but ignoring the interrupt
+<span class="lineNum">     284 </span>                :            :                  * altogether is not helpful, so we just terminate the wait with a
+<span class="lineNum">     285 </span>                :            :                  * suitable warning.
+<span class="lineNum">     286 </span>                :            :                  */
+<span class="lineNum">     287 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (QueryCancelPending)</span>
+<span class="lineNum">     288 </span>                :            :                 {
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                         QueryCancelPending = false;</span>
+<span class="lineNum">     290 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(WARNING,</span>
+<span class="lineNum">     291 </span>                :            :                                         (errmsg(&quot;canceling wait for synchronous replication due to user request&quot;),
+<span class="lineNum">     292 </span>                :            :                                          errdetail(&quot;The transaction has already committed locally, but might not have been replicated to the standby.&quot;)));
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                         SyncRepCancelWait();</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     295 </span>                :            :                 }
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :            :                 /*
+<span class="lineNum">     298 </span>                :            :                  * If the postmaster dies, we'll probably never get an
+<span class="lineNum">     299 </span>                :            :                  * acknowledgement, because all the wal sender processes will exit. So
+<span class="lineNum">     300 </span>                :            :                  * just bail out.
+<span class="lineNum">     301 </span>                :            :                  */
+<span class="lineNum">     302 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!PostmasterIsAlive(true))</span>
+<span class="lineNum">     303 </span>                :            :                 {
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                         ProcDiePending = true;</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :                         whereToSendOutput = DestNone;</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                         SyncRepCancelWait();</span>
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     308 </span>                :            :                 }
+<span class="lineNum">     309 </span>                :            : 
+<span class="lineNum">     310 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     311 </span>                :            :                                 &quot;syncrep wait -- This backend's syncrep state is still 'waiting'. &quot;
+<span class="lineNum">     312 </span>                :            :                                 &quot;Hence it will wait on a latch until awakend.&quot;)
+<span class="lineNum">     313 </span>                :            :                 /*
+<span class="lineNum">     314 </span>                :            :                  * Wait on latch.  Any condition that should wake us up will set the
+<span class="lineNum">     315 </span>                :            :                  * latch, so no need for timeout.
+<span class="lineNum">     316 </span>                :            :                  */
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                 WaitLatch(&amp;MyProc-&gt;procLatch, WL_LATCH_SET | WL_POSTMASTER_DEATH, -1);</span>
+<span class="lineNum">     318 </span>                :            :         }
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>                :            :         /*
+<span class="lineNum">     321 </span>                :            :          * WalSender has checked our LSN and has removed us from queue. Clean up
+<span class="lineNum">     322 </span>                :            :          * state and leave.  It's OK to reset these shared memory fields without
+<span class="lineNum">     323 </span>                :            :          * holding SyncRepLock, because any walsenders will ignore us anyway when
+<span class="lineNum">     324 </span>                :            :          * we're not on the queue.
+<span class="lineNum">     325 </span>                :            :          */
+<span class="lineNum">     326 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(SHMQueueIsDetached(&amp;(MyProc-&gt;syncRepLinks)));</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;syncRepState = SYNC_REP_NOT_WAITING;</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;waitLSN.xlogid = 0;</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;waitLSN.xrecoff = 0;</span>
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (update_process_title)</span>
+<span class="lineNum">     332 </span>                :            :         {
+<span class="lineNum">     333 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(old_status_saved);</span>
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :                 set_ps_display(old_status_saved, false);</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                 pfree(old_status_saved);</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :            :         /* Now inform no more waiting for replication */
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :         pgstat_report_waiting(PGBE_WAITING_NONE);</span>
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     341 </span>                :            : 
+<span class="lineNum">     342 </span>                :            : /*
+<span class="lineNum">     343 </span>                :            :  * Insert MyProc into the specified SyncRepQueue, maintaining sorted invariant.
+<span class="lineNum">     344 </span>                :            :  *
+<span class="lineNum">     345 </span>                :            :  * Usually we will go at tail of queue, though it's possible that we arrive
+<span class="lineNum">     346 </span>                :            :  * here out of order, so start at tail and work back to insertion point.
+<a name="347"><span class="lineNum">     347 </span>                :            :  */</a>
+<span class="lineNum">     348 </span>                :            : static void
+<span class="lineNum">     349 </span>                :            : SyncRepQueueInsert(int mode)
+<span class="lineNum">     350 </span>                :            : {
+<span class="lineNum">     351 </span>                :            :         PGPROC     *proc;
+<span class="lineNum">     352 </span>                :            : 
+<span class="lineNum">     353 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(mode &gt;= 0 &amp;&amp; mode &lt; NUM_SYNC_REP_WAIT_MODE);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :         proc = (PGPROC *) SHMQueuePrev(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                                                                    &amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     356 </span>                :            :                                                                    offsetof(PGPROC, syncRepLinks));
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (proc)</span>
+<span class="lineNum">     359 </span>                :            :         {
+<span class="lineNum">     360 </span>                :            :                 /*
+<span class="lineNum">     361 </span>                :            :                  * Stop at the queue element that we should after to ensure the queue
+<span class="lineNum">     362 </span>                :            :                  * is ordered by LSN.
+<span class="lineNum">     363 </span>                :            :                  */
+<span class="lineNum">     364 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (XLByteLT(proc-&gt;waitLSN, MyProc-&gt;waitLSN))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                 proc = (PGPROC *) SHMQueuePrev(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                                                                            &amp;(proc-&gt;syncRepLinks),</span>
+<span class="lineNum">     369 </span>                :            :                                                                            offsetof(PGPROC, syncRepLinks));
+<span class="lineNum">     370 </span>                :            :         }
+<span class="lineNum">     371 </span>                :            : 
+<span class="lineNum">     372 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (proc)</span>
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :                 SHMQueueInsertAfter(&amp;(proc-&gt;syncRepLinks), &amp;(MyProc-&gt;syncRepLinks));</span>
+<span class="lineNum">     374 </span>                :            :         else
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :                 SHMQueueInsertAfter(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]), &amp;(MyProc-&gt;syncRepLinks));</span>
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :            : /*
+<span class="lineNum">     379 </span>                :            :  * Acquire SyncRepLock and cancel any wait currently in progress.
+<a name="380"><span class="lineNum">     380 </span>                :            :  */</a>
+<span class="lineNum">     381 </span>                :            : static void
+<span class="lineNum">     382 </span>                :            : SyncRepCancelWait(void)
+<span class="lineNum">     383 </span>                :            : {
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(SyncRepLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     385 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!SHMQueueIsDetached(&amp;(MyProc-&gt;syncRepLinks)))</span>
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :                 SHMQueueDelete(&amp;(MyProc-&gt;syncRepLinks));</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;syncRepState = SYNC_REP_NOT_WAITING;</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="390"><span class="lineNum">     390 </span>                :            : </a>
+<span class="lineNum">     391 </span>                :            : void
+<span class="lineNum">     392 </span>                :            : SyncRepCleanupAtProcExit(void)
+<span class="lineNum">     393 </span>                :            : {
+<span class="lineNum">     394 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!SHMQueueIsDetached(&amp;(MyProc-&gt;syncRepLinks)))</span>
+<span class="lineNum">     395 </span>                :            :         {
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :                 LWLockAcquire(SyncRepLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :                 SHMQueueDelete(&amp;(MyProc-&gt;syncRepLinks));</span>
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>                :            : /*
+<span class="lineNum">     403 </span>                :            :  * ===========================================================
+<span class="lineNum">     404 </span>                :            :  * Synchronous Replication functions for wal sender processes
+<span class="lineNum">     405 </span>                :            :  * ===========================================================
+<span class="lineNum">     406 </span>                :            :  */
+<span class="lineNum">     407 </span>                :            : 
+<span class="lineNum">     408 </span>                :            : /*
+<span class="lineNum">     409 </span>                :            :  * Take any action required to initialise sync rep state from config
+<span class="lineNum">     410 </span>                :            :  * data. Called at WALSender startup and after each SIGHUP.
+<a name="411"><span class="lineNum">     411 </span>                :            :  */</a>
+<span class="lineNum">     412 </span>                :            : void
+<span class="lineNum">     413 </span>                :            : SyncRepInitConfig(void)
+<span class="lineNum">     414 </span>                :            : {
+<span class="lineNum">     415 </span>                :            :         int                     priority;
+<span class="lineNum">     416 </span>                :            : 
+<span class="lineNum">     417 </span>                :            :         /*
+<span class="lineNum">     418 </span>                :            :          * Determine if we are a potential sync standby and remember the result
+<span class="lineNum">     419 </span>                :            :          * for handling replies from standby.
+<span class="lineNum">     420 </span>                :            :          */
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :         priority = SyncRepGetStandbyPriority();</span>
+<span class="lineNum">     422 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MyWalSnd-&gt;sync_standby_priority != priority)</span>
+<span class="lineNum">     423 </span>                :            :         {
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                 LWLockAcquire(SyncRepLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                 MyWalSnd-&gt;sync_standby_priority = priority;</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     427 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(LOG,</span>
+<span class="lineNum">     428 </span>                :            :                         (errmsg(&quot;standby now has synchronous standby priority %u&quot;, priority)));
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>                :            : /*
+<span class="lineNum">     433 </span>                :            :  * Update the LSNs on each queue based upon our latest state. This
+<span class="lineNum">     434 </span>                :            :  * implements a simple policy of first-valid-standby-releases-waiter.
+<span class="lineNum">     435 </span>                :            :  *
+<span class="lineNum">     436 </span>                :            :  * Other policies are possible, which would change what we do here and what
+<span class="lineNum">     437 </span>                :            :  * perhaps also which information we store as well.
+<a name="438"><span class="lineNum">     438 </span>                :            :  */</a>
+<span class="lineNum">     439 </span>                :            : void
+<span class="lineNum">     440 </span>                :            : SyncRepReleaseWaiters(void)
+<span class="lineNum">     441 </span>                :            : {
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :         volatile WalSndCtlData *walsndctl = WalSndCtl;</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :         volatile WalSnd *syncWalSnd = NULL;</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :         int                     numwrite = 0;</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :         int                     numflush = 0;</span>
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :         int                     priority = 0;</span>
+<span class="lineNum">     447 </span>                :            :         int                     i;
+<span class="lineNum">     448 </span>                :            : 
+<span class="lineNum">     449 </span>                :            :         /*
+<span class="lineNum">     450 </span>                :            :          * If this WALSender doesn't have any priority then we have nothing to do.
+<span class="lineNum">     451 </span>                :            :          * If we are still starting up, still running base backup or the current
+<span class="lineNum">     452 </span>                :            :          * flush position is still invalid, then leave quickly also.
+<span class="lineNum">     453 </span>                :            :          */
+<span class="lineNum">     454 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MyWalSnd-&gt;sync_standby_priority == 0 ||</span>
+<span class="lineNum">     455 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MyWalSnd-&gt;state &lt; WALSNDSTATE_STREAMING ||</span>
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :                 XLogRecPtrIsInvalid(MyWalSnd-&gt;flush))</span>
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     458 </span>                :            : 
+<span class="lineNum">     459 </span>                :            :         /*
+<span class="lineNum">     460 </span>                :            :          * We're a potential sync standby. Release waiters if we are the highest
+<span class="lineNum">     461 </span>                :            :          * priority standby. If there are multiple standbys with same priorities
+<span class="lineNum">     462 </span>                :            :          * then we use the first mentioned standby. If you change this, also
+<span class="lineNum">     463 </span>                :            :          * change pg_stat_get_wal_senders().
+<span class="lineNum">     464 </span>                :            :          */
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(SyncRepLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     466 </span>                :            : 
+<span class="lineNum">     467 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; max_wal_senders; i++)</span>
+<span class="lineNum">     468 </span>                :            :         {
+<span class="lineNum">     469 </span>                :            :                 /* use volatile pointer to prevent code rearrangement */
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                 volatile WalSnd *walsnd = &amp;walsndctl-&gt;walsnds[i];</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (walsnd-&gt;pid != 0 &amp;&amp;</span>
+<span class="lineNum">     473 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         walsnd-&gt;state == WALSNDSTATE_STREAMING &amp;&amp;</span>
+<span class="lineNum">     474 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         walsnd-&gt;sync_standby_priority &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     475 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         (priority == 0 ||</span>
+<span class="lineNum">     476 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                          priority &gt; walsnd-&gt;sync_standby_priority) &amp;&amp;</span>
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :                         (!XLogRecPtrIsInvalid(walsnd-&gt;flush)))</span>
+<span class="lineNum">     478 </span>                :            :                 {
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                         priority = walsnd-&gt;sync_standby_priority;</span>
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :                         syncWalSnd = walsnd;</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>                :            :         /*
+<span class="lineNum">     485 </span>                :            :          * We should have found ourselves at least.
+<span class="lineNum">     486 </span>                :            :          */
+<span class="lineNum">     487 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(syncWalSnd);</span>
+<span class="lineNum">     488 </span>                :            : 
+<span class="lineNum">     489 </span>                :            :         /*
+<span class="lineNum">     490 </span>                :            :          * If we aren't managing the highest priority standby then just leave.
+<span class="lineNum">     491 </span>                :            :          */
+<span class="lineNum">     492 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (syncWalSnd != MyWalSnd)</span>
+<span class="lineNum">     493 </span>                :            :         {
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :                 announce_next_takeover = true;</span>
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     497 </span>                :            :         }
+<span class="lineNum">     498 </span>                :            : 
+<span class="lineNum">     499 </span>                :            :         /*
+<span class="lineNum">     500 </span>                :            :          * Set the lsn first so that when we wake backends they will release up to
+<span class="lineNum">     501 </span>                :            :          * this location.
+<span class="lineNum">     502 </span>                :            :          */
+<span class="lineNum">     503 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (XLByteLT(walsndctl-&gt;lsn[SYNC_REP_WAIT_WRITE], MyWalSnd-&gt;write))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     504 </span>                :            :         {
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                 walsndctl-&gt;lsn[SYNC_REP_WAIT_WRITE] = MyWalSnd-&gt;write;</span>
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :                 numwrite = SyncRepWakeQueue(false, SYNC_REP_WAIT_WRITE);</span>
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     508 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (XLByteLT(walsndctl-&gt;lsn[SYNC_REP_WAIT_FLUSH], MyWalSnd-&gt;flush))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     509 </span>                :            :         {
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :                 walsndctl-&gt;lsn[SYNC_REP_WAIT_FLUSH] = MyWalSnd-&gt;flush;</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                 numflush = SyncRepWakeQueue(false, SYNC_REP_WAIT_FLUSH);</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     513 </span>                :            : 
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(SyncRepLock);</span>
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     517 </span>                :            :                 &quot;syncrep release -- Released %d processe(s) up to write %X/%X, %d processe(s) up to flush %X/%X&quot;,
+<span class="lineNum">     518 </span>                :            :                  numwrite,
+<span class="lineNum">     519 </span>                :            :                  MyWalSnd-&gt;write.xlogid,
+<span class="lineNum">     520 </span>                :            :                  MyWalSnd-&gt;write.xrecoff,
+<span class="lineNum">     521 </span>                :            :                  numflush,
+<span class="lineNum">     522 </span>                :            :                  MyWalSnd-&gt;flush.xlogid,
+<span class="lineNum">     523 </span>                :            :                  MyWalSnd-&gt;flush.xrecoff);
+<span class="lineNum">     524 </span>                :            : 
+<span class="lineNum">     525 </span>                :            :         /*
+<span class="lineNum">     526 </span>                :            :          * If we are managing the highest priority standby, though we weren't
+<span class="lineNum">     527 </span>                :            :          * prior to this, then announce we are now the sync standby.
+<span class="lineNum">     528 </span>                :            :          */
+<span class="lineNum">     529 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (announce_next_takeover)</span>
+<span class="lineNum">     530 </span>                :            :         {
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                 announce_next_takeover = false;</span>
+<span class="lineNum">     532 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     533 </span>                :            :                            &quot;syncrep release -- standby is now the synchronous standby with priority %u&quot;,
+<span class="lineNum">     534 </span>                :            :                            MyWalSnd-&gt;sync_standby_priority);
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     537 </span>                :            : 
+<span class="lineNum">     538 </span>                :            : /*
+<span class="lineNum">     539 </span>                :            :  * Check if we are in the list of sync standbys, and if so, determine
+<span class="lineNum">     540 </span>                :            :  * priority sequence. Return priority if set, or zero to indicate that
+<span class="lineNum">     541 </span>                :            :  * we are not a potential sync standby.
+<span class="lineNum">     542 </span>                :            :  *
+<span class="lineNum">     543 </span>                :            :  * **Note:- Currently, GPDB does NOT apply the concept of standby priority as
+<span class="lineNum">     544 </span>                :            :  *   we allow max 1 walsender to be alive at a time. Hence, this function returns
+<span class="lineNum">     545 </span>                :            :  *   1.**
+<a name="546"><span class="lineNum">     546 </span>                :            :  */</a>
+<span class="lineNum">     547 </span>                :            : static int
+<span class="lineNum">     548 </span>                :            : SyncRepGetStandbyPriority(void)
+<span class="lineNum">     549 </span>                :            : {
+<span class="lineNum">     550 </span>                :            :         /* Currently set the priority to 1 */
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     552 </span>                :            : }
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :            : /*
+<span class="lineNum">     555 </span>                :            :  * Walk the specified queue from head.  Set the state of any backends that
+<span class="lineNum">     556 </span>                :            :  * need to be woken, remove them from the queue, and then wake them.
+<span class="lineNum">     557 </span>                :            :  * Pass all = true to wake whole queue; otherwise, just wake up to
+<span class="lineNum">     558 </span>                :            :  * the walsender's LSN.
+<span class="lineNum">     559 </span>                :            :  *
+<span class="lineNum">     560 </span>                :            :  * Must hold SyncRepLock.
+<a name="561"><span class="lineNum">     561 </span>                :            :  */</a>
+<span class="lineNum">     562 </span>                :            : int
+<span class="lineNum">     563 </span>                :            : SyncRepWakeQueue(bool all, int mode)
+<span class="lineNum">     564 </span>                :            : {
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :         volatile WalSndCtlData *walsndctl = WalSndCtl;</span>
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :         PGPROC     *proc = NULL;</span>
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :         PGPROC     *thisproc = NULL;</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :         int                     numprocs = 0;</span>
+<span class="lineNum">     569 </span>                :            : 
+<span class="lineNum">     570 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(mode &gt;= 0 &amp;&amp; mode &lt; NUM_SYNC_REP_WAIT_MODE);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     571 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(SyncRepQueueIsOrderedByLSN(mode));</span>
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :<span class="lineNoCov">          0 :         proc = (PGPROC *) SHMQueueNext(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                                                                    &amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     575 </span>                :            :                                                                    offsetof(PGPROC, syncRepLinks));
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (proc)</span>
+<span class="lineNum">     578 </span>                :            :         {
+<span class="lineNum">     579 </span>                :            :                 /*
+<span class="lineNum">     580 </span>                :            :                  * Assume the queue is ordered by LSN
+<span class="lineNum">     581 </span>                :            :                  */
+<span class="lineNum">     582 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!all &amp;&amp; XLByteLT(walsndctl-&gt;lsn[mode], proc-&gt;waitLSN))</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                         return numprocs;</span>
+<span class="lineNum">     584 </span>                :            : 
+<span class="lineNum">     585 </span>                :            :                 /*
+<span class="lineNum">     586 </span>                :            :                  * Move to next proc, so we can delete thisproc from the queue.
+<span class="lineNum">     587 </span>                :            :                  * thisproc is valid, proc may be NULL after this.
+<span class="lineNum">     588 </span>                :            :                  */
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :                 thisproc = proc;</span>
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :                 proc = (PGPROC *) SHMQueueNext(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                                                                            &amp;(proc-&gt;syncRepLinks),</span>
+<span class="lineNum">     592 </span>                :            :                                                                            offsetof(PGPROC, syncRepLinks));
+<span class="lineNum">     593 </span>                :            : 
+<span class="lineNum">     594 </span>                :            :                 /*
+<span class="lineNum">     595 </span>                :            :                  * Set state to complete; see SyncRepWaitForLSN() for discussion of
+<span class="lineNum">     596 </span>                :            :                  * the various states.
+<span class="lineNum">     597 </span>                :            :                  */
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                 thisproc-&gt;syncRepState = SYNC_REP_WAIT_COMPLETE;</span>
+<span class="lineNum">     599 </span>                :            : 
+<span class="lineNum">     600 </span>                :            :                 /*
+<span class="lineNum">     601 </span>                :            :                  * Remove thisproc from queue.
+<span class="lineNum">     602 </span>                :            :                  */
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                 SHMQueueDelete(&amp;(thisproc-&gt;syncRepLinks));</span>
+<span class="lineNum">     604 </span>                :            : 
+<span class="lineNum">     605 </span>                :            :                 /*
+<span class="lineNum">     606 </span>                :            :                  * Wake only when we have set state and removed from queue.
+<span class="lineNum">     607 </span>                :            :                  */
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                 SetLatch(&amp;(thisproc-&gt;procLatch));</span>
+<span class="lineNum">     609 </span>                :            : 
+<span class="lineNum">     610 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(debug_walrepl_syncrep, LOG,</span>
+<span class="lineNum">     611 </span>                :            :                                 &quot;syncrep wakeup queue -- %d procid was removed from syncrep queue. &quot;
+<span class="lineNum">     612 </span>                :            :                                 &quot;Its state is changed to 'Wait Complete' and &quot;
+<span class="lineNum">     613 </span>                :            :                                 &quot;its latch is now set&quot;,
+<span class="lineNum">     614 </span>                :            :                                 thisproc-&gt;pid);
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :                 numprocs++;</span>
+<span class="lineNum">     617 </span>                :            :         }
+<span class="lineNum">     618 </span>                :            : 
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :         return numprocs;</span>
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     621 </span>                :            : 
+<a name="622"><span class="lineNum">     622 </span>                :            : #ifdef USE_ASSERT_CHECKING</a>
+<span class="lineNum">     623 </span>                :            : static bool
+<span class="lineNum">     624 </span>                :            : SyncRepQueueIsOrderedByLSN(int mode)
+<span class="lineNum">     625 </span>                :            : {
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :         PGPROC     *proc = NULL;</span>
+<span class="lineNum">     627 </span>                :            :         XLogRecPtr      lastLSN;
+<span class="lineNum">     628 </span>                :            : 
+<span class="lineNum">     629 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(mode &gt;= 0 &amp;&amp; mode &lt; NUM_SYNC_REP_WAIT_MODE);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :         lastLSN.xlogid = 0;</span>
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :         lastLSN.xrecoff = 0;</span>
+<span class="lineNum">     633 </span>                :            : 
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :         proc = (PGPROC *) SHMQueueNext(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                                                                    &amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     636 </span>                :            :                                                                    offsetof(PGPROC, syncRepLinks));
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (proc)</span>
+<span class="lineNum">     639 </span>                :            :         {
+<span class="lineNum">     640 </span>                :            :                 /*
+<span class="lineNum">     641 </span>                :            :                  * Check the queue is ordered by LSN and that multiple procs don't
+<span class="lineNum">     642 </span>                :            :                  * have matching LSNs
+<span class="lineNum">     643 </span>                :            :                  */
+<span class="lineNum">     644 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (XLByteLE(proc-&gt;waitLSN, lastLSN))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     646 </span>                :            : 
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :                 lastLSN = proc-&gt;waitLSN;</span>
+<span class="lineNum">     648 </span>                :            : 
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                 proc = (PGPROC *) SHMQueueNext(&amp;(WalSndCtl-&gt;SyncRepQueue[mode]),</span>
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :                                                                            &amp;(proc-&gt;syncRepLinks),</span>
+<span class="lineNum">     651 </span>                :            :                                                                            offsetof(PGPROC, syncRepLinks));
+<span class="lineNum">     652 </span>                :            :         }
+<span class="lineNum">     653 </span>                :            : 
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     656 </span>                :            : #endif
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

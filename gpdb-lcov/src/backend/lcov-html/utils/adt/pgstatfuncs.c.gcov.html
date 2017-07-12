@@ -1,0 +1,1375 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/adt/pgstatfuncs.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/adt</a> - pgstatfuncs.c<span style="font-size: 80%;"> (source / <a href="pgstatfuncs.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">470</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">55</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">247</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * pgstatfuncs.c
+<span class="lineNum">       4 </span>                :            :  *        Functions for accessing the statistics collector data
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2010, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/utils/adt/pgstatfuncs.c,v 1.48 2008/01/01 19:45:52 momjian Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;storage/lock.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;commands/resgroupcmds.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;funcapi.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;utils/fmgroids.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;utils/inet.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;libpq/ip.h&quot;
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : /* bogus ... these externs should be in a header file */
+<span class="lineNum">      32 </span>                :            : extern Datum pg_stat_get_numscans(PG_FUNCTION_ARGS);
+<span class="lineNum">      33 </span>                :            : extern Datum pg_stat_get_tuples_returned(PG_FUNCTION_ARGS);
+<span class="lineNum">      34 </span>                :            : extern Datum pg_stat_get_tuples_fetched(PG_FUNCTION_ARGS);
+<span class="lineNum">      35 </span>                :            : extern Datum pg_stat_get_tuples_inserted(PG_FUNCTION_ARGS);
+<span class="lineNum">      36 </span>                :            : extern Datum pg_stat_get_tuples_updated(PG_FUNCTION_ARGS);
+<span class="lineNum">      37 </span>                :            : extern Datum pg_stat_get_tuples_deleted(PG_FUNCTION_ARGS);
+<span class="lineNum">      38 </span>                :            : extern Datum pg_stat_get_tuples_hot_updated(PG_FUNCTION_ARGS);
+<span class="lineNum">      39 </span>                :            : extern Datum pg_stat_get_live_tuples(PG_FUNCTION_ARGS);
+<span class="lineNum">      40 </span>                :            : extern Datum pg_stat_get_dead_tuples(PG_FUNCTION_ARGS);
+<span class="lineNum">      41 </span>                :            : extern Datum pg_stat_get_blocks_fetched(PG_FUNCTION_ARGS);
+<span class="lineNum">      42 </span>                :            : extern Datum pg_stat_get_blocks_hit(PG_FUNCTION_ARGS);
+<span class="lineNum">      43 </span>                :            : extern Datum pg_stat_get_last_vacuum_time(PG_FUNCTION_ARGS);
+<span class="lineNum">      44 </span>                :            : extern Datum pg_stat_get_last_autovacuum_time(PG_FUNCTION_ARGS);
+<span class="lineNum">      45 </span>                :            : extern Datum pg_stat_get_last_analyze_time(PG_FUNCTION_ARGS);
+<span class="lineNum">      46 </span>                :            : extern Datum pg_stat_get_last_autoanalyze_time(PG_FUNCTION_ARGS);
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : extern Datum pg_stat_get_backend_idset(PG_FUNCTION_ARGS);
+<span class="lineNum">      49 </span>                :            : extern Datum pg_stat_get_activity(PG_FUNCTION_ARGS);
+<span class="lineNum">      50 </span>                :            : extern Datum pg_backend_pid(PG_FUNCTION_ARGS);
+<span class="lineNum">      51 </span>                :            : extern Datum pg_stat_get_backend_pid(PG_FUNCTION_ARGS);
+<span class="lineNum">      52 </span>                :            : extern Datum pg_stat_get_backend_session_id(PG_FUNCTION_ARGS);
+<span class="lineNum">      53 </span>                :            : extern Datum pg_stat_get_backend_dbid(PG_FUNCTION_ARGS);
+<span class="lineNum">      54 </span>                :            : extern Datum pg_stat_get_backend_userid(PG_FUNCTION_ARGS);
+<span class="lineNum">      55 </span>                :            : extern Datum pg_stat_get_backend_activity(PG_FUNCTION_ARGS);
+<span class="lineNum">      56 </span>                :            : extern Datum pg_stat_get_backend_waiting(PG_FUNCTION_ARGS);
+<span class="lineNum">      57 </span>                :            : extern Datum pg_stat_get_backend_activity_start(PG_FUNCTION_ARGS);
+<span class="lineNum">      58 </span>                :            : extern Datum pg_stat_get_backend_xact_start(PG_FUNCTION_ARGS);
+<span class="lineNum">      59 </span>                :            : extern Datum pg_stat_get_backend_start(PG_FUNCTION_ARGS);
+<span class="lineNum">      60 </span>                :            : extern Datum pg_stat_get_backend_client_addr(PG_FUNCTION_ARGS);
+<span class="lineNum">      61 </span>                :            : extern Datum pg_stat_get_backend_client_port(PG_FUNCTION_ARGS);
+<span class="lineNum">      62 </span>                :            : extern Datum pg_stat_get_backend_waiting_reason(PG_FUNCTION_ARGS);
+<span class="lineNum">      63 </span>                :            : 
+<span class="lineNum">      64 </span>                :            : extern Datum pg_stat_get_db_numbackends(PG_FUNCTION_ARGS);
+<span class="lineNum">      65 </span>                :            : extern Datum pg_stat_get_db_xact_commit(PG_FUNCTION_ARGS);
+<span class="lineNum">      66 </span>                :            : extern Datum pg_stat_get_db_xact_rollback(PG_FUNCTION_ARGS);
+<span class="lineNum">      67 </span>                :            : extern Datum pg_stat_get_db_blocks_fetched(PG_FUNCTION_ARGS);
+<span class="lineNum">      68 </span>                :            : extern Datum pg_stat_get_db_blocks_hit(PG_FUNCTION_ARGS);
+<span class="lineNum">      69 </span>                :            : extern Datum pg_stat_get_db_tuples_returned(PG_FUNCTION_ARGS);
+<span class="lineNum">      70 </span>                :            : extern Datum pg_stat_get_db_tuples_fetched(PG_FUNCTION_ARGS);
+<span class="lineNum">      71 </span>                :            : extern Datum pg_stat_get_db_tuples_inserted(PG_FUNCTION_ARGS);
+<span class="lineNum">      72 </span>                :            : extern Datum pg_stat_get_db_tuples_updated(PG_FUNCTION_ARGS);
+<span class="lineNum">      73 </span>                :            : extern Datum pg_stat_get_db_tuples_deleted(PG_FUNCTION_ARGS);
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :            : extern Datum pg_stat_get_bgwriter_timed_checkpoints(PG_FUNCTION_ARGS);
+<span class="lineNum">      76 </span>                :            : extern Datum pg_stat_get_bgwriter_requested_checkpoints(PG_FUNCTION_ARGS);
+<span class="lineNum">      77 </span>                :            : extern Datum pg_stat_get_bgwriter_buf_written_checkpoints(PG_FUNCTION_ARGS);
+<span class="lineNum">      78 </span>                :            : extern Datum pg_stat_get_bgwriter_buf_written_clean(PG_FUNCTION_ARGS);
+<span class="lineNum">      79 </span>                :            : extern Datum pg_stat_get_bgwriter_maxwritten_clean(PG_FUNCTION_ARGS);
+<span class="lineNum">      80 </span>                :            : extern Datum pg_stat_get_buf_written_backend(PG_FUNCTION_ARGS);
+<span class="lineNum">      81 </span>                :            : extern Datum pg_stat_get_buf_alloc(PG_FUNCTION_ARGS);
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :            : extern Datum pg_stat_get_queue_num_exec(PG_FUNCTION_ARGS);
+<span class="lineNum">      84 </span>                :            : extern Datum pg_stat_get_queue_num_wait(PG_FUNCTION_ARGS);
+<span class="lineNum">      85 </span>                :            : extern Datum pg_stat_get_queue_elapsed_exec(PG_FUNCTION_ARGS);
+<span class="lineNum">      86 </span>                :            : extern Datum pg_stat_get_queue_elapsed_wait(PG_FUNCTION_ARGS);
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :            : extern Datum pg_renice_session(PG_FUNCTION_ARGS);
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : extern Datum pg_stat_clear_snapshot(PG_FUNCTION_ARGS);
+<span class="lineNum">      91 </span>                :            : extern Datum pg_stat_reset(PG_FUNCTION_ARGS);
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :            : /* Global bgwriter statistics, from bgwriter.c */
+<span class="lineNum">      94 </span>                :            : extern PgStat_MsgBgWriter bgwriterStats;
+<a name="95"><span class="lineNum">      95 </span>                :            : </a>
+<span class="lineNum">      96 </span>                :            : static char *
+<span class="lineNum">      97 </span>                :            : pgstat_waiting_string(char reason)
+<span class="lineNum">      98 </span>                :            : {
+<span class="lineNum">      99 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch(reason)</span>
+<span class="lineNum">     100 </span>                :            :         {
+<span class="lineNum">     101 </span>                :            :                 case PGBE_WAITING_LOCK:
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                         return &quot;lock&quot;;</span>
+<span class="lineNum">     103 </span>                :            :                 case PGBE_WAITING_REPLICATION:
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                         return &quot;replication&quot;;</span>
+<span class="lineNum">     105 </span>                :            :                 case PGBE_WAITING_RESGROUP:
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :                         return &quot;resgroup&quot;;</span>
+<span class="lineNum">     107 </span>                :            :                 default:
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     109 </span>                :            :         }
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="111"><span class="lineNum">     111 </span>                :            : </a>
+<span class="lineNum">     112 </span>                :            : Datum
+<span class="lineNum">     113 </span>                :            : pg_stat_get_numscans(PG_FUNCTION_ARGS)
+<span class="lineNum">     114 </span>                :            : {
+<span class="lineNum">     115 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     116 </span>                :            :         int64           result;
+<span class="lineNum">     117 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     121 </span>                :            :         else
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;numscans);</span>
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     125 </span>                :            : }
+<span class="lineNum">     126 </span>                :            : 
+<a name="127"><span class="lineNum">     127 </span>                :            : </a>
+<span class="lineNum">     128 </span>                :            : Datum
+<span class="lineNum">     129 </span>                :            : pg_stat_get_tuples_returned(PG_FUNCTION_ARGS)
+<span class="lineNum">     130 </span>                :            : {
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     132 </span>                :            :         int64           result;
+<span class="lineNum">     133 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     137 </span>                :            :         else
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;tuples_returned);</span>
+<span class="lineNum">     139 </span>                :            : 
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     141 </span>                :            : }
+<span class="lineNum">     142 </span>                :            : 
+<a name="143"><span class="lineNum">     143 </span>                :            : </a>
+<span class="lineNum">     144 </span>                :            : Datum
+<span class="lineNum">     145 </span>                :            : pg_stat_get_tuples_fetched(PG_FUNCTION_ARGS)
+<span class="lineNum">     146 </span>                :            : {
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     148 </span>                :            :         int64           result;
+<span class="lineNum">     149 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     153 </span>                :            :         else
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;tuples_fetched);</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     157 </span>                :            : }
+<span class="lineNum">     158 </span>                :            : 
+<a name="159"><span class="lineNum">     159 </span>                :            : </a>
+<span class="lineNum">     160 </span>                :            : Datum
+<span class="lineNum">     161 </span>                :            : pg_stat_get_tuples_inserted(PG_FUNCTION_ARGS)
+<span class="lineNum">     162 </span>                :            : {
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     164 </span>                :            :         int64           result;
+<span class="lineNum">     165 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     169 </span>                :            :         else
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;tuples_inserted);</span>
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     173 </span>                :            : }
+<span class="lineNum">     174 </span>                :            : 
+<a name="175"><span class="lineNum">     175 </span>                :            : </a>
+<span class="lineNum">     176 </span>                :            : Datum
+<span class="lineNum">     177 </span>                :            : pg_stat_get_tuples_updated(PG_FUNCTION_ARGS)
+<span class="lineNum">     178 </span>                :            : {
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     180 </span>                :            :         int64           result;
+<span class="lineNum">     181 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     182 </span>                :            : 
+<span class="lineNum">     183 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     185 </span>                :            :         else
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;tuples_updated);</span>
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     189 </span>                :            : }
+<span class="lineNum">     190 </span>                :            : 
+<a name="191"><span class="lineNum">     191 </span>                :            : </a>
+<span class="lineNum">     192 </span>                :            : Datum
+<span class="lineNum">     193 </span>                :            : pg_stat_get_tuples_deleted(PG_FUNCTION_ARGS)
+<span class="lineNum">     194 </span>                :            : {
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     196 </span>                :            :         int64           result;
+<span class="lineNum">     197 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     198 </span>                :            : 
+<span class="lineNum">     199 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     201 </span>                :            :         else
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;tuples_deleted);</span>
+<span class="lineNum">     203 </span>                :            : 
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     205 </span>                :            : }
+<span class="lineNum">     206 </span>                :            : 
+<a name="207"><span class="lineNum">     207 </span>                :            : </a>
+<span class="lineNum">     208 </span>                :            : Datum
+<span class="lineNum">     209 </span>                :            : pg_stat_get_tuples_hot_updated(PG_FUNCTION_ARGS)
+<span class="lineNum">     210 </span>                :            : {
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     212 </span>                :            :         int64           result;
+<span class="lineNum">     213 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     217 </span>                :            :         else
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;tuples_hot_updated);</span>
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     221 </span>                :            : }
+<span class="lineNum">     222 </span>                :            : 
+<a name="223"><span class="lineNum">     223 </span>                :            : </a>
+<span class="lineNum">     224 </span>                :            : Datum
+<span class="lineNum">     225 </span>                :            : pg_stat_get_live_tuples(PG_FUNCTION_ARGS)
+<span class="lineNum">     226 </span>                :            : {
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     228 </span>                :            :         int64           result;
+<span class="lineNum">     229 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     233 </span>                :            :         else
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;n_live_tuples);</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     237 </span>                :            : }
+<span class="lineNum">     238 </span>                :            : 
+<a name="239"><span class="lineNum">     239 </span>                :            : </a>
+<span class="lineNum">     240 </span>                :            : Datum
+<span class="lineNum">     241 </span>                :            : pg_stat_get_dead_tuples(PG_FUNCTION_ARGS)
+<span class="lineNum">     242 </span>                :            : {
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     244 </span>                :            :         int64           result;
+<span class="lineNum">     245 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     249 </span>                :            :         else
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;n_dead_tuples);</span>
+<span class="lineNum">     251 </span>                :            : 
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     253 </span>                :            : }
+<span class="lineNum">     254 </span>                :            : 
+<a name="255"><span class="lineNum">     255 </span>                :            : </a>
+<span class="lineNum">     256 </span>                :            : Datum
+<span class="lineNum">     257 </span>                :            : pg_stat_get_blocks_fetched(PG_FUNCTION_ARGS)
+<span class="lineNum">     258 </span>                :            : {
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     260 </span>                :            :         int64           result;
+<span class="lineNum">     261 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     262 </span>                :            : 
+<span class="lineNum">     263 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     265 </span>                :            :         else
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;blocks_fetched);</span>
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     269 </span>                :            : }
+<span class="lineNum">     270 </span>                :            : 
+<a name="271"><span class="lineNum">     271 </span>                :            : </a>
+<span class="lineNum">     272 </span>                :            : Datum
+<span class="lineNum">     273 </span>                :            : pg_stat_get_blocks_hit(PG_FUNCTION_ARGS)
+<span class="lineNum">     274 </span>                :            : {
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     276 </span>                :            :         int64           result;
+<span class="lineNum">     277 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     281 </span>                :            :         else
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (tabentry-&gt;blocks_hit);</span>
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     285 </span>                :            : }
+<a name="286"><span class="lineNum">     286 </span>                :            : </a>
+<span class="lineNum">     287 </span>                :            : Datum
+<span class="lineNum">     288 </span>                :            : pg_stat_get_last_vacuum_time(PG_FUNCTION_ARGS)
+<span class="lineNum">     289 </span>                :            : {
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     291 </span>                :            :         TimestampTz result;
+<span class="lineNum">     292 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     296 </span>                :            :         else
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                 result = tabentry-&gt;vacuum_timestamp;</span>
+<span class="lineNum">     298 </span>                :            : 
+<span class="lineNum">     299 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     301 </span>                :            :         else
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="304"><span class="lineNum">     304 </span>                :            : </a>
+<span class="lineNum">     305 </span>                :            : Datum
+<span class="lineNum">     306 </span>                :            : pg_stat_get_last_autovacuum_time(PG_FUNCTION_ARGS)
+<span class="lineNum">     307 </span>                :            : {
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     309 </span>                :            :         TimestampTz result;
+<span class="lineNum">     310 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     314 </span>                :            :         else
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                 result = tabentry-&gt;autovac_vacuum_timestamp;</span>
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     319 </span>                :            :         else
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="322"><span class="lineNum">     322 </span>                :            : </a>
+<span class="lineNum">     323 </span>                :            : Datum
+<span class="lineNum">     324 </span>                :            : pg_stat_get_last_analyze_time(PG_FUNCTION_ARGS)
+<span class="lineNum">     325 </span>                :            : {
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     327 </span>                :            :         TimestampTz result;
+<span class="lineNum">     328 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     332 </span>                :            :         else
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :                 result = tabentry-&gt;analyze_timestamp;</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     337 </span>                :            :         else
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="340"><span class="lineNum">     340 </span>                :            : </a>
+<span class="lineNum">     341 </span>                :            : Datum
+<span class="lineNum">     342 </span>                :            : pg_stat_get_last_autoanalyze_time(PG_FUNCTION_ARGS)
+<span class="lineNum">     343 </span>                :            : {
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         Oid                     relid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     345 </span>                :            :         TimestampTz result;
+<span class="lineNum">     346 </span>                :            :         PgStat_StatTabEntry *tabentry;
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((tabentry = pgstat_fetch_stat_tabentry(relid)) == NULL)</span>
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     350 </span>                :            :         else
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 :                 result = tabentry-&gt;autovac_analyze_timestamp;</span>
+<span class="lineNum">     352 </span>                :            : 
+<span class="lineNum">     353 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)</span>
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     355 </span>                :            :         else
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="358"><span class="lineNum">     358 </span>                :            : </a>
+<span class="lineNum">     359 </span>                :            : Datum
+<span class="lineNum">     360 </span>                :            : pg_stat_get_backend_idset(PG_FUNCTION_ARGS)
+<span class="lineNum">     361 </span>                :            : {
+<span class="lineNum">     362 </span>                :            :         FuncCallContext *funcctx;
+<span class="lineNum">     363 </span>                :            :         int                *fctx;
+<span class="lineNum">     364 </span>                :            :         int32           result;
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :            :         /* stuff done only on the first call of the function */
+<span class="lineNum">     367 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (SRF_IS_FIRSTCALL())</span>
+<span class="lineNum">     368 </span>                :            :         {
+<span class="lineNum">     369 </span>                :            :                 /* create a function context for cross-call persistence */
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :                 funcctx = SRF_FIRSTCALL_INIT();</span>
+<span class="lineNum">     371 </span>                :            : 
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :                 fctx = MemoryContextAlloc(funcctx-&gt;multi_call_memory_ctx,</span>
+<span class="lineNum">     373 </span>                :            :                                                                   2 * sizeof(int));
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :                 funcctx-&gt;user_fctx = fctx;</span>
+<span class="lineNum">     375 </span>                :            : 
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :                 fctx[0] = 0;</span>
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :                 fctx[1] = pgstat_fetch_stat_numbackends();</span>
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :            :         /* stuff done on every call of the function */
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         funcctx = SRF_PERCALL_SETUP();</span>
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :         fctx = funcctx-&gt;user_fctx;</span>
+<span class="lineNum">     383 </span>                :            : 
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :         fctx[0] += 1;</span>
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :         result = fctx[0];</span>
+<span class="lineNum">     386 </span>                :            : 
+<span class="lineNum">     387 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result &lt;= fctx[1])</span>
+<span class="lineNum">     388 </span>                :            :         {
+<span class="lineNum">     389 </span>                :            :                 /* do when there is more left to send */
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :                 SRF_RETURN_NEXT(funcctx, Int32GetDatum(result));</span>
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     392 </span>                :            :         else
+<span class="lineNum">     393 </span>                :            :         {
+<span class="lineNum">     394 </span>                :            :                 /* do when there is no more left */
+<span class="lineNum">     395 </span>                :<span class="lineNoCov">          0 :                 SRF_RETURN_DONE(funcctx);</span>
+<span class="lineNum">     396 </span>                :            :         }
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="398"><span class="lineNum">     398 </span>                :            : </a>
+<span class="lineNum">     399 </span>                :            : Datum
+<span class="lineNum">     400 </span>                :            : pg_stat_get_activity(PG_FUNCTION_ARGS)
+<span class="lineNum">     401 </span>                :            : {
+<span class="lineNum">     402 </span>                :            :         FuncCallContext *funcctx;
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (SRF_IS_FIRSTCALL())</span>
+<span class="lineNum">     405 </span>                :            :         {
+<span class="lineNum">     406 </span>                :            :                 MemoryContext oldcontext;
+<span class="lineNum">     407 </span>                :            :                 TupleDesc       tupdesc;
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :                 int                     nattr = 16;</span>
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :                 funcctx = SRF_FIRSTCALL_INIT();</span>
+<span class="lineNum">     411 </span>                :            : 
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :                 oldcontext = MemoryContextSwitchTo(funcctx-&gt;multi_call_memory_ctx);</span>
+<span class="lineNum">     413 </span>                :            : 
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :                 tupdesc = CreateTemplateTupleDesc(nattr, false);</span>
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 1, &quot;datid&quot;, OIDOID, -1, 0);</span>
+<span class="lineNum">     416 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 2, &quot;procpid&quot;, INT4OID, -1, 0);</span>
+<span class="lineNum">     417 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 3, &quot;usesysid&quot;, OIDOID, -1, 0);</span>
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 4, &quot;application_name&quot;, TEXTOID, -1, 0);</span>
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 5, &quot;current_query&quot;, TEXTOID, -1, 0);</span>
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 6, &quot;waiting&quot;, BOOLOID, -1, 0);</span>
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 7, &quot;act_start&quot;, TIMESTAMPTZOID, -1, 0);</span>
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 8, &quot;query_start&quot;, TIMESTAMPTZOID, -1, 0);</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 9, &quot;backend_start&quot;, TIMESTAMPTZOID, -1, 0);</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 10, &quot;client_addr&quot;, INETOID, -1, 0);</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 11, &quot;client_port&quot;, INT4OID, -1, 0);</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                 TupleDescInitEntry(tupdesc, (AttrNumber) 12, &quot;sess_id&quot;, INT4OID, -1, 0);  /* GPDB */</span>
+<span class="lineNum">     427 </span>                :            : 
+<span class="lineNum">     428 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (nattr &gt; 12)</span>
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                         TupleDescInitEntry(tupdesc, (AttrNumber) 13, &quot;waiting_for&quot;, TEXTOID, -1, 0);</span>
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (nattr &gt; 13)</span>
+<span class="lineNum">     432 </span>                :            :                 {
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                         TupleDescInitEntry(tupdesc, (AttrNumber) 14, &quot;rsgid&quot;, OIDOID, -1, 0);</span>
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                         TupleDescInitEntry(tupdesc, (AttrNumber) 15, &quot;rsgname&quot;, TEXTOID, -1, 0);</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                         TupleDescInitEntry(tupdesc, (AttrNumber) 16, &quot;rsgqueueduration&quot;, INTERVALOID, -1, 0);</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     437 </span>                :            : 
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                 funcctx-&gt;tuple_desc = BlessTupleDesc(tupdesc);</span>
+<span class="lineNum">     439 </span>                :            : 
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                 funcctx-&gt;user_fctx = palloc0(sizeof(int));</span>
+<span class="lineNum">     441 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (PG_ARGISNULL(0))</span>
+<span class="lineNum">     442 </span>                :            :                 {
+<span class="lineNum">     443 </span>                :            :                         /* Get all backends */
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                         funcctx-&gt;max_calls = pgstat_fetch_stat_numbackends();</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     446 </span>                :            :                 else
+<span class="lineNum">     447 </span>                :            :                 {
+<span class="lineNum">     448 </span>                :            :                         /*
+<span class="lineNum">     449 </span>                :            :                          * Get one backend - locate by pid.
+<span class="lineNum">     450 </span>                :            :                          *
+<span class="lineNum">     451 </span>                :            :                          * We lookup the backend early, so we can return zero rows if it
+<span class="lineNum">     452 </span>                :            :                          * doesn't exist, instead of returning a single row full of NULLs.
+<span class="lineNum">     453 </span>                :            :                          */
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 :                         int                     pid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     455 </span>                :            :                         int                     i;
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :                         int                     n = pgstat_fetch_stat_numbackends();</span>
+<span class="lineNum">     457 </span>                :            : 
+<span class="lineNum">     458 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (i = 1; i &lt;= n; i++)</span>
+<span class="lineNum">     459 </span>                :            :                         {
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                                 PgBackendStatus *be = pgstat_fetch_stat_beentry(i);</span>
+<span class="lineNum">     461 </span>                :            : 
+<span class="lineNum">     462 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (be)</span>
+<span class="lineNum">     463 </span>                :            :                                 {
+<span class="lineNum">     464 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (be-&gt;st_procpid == pid)</span>
+<span class="lineNum">     465 </span>                :            :                                         {
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 :                                                 *(int *) (funcctx-&gt;user_fctx) = i;</span>
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     468 </span>                :            :                                         }
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (*(int *) (funcctx-&gt;user_fctx) == 0)</span>
+<span class="lineNum">     473 </span>                :            :                                 /* Pid not found, return zero rows */
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :                                 funcctx-&gt;max_calls = 0;</span>
+<span class="lineNum">     475 </span>                :            :                         else
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :                                 funcctx-&gt;max_calls = 1;</span>
+<span class="lineNum">     477 </span>                :            :                 }
+<span class="lineNum">     478 </span>                :            : 
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                 MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     481 </span>                :            : 
+<span class="lineNum">     482 </span>                :            :         /* stuff done on every call of the function */
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :         funcctx = SRF_PERCALL_SETUP();</span>
+<span class="lineNum">     484 </span>                :            : 
+<span class="lineNum">     485 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (funcctx-&gt;call_cntr &lt; funcctx-&gt;max_calls)</span>
+<span class="lineNum">     486 </span>                :            :         {
+<span class="lineNum">     487 </span>                :            :                 /* for each row */
+<span class="lineNum">     488 </span>                :            :                 Datum           values[16];
+<span class="lineNum">     489 </span>                :            :                 bool            nulls[16];
+<span class="lineNum">     490 </span>                :            :                 HeapTuple       tuple;
+<span class="lineNum">     491 </span>                :            :                 PgBackendStatus *beentry;
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MemSet(values, 0, sizeof(values));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     494 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MemSet(nulls, 0, sizeof(nulls));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     495 </span>                :            : 
+<span class="lineNum">     496 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*(int *) (funcctx-&gt;user_fctx) &gt; 0)</span>
+<span class="lineNum">     497 </span>                :            :                 {
+<span class="lineNum">     498 </span>                :            :                         /* Get specific pid slot */
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                         beentry = pgstat_fetch_stat_beentry(*(int *) (funcctx-&gt;user_fctx));</span>
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     501 </span>                :            :                 else
+<span class="lineNum">     502 </span>                :            :                 {
+<span class="lineNum">     503 </span>                :            :                         /* Get the next one in the list */
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :                         beentry = pgstat_fetch_stat_beentry(funcctx-&gt;call_cntr + 1);         /* 1-based index */</span>
+<span class="lineNum">     505 </span>                :            :                 }
+<span class="lineNum">     506 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!beentry)</span>
+<span class="lineNum">     507 </span>                :            :                 {
+<span class="lineNum">     508 </span>                :            :                         int                     i;
+<span class="lineNum">     509 </span>                :            : 
+<span class="lineNum">     510 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (i = 0; i &lt; sizeof(nulls) / sizeof(nulls[0]); i++)</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                                 nulls[i] = true;</span>
+<span class="lineNum">     512 </span>                :            : 
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :                         nulls[4] = false;</span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                         values[4] = CStringGetTextDatum(&quot;&lt;backend information not available&gt;&quot;);</span>
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :                         tuple = heap_form_tuple(funcctx-&gt;tuple_desc, values, nulls);</span>
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                         SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     519 </span>                :            : 
+<span class="lineNum">     520 </span>                :            :                 /* Values available to all callers */
+<span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 :                 values[0] = ObjectIdGetDatum(beentry-&gt;st_databaseid);</span>
+<span class="lineNum">     522 </span>                :<span class="lineNoCov">          0 :                 values[1] = Int32GetDatum(beentry-&gt;st_procpid);</span>
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :                 values[2] = ObjectIdGetDatum(beentry-&gt;st_userid);</span>
+<span class="lineNum">     524 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (beentry-&gt;st_appname)</span>
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :                         values[3] = CStringGetTextDatum(beentry-&gt;st_appname);</span>
+<span class="lineNum">     526 </span>                :            :                 else
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :                         nulls[3] = true;</span>
+<span class="lineNum">     528 </span>                :            : 
+<span class="lineNum">     529 </span>                :            :                 /* Values only available to same user or superuser */
+<span class="lineNum">     530 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (superuser() || beentry-&gt;st_userid == GetUserId())</span>
+<span class="lineNum">     531 </span>                :            :                 {
+<span class="lineNum">     532 </span>                :            :                         SockAddr        zero_clientaddr;
+<span class="lineNum">     533 </span>                :            : 
+<span class="lineNum">     534 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (*(beentry-&gt;st_activity) == '\0')</span>
+<span class="lineNum">     535 </span>                :            :                         {
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :                                 values[4] = CStringGetTextDatum(&quot;&lt;command string not enabled&gt;&quot;);</span>
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     538 </span>                :            :                         else
+<span class="lineNum">     539 </span>                :            :                         {
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :                                 values[4] = CStringGetTextDatum(beentry-&gt;st_activity);</span>
+<span class="lineNum">     541 </span>                :            :                         }
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :<span class="lineNoCov">          0 :                         values[5] = BoolGetDatum(beentry-&gt;st_waiting);</span>
+<span class="lineNum">     544 </span>                :            : 
+<span class="lineNum">     545 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (beentry-&gt;st_xact_start_timestamp != 0)</span>
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :                                 values[6] = TimestampTzGetDatum(beentry-&gt;st_xact_start_timestamp);</span>
+<span class="lineNum">     547 </span>                :            :                         else
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :                                 nulls[6] = true;</span>
+<span class="lineNum">     549 </span>                :            : 
+<span class="lineNum">     550 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (beentry-&gt;st_activity_start_timestamp != 0)</span>
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :                                 values[7] = TimestampTzGetDatum(beentry-&gt;st_activity_start_timestamp);</span>
+<span class="lineNum">     552 </span>                :            :                         else
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :                                 nulls[7] = true;</span>
+<span class="lineNum">     554 </span>                :            : 
+<span class="lineNum">     555 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (beentry-&gt;st_proc_start_timestamp != 0)</span>
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 :                                 values[8] = TimestampTzGetDatum(beentry-&gt;st_proc_start_timestamp);</span>
+<span class="lineNum">     557 </span>                :            :                         else
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                                 nulls[8] = true;</span>
+<span class="lineNum">     559 </span>                :            : 
+<span class="lineNum">     560 </span>                :            :                         /* A zeroed client addr means we don't know */
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                         memset(&amp;zero_clientaddr, 0, sizeof(zero_clientaddr));</span>
+<span class="lineNum">     562 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (memcmp(&amp;(beentry-&gt;st_clientaddr), &amp;zero_clientaddr,</span>
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :                                            sizeof(zero_clientaddr)) == 0)</span>
+<span class="lineNum">     564 </span>                :            :                         {
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :                                 nulls[9] = true;</span>
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :                                 nulls[10] = true;</span>
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     568 </span>                :            :                         else
+<span class="lineNum">     569 </span>                :            :                         {
+<span class="lineNum">     570 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (beentry-&gt;st_clientaddr.addr.ss_family == AF_INET</span>
+<span class="lineNum">     571 </span>                :            : #ifdef HAVE_IPV6
+<span class="lineNum">     572 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         || beentry-&gt;st_clientaddr.addr.ss_family == AF_INET6</span>
+<span class="lineNum">     573 </span>                :            : #endif
+<span class="lineNum">     574 </span>                :            :                                         )
+<span class="lineNum">     575 </span>                :            :                                 {
+<span class="lineNum">     576 </span>                :            :                                         char            remote_host[NI_MAXHOST];
+<span class="lineNum">     577 </span>                :            :                                         char            remote_port[NI_MAXSERV];
+<span class="lineNum">     578 </span>                :            :                                         int                     ret;
+<span class="lineNum">     579 </span>                :            : 
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                                         remote_host[0] = '\0';</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                                         remote_port[0] = '\0';</span>
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                                         ret = pg_getnameinfo_all(&amp;beentry-&gt;st_clientaddr.addr,</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                                                                                          beentry-&gt;st_clientaddr.salen,</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                                                                                          remote_host, sizeof(remote_host),</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                                                                                          remote_port, sizeof(remote_port),</span>
+<span class="lineNum">     586 </span>                :            :                                                                                          NI_NUMERICHOST | NI_NUMERICSERV);
+<span class="lineNum">     587 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (ret)</span>
+<span class="lineNum">     588 </span>                :            :                                         {
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :                                                 nulls[9] = true;</span>
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :                                                 nulls[10] = true;</span>
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     592 </span>                :            :                                         else
+<span class="lineNum">     593 </span>                :            :                                         {
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :                                                 clean_ipv6_addr(beentry-&gt;st_clientaddr.addr.ss_family, remote_host);</span>
+<span class="lineNum">     595 </span>                :<span class="lineNoCov">          0 :                                                 values[9] = DirectFunctionCall1(inet_in,</span>
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :                                                                                            CStringGetDatum(remote_host));</span>
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :                                                 values[10] = Int32GetDatum(atoi(remote_port));</span>
+<span class="lineNum">     598 </span>                :            :                                         }
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     600 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 else if (beentry-&gt;st_clientaddr.addr.ss_family == AF_UNIX)</span>
+<span class="lineNum">     601 </span>                :            :                                 {
+<span class="lineNum">     602 </span>                :            :                                         /*
+<span class="lineNum">     603 </span>                :            :                                          * Unix sockets always reports NULL for host and -1 for
+<span class="lineNum">     604 </span>                :            :                                          * port, so it's possible to tell the difference to
+<span class="lineNum">     605 </span>                :            :                                          * connections we have no permissions to view, or with
+<span class="lineNum">     606 </span>                :            :                                          * errors.
+<span class="lineNum">     607 </span>                :            :                                          */
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                                         nulls[9] = true;</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                                         values[10] = DatumGetInt32(-1);</span>
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     611 </span>                :            :                                 else
+<span class="lineNum">     612 </span>                :            :                                 {
+<span class="lineNum">     613 </span>                :            :                                         /* Unknown address type, should never happen */
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 :                                         nulls[9] = true;</span>
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :                                         nulls[10] = true;</span>
+<span class="lineNum">     616 </span>                :            :                                 }
+<span class="lineNum">     617 </span>                :            :                         }
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :                         values[11] = Int32GetDatum(beentry-&gt;st_session_id);  /* GPDB */</span>
+<span class="lineNum">     619 </span>                :            : 
+<span class="lineNum">     620 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (funcctx-&gt;tuple_desc-&gt;natts &gt; 12)</span>
+<span class="lineNum">     621 </span>                :            :                         {
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                                 char    st_waiting = beentry-&gt;st_waiting;</span>
+<span class="lineNum">     623 </span>                :            :                                 char   *reason;
+<span class="lineNum">     624 </span>                :            : 
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :                                 reason = pgstat_waiting_string(st_waiting);</span>
+<span class="lineNum">     626 </span>                :            : 
+<span class="lineNum">     627 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (reason != NULL)</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                                         values[12] = CStringGetTextDatum(reason);</span>
+<span class="lineNum">     629 </span>                :            :                                 else
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                                         nulls[12] = true;</span>
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     632 </span>                :            : 
+<span class="lineNum">     633 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (funcctx-&gt;tuple_desc-&gt;natts &gt; 13)</span>
+<span class="lineNum">     634 </span>                :            :                         {
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                                 Datum now = TimestampTzGetDatum(GetCurrentTimestamp());</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                                 char *groupName = GetResGroupNameForId(beentry-&gt;st_rsgid, AccessShareLock);</span>
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :                                 values[13] = ObjectIdGetDatum(beentry-&gt;st_rsgid);</span>
+<span class="lineNum">     639 </span>                :            : 
+<span class="lineNum">     640 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (groupName != NULL)</span>
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                                         values[14] = CStringGetTextDatum(groupName);</span>
+<span class="lineNum">     642 </span>                :            :                                 else
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :                                         nulls[14] = true;</span>
+<span class="lineNum">     644 </span>                :            : 
+<span class="lineNum">     645 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (beentry-&gt;st_waiting == PGBE_WAITING_RESGROUP)</span>
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :                                         values[15] = DirectFunctionCall2(timestamptz_age, now,</span>
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :                                                                                                          TimestampTzGetDatum(beentry-&gt;st_resgroup_queue_start_timestamp));</span>
+<span class="lineNum">     648 </span>                :            :                                 else
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                                         nulls[15] = true;</span>
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     652 </span>                :            :                 else
+<span class="lineNum">     653 </span>                :            :                 {
+<span class="lineNum">     654 </span>                :            :                         /* No permissions to view data about this session */
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 :                         values[4] = CStringGetTextDatum(&quot;&lt;insufficient privilege&gt;&quot;);</span>
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :                         nulls[5] = true;</span>
+<span class="lineNum">     657 </span>                :<span class="lineNoCov">          0 :                         nulls[6] = true;</span>
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 :                         nulls[7] = true;</span>
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :                         nulls[8] = true;</span>
+<span class="lineNum">     660 </span>                :<span class="lineNoCov">          0 :                         nulls[9] = true;</span>
+<span class="lineNum">     661 </span>                :<span class="lineNoCov">          0 :                         nulls[10] = true;</span>
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :                         values[11] = Int32GetDatum(beentry-&gt;st_session_id);</span>
+<span class="lineNum">     663 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (funcctx-&gt;tuple_desc-&gt;natts &gt; 12)</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                                 nulls[12] = true;</span>
+<span class="lineNum">     665 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (funcctx-&gt;tuple_desc-&gt;natts &gt; 13)</span>
+<span class="lineNum">     666 </span>                :            :                         {
+<span class="lineNum">     667 </span>                :<span class="lineNoCov">          0 :                                 nulls[13] = true;</span>
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 :                                 nulls[14] = true;</span>
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 :                                 nulls[15] = true;</span>
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     671 </span>                :            :                 }
+<span class="lineNum">     672 </span>                :            : 
+<span class="lineNum">     673 </span>                :<span class="lineNoCov">          0 :                 tuple = heap_form_tuple(funcctx-&gt;tuple_desc, values, nulls);</span>
+<span class="lineNum">     674 </span>                :            : 
+<span class="lineNum">     675 </span>                :<span class="lineNoCov">          0 :                 SRF_RETURN_NEXT(funcctx, HeapTupleGetDatum(tuple));</span>
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     677 </span>                :            :         else
+<span class="lineNum">     678 </span>                :            :         {
+<span class="lineNum">     679 </span>                :            :                 /* nothing left */
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                 SRF_RETURN_DONE(funcctx);</span>
+<span class="lineNum">     681 </span>                :            :         }
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     683 </span>                :            : 
+<a name="684"><span class="lineNum">     684 </span>                :            : </a>
+<span class="lineNum">     685 </span>                :            : Datum
+<span class="lineNum">     686 </span>                :            : pg_backend_pid(PG_FUNCTION_ARGS)
+<span class="lineNum">     687 </span>                :            : {
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(MyProcPid);</span>
+<span class="lineNum">     689 </span>                :            : }
+<span class="lineNum">     690 </span>                :            : 
+<a name="691"><span class="lineNum">     691 </span>                :            : </a>
+<span class="lineNum">     692 </span>                :            : Datum
+<span class="lineNum">     693 </span>                :            : pg_stat_get_backend_pid(PG_FUNCTION_ARGS)
+<span class="lineNum">     694 </span>                :            : {
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     696 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     697 </span>                :            : 
+<span class="lineNum">     698 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     700 </span>                :            : 
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(beentry-&gt;st_procpid);</span>
+<span class="lineNum">     702 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="703"><span class="lineNum">     703 </span>                :            : </a>
+<span class="lineNum">     704 </span>                :            : Datum
+<span class="lineNum">     705 </span>                :            : pg_stat_get_backend_session_id(PG_FUNCTION_ARGS)
+<span class="lineNum">     706 </span>                :            : {
+<span class="lineNum">     707 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     708 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     709 </span>                :            : 
+<span class="lineNum">     710 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     712 </span>                :            : 
+<span class="lineNum">     713 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(beentry-&gt;st_session_id);</span>
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     715 </span>                :            : 
+<span class="lineNum">     716 </span>                :            : 
+<a name="717"><span class="lineNum">     717 </span>                :            : </a>
+<span class="lineNum">     718 </span>                :            : Datum
+<span class="lineNum">     719 </span>                :            : pg_stat_get_backend_dbid(PG_FUNCTION_ARGS)
+<span class="lineNum">     720 </span>                :            : {
+<span class="lineNum">     721 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     722 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     723 </span>                :            : 
+<span class="lineNum">     724 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     725 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     726 </span>                :            : 
+<span class="lineNum">     727 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_OID(beentry-&gt;st_databaseid);</span>
+<span class="lineNum">     728 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     729 </span>                :            : 
+<a name="730"><span class="lineNum">     730 </span>                :            : </a>
+<span class="lineNum">     731 </span>                :            : Datum
+<span class="lineNum">     732 </span>                :            : pg_stat_get_backend_userid(PG_FUNCTION_ARGS)
+<span class="lineNum">     733 </span>                :            : {
+<span class="lineNum">     734 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     735 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     736 </span>                :            : 
+<span class="lineNum">     737 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     739 </span>                :            : 
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_OID(beentry-&gt;st_userid);</span>
+<span class="lineNum">     741 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     742 </span>                :            : 
+<a name="743"><span class="lineNum">     743 </span>                :            : </a>
+<span class="lineNum">     744 </span>                :            : Datum
+<span class="lineNum">     745 </span>                :            : pg_stat_get_backend_activity(PG_FUNCTION_ARGS)
+<span class="lineNum">     746 </span>                :            : {
+<span class="lineNum">     747 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     748 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     749 </span>                :            :         const char *activity;
+<span class="lineNum">     750 </span>                :            : 
+<span class="lineNum">     751 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     752 </span>                :<span class="lineNoCov">          0 :                 activity = &quot;&lt;backend information not available&gt;&quot;;</span>
+<span class="lineNum">     753 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     754 </span>                :<span class="lineNoCov">          0 :                 activity = &quot;&lt;insufficient privilege&gt;&quot;;</span>
+<span class="lineNum">     755 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (*(beentry-&gt;st_activity) == '\0')</span>
+<span class="lineNum">     756 </span>                :<span class="lineNoCov">          0 :                 activity = &quot;&lt;command string not enabled&gt;&quot;;</span>
+<span class="lineNum">     757 </span>                :            :         else
+<span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :                 activity = beentry-&gt;st_activity;</span>
+<span class="lineNum">     759 </span>                :            : 
+<span class="lineNum">     760 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TEXT_P(cstring_to_text(activity));</span>
+<span class="lineNum">     761 </span>                :            : }
+<span class="lineNum">     762 </span>                :            : 
+<a name="763"><span class="lineNum">     763 </span>                :            : </a>
+<span class="lineNum">     764 </span>                :            : Datum
+<span class="lineNum">     765 </span>                :            : pg_stat_get_backend_waiting(PG_FUNCTION_ARGS)
+<span class="lineNum">     766 </span>                :            : {
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     768 </span>                :            :         bool            result;
+<span class="lineNum">     769 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     770 </span>                :            : 
+<span class="lineNum">     771 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     773 </span>                :            : 
+<span class="lineNum">     774 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     775 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     776 </span>                :            : 
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 :         result = beentry-&gt;st_waiting != PGBE_WAITING_NONE;</span>
+<span class="lineNum">     778 </span>                :            : 
+<span class="lineNum">     779 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(result);</span>
+<span class="lineNum">     780 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="781"><span class="lineNum">     781 </span>                :            : </a>
+<span class="lineNum">     782 </span>                :            : Datum
+<span class="lineNum">     783 </span>                :            : pg_stat_get_backend_activity_start(PG_FUNCTION_ARGS)
+<span class="lineNum">     784 </span>                :            : {
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     786 </span>                :            :         TimestampTz result;
+<span class="lineNum">     787 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     791 </span>                :            : 
+<span class="lineNum">     792 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     794 </span>                :            : 
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :         result = beentry-&gt;st_activity_start_timestamp;</span>
+<span class="lineNum">     796 </span>                :            : 
+<span class="lineNum">     797 </span>                :            :         /*
+<span class="lineNum">     798 </span>                :            :          * No time recorded for start of current query -- this is the case if the
+<span class="lineNum">     799 </span>                :            :          * user hasn't enabled query-level stats collection.
+<span class="lineNum">     800 </span>                :            :          */
+<span class="lineNum">     801 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)</span>
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     806 </span>                :            : 
+<a name="807"><span class="lineNum">     807 </span>                :            : </a>
+<span class="lineNum">     808 </span>                :            : Datum
+<span class="lineNum">     809 </span>                :            : pg_stat_get_backend_xact_start(PG_FUNCTION_ARGS)
+<span class="lineNum">     810 </span>                :            : {
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     812 </span>                :            :         TimestampTz result;
+<span class="lineNum">     813 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     814 </span>                :            : 
+<span class="lineNum">     815 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     816 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     817 </span>                :            : 
+<span class="lineNum">     818 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     820 </span>                :            : 
+<span class="lineNum">     821 </span>                :<span class="lineNoCov">          0 :         result = beentry-&gt;st_xact_start_timestamp;</span>
+<span class="lineNum">     822 </span>                :            : 
+<span class="lineNum">     823 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)                        /* not in a transaction */</span>
+<span class="lineNum">     824 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     825 </span>                :            : 
+<span class="lineNum">     826 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     827 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     828 </span>                :            : 
+<a name="829"><span class="lineNum">     829 </span>                :            : </a>
+<span class="lineNum">     830 </span>                :            : Datum
+<span class="lineNum">     831 </span>                :            : pg_stat_get_backend_start(PG_FUNCTION_ARGS)
+<span class="lineNum">     832 </span>                :            : {
+<span class="lineNum">     833 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     834 </span>                :            :         TimestampTz result;
+<span class="lineNum">     835 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     836 </span>                :            : 
+<span class="lineNum">     837 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     839 </span>                :            : 
+<span class="lineNum">     840 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     842 </span>                :            : 
+<span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :         result = beentry-&gt;st_proc_start_timestamp;</span>
+<span class="lineNum">     844 </span>                :            : 
+<span class="lineNum">     845 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == 0)                        /* probably can't happen? */</span>
+<span class="lineNum">     846 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     847 </span>                :            : 
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     849 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     850 </span>                :            : 
+<a name="851"><span class="lineNum">     851 </span>                :            : </a>
+<span class="lineNum">     852 </span>                :            : Datum
+<span class="lineNum">     853 </span>                :            : pg_stat_get_backend_client_addr(PG_FUNCTION_ARGS)
+<span class="lineNum">     854 </span>                :            : {
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     856 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     857 </span>                :            :         SockAddr        zero_clientaddr;
+<span class="lineNum">     858 </span>                :            :         char            remote_host[NI_MAXHOST];
+<span class="lineNum">     859 </span>                :            :         int                     ret;
+<span class="lineNum">     860 </span>                :            : 
+<span class="lineNum">     861 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     862 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     863 </span>                :            : 
+<span class="lineNum">     864 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     865 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     866 </span>                :            : 
+<span class="lineNum">     867 </span>                :            :         /* A zeroed client addr means we don't know */
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :         memset(&amp;zero_clientaddr, 0, sizeof(zero_clientaddr));</span>
+<span class="lineNum">     869 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (memcmp(&amp;(beentry-&gt;st_clientaddr), &amp;zero_clientaddr,</span>
+<span class="lineNum">     870 </span>                :<span class="lineNoCov">          0 :                            sizeof(zero_clientaddr)) == 0)</span>
+<span class="lineNum">     871 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     872 </span>                :            : 
+<span class="lineNum">     873 </span>     [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch (beentry-&gt;st_clientaddr.addr.ss_family)</span>
+<span class="lineNum">     874 </span>                :            :         {
+<span class="lineNum">     875 </span>                :            :                 case AF_INET:
+<span class="lineNum">     876 </span>                :            : #ifdef HAVE_IPV6
+<span class="lineNum">     877 </span>                :            :                 case AF_INET6:
+<span class="lineNum">     878 </span>                :            : #endif
+<span class="lineNum">     879 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     880 </span>                :            :                 default:
+<span class="lineNum">     881 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     882 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     883 </span>                :            : 
+<span class="lineNum">     884 </span>                :<span class="lineNoCov">          0 :         remote_host[0] = '\0';</span>
+<span class="lineNum">     885 </span>                :<span class="lineNoCov">          0 :         ret = pg_getnameinfo_all(&amp;beentry-&gt;st_clientaddr.addr,</span>
+<span class="lineNum">     886 </span>                :<span class="lineNoCov">          0 :                                                          beentry-&gt;st_clientaddr.salen,</span>
+<span class="lineNum">     887 </span>                :<span class="lineNoCov">          0 :                                                          remote_host, sizeof(remote_host),</span>
+<span class="lineNum">     888 </span>                :            :                                                          NULL, 0,
+<span class="lineNum">     889 </span>                :            :                                                          NI_NUMERICHOST | NI_NUMERICSERV);
+<span class="lineNum">     890 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ret)</span>
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     892 </span>                :            : 
+<span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :         clean_ipv6_addr(beentry-&gt;st_clientaddr.addr.ss_family, remote_host);</span>
+<span class="lineNum">     894 </span>                :            : 
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :         return DirectFunctionCall1(inet_in, CStringGetDatum(remote_host));</span>
+<span class="lineNum">     896 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="897"><span class="lineNum">     897 </span>                :            : </a>
+<span class="lineNum">     898 </span>                :            : Datum
+<span class="lineNum">     899 </span>                :            : pg_stat_get_backend_client_port(PG_FUNCTION_ARGS)
+<span class="lineNum">     900 </span>                :            : {
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     902 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     903 </span>                :            :         SockAddr        zero_clientaddr;
+<span class="lineNum">     904 </span>                :            :         char            remote_port[NI_MAXSERV];
+<span class="lineNum">     905 </span>                :            :         int                     ret;
+<span class="lineNum">     906 </span>                :            : 
+<span class="lineNum">     907 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     908 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     909 </span>                :            : 
+<span class="lineNum">     910 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     911 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     912 </span>                :            : 
+<span class="lineNum">     913 </span>                :            :         /* A zeroed client addr means we don't know */
+<span class="lineNum">     914 </span>                :<span class="lineNoCov">          0 :         memset(&amp;zero_clientaddr, 0, sizeof(zero_clientaddr));</span>
+<span class="lineNum">     915 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (memcmp(&amp;(beentry-&gt;st_clientaddr), &amp;zero_clientaddr,</span>
+<span class="lineNum">     916 </span>                :<span class="lineNoCov">          0 :                            sizeof(zero_clientaddr)) == 0)</span>
+<span class="lineNum">     917 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     918 </span>                :            : 
+<span class="lineNum">     919 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch (beentry-&gt;st_clientaddr.addr.ss_family)</span>
+<span class="lineNum">     920 </span>                :            :         {
+<span class="lineNum">     921 </span>                :            :                 case AF_INET:
+<span class="lineNum">     922 </span>                :            : #ifdef HAVE_IPV6
+<span class="lineNum">     923 </span>                :            :                 case AF_INET6:
+<span class="lineNum">     924 </span>                :            : #endif
+<span class="lineNum">     925 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     926 </span>                :            :                 case AF_UNIX:
+<span class="lineNum">     927 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_INT32(-1);</span>
+<span class="lineNum">     928 </span>                :            :                 default:
+<span class="lineNum">     929 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     930 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     931 </span>                :            : 
+<span class="lineNum">     932 </span>                :<span class="lineNoCov">          0 :         remote_port[0] = '\0';</span>
+<span class="lineNum">     933 </span>                :<span class="lineNoCov">          0 :         ret = pg_getnameinfo_all(&amp;beentry-&gt;st_clientaddr.addr,</span>
+<span class="lineNum">     934 </span>                :<span class="lineNoCov">          0 :                                                          beentry-&gt;st_clientaddr.salen,</span>
+<span class="lineNum">     935 </span>                :            :                                                          NULL, 0,
+<span class="lineNum">     936 </span>                :<span class="lineNoCov">          0 :                                                          remote_port, sizeof(remote_port),</span>
+<span class="lineNum">     937 </span>                :            :                                                          NI_NUMERICHOST | NI_NUMERICSERV);
+<span class="lineNum">     938 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ret)</span>
+<span class="lineNum">     939 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     940 </span>                :            : 
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(DirectFunctionCall1(int4in,</span>
+<span class="lineNum">     942 </span>                :            :                                                                                 CStringGetDatum(remote_port)));
+<span class="lineNum">     943 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="944"><span class="lineNum">     944 </span>                :            : </a>
+<span class="lineNum">     945 </span>                :            : Datum
+<span class="lineNum">     946 </span>                :            : pg_stat_get_backend_waiting_reason(PG_FUNCTION_ARGS)
+<span class="lineNum">     947 </span>                :            : {
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :         int32           beid = PG_GETARG_INT32(0);</span>
+<span class="lineNum">     949 </span>                :            :         PgBackendStatus *beentry;
+<span class="lineNum">     950 </span>                :            :         char       *result;
+<span class="lineNum">     951 </span>                :            : 
+<span class="lineNum">     952 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((beentry = pgstat_fetch_stat_beentry(beid)) == NULL)</span>
+<span class="lineNum">     953 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     954 </span>                :            : 
+<span class="lineNum">     955 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser() &amp;&amp; beentry-&gt;st_userid != GetUserId())</span>
+<span class="lineNum">     956 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     957 </span>                :            : 
+<span class="lineNum">     958 </span>                :<span class="lineNoCov">          0 :         result = pgstat_waiting_string(beentry-&gt;st_waiting);</span>
+<span class="lineNum">     959 </span>                :            : 
+<span class="lineNum">     960 </span>                :            :         /* waiting for nothing */
+<span class="lineNum">     961 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == NULL)</span>
+<span class="lineNum">     962 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     963 </span>                :            : 
+<span class="lineNum">     964 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(CStringGetTextDatum(result));</span>
+<span class="lineNum">     965 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="966"><span class="lineNum">     966 </span>                :            : </a>
+<span class="lineNum">     967 </span>                :            : Datum
+<span class="lineNum">     968 </span>                :            : pg_stat_get_db_numbackends(PG_FUNCTION_ARGS)
+<span class="lineNum">     969 </span>                :            : {
+<span class="lineNum">     970 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     971 </span>                :            :         int32           result;
+<span class="lineNum">     972 </span>                :<span class="lineNoCov">          0 :         int                     tot_backends = pgstat_fetch_stat_numbackends();</span>
+<span class="lineNum">     973 </span>                :            :         int                     beid;
+<span class="lineNum">     974 </span>                :            : 
+<span class="lineNum">     975 </span>                :<span class="lineNoCov">          0 :         result = 0;</span>
+<span class="lineNum">     976 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (beid = 1; beid &lt;= tot_backends; beid++)</span>
+<span class="lineNum">     977 </span>                :            :         {
+<span class="lineNum">     978 </span>                :<span class="lineNoCov">          0 :                 PgBackendStatus *beentry = pgstat_fetch_stat_beentry(beid);</span>
+<span class="lineNum">     979 </span>                :            : 
+<span class="lineNum">     980 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (beentry &amp;&amp; beentry-&gt;st_databaseid == dbid)</span>
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :                         result++;</span>
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     983 </span>                :            : 
+<span class="lineNum">     984 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(result);</span>
+<span class="lineNum">     985 </span>                :            : }
+<span class="lineNum">     986 </span>                :            : 
+<a name="987"><span class="lineNum">     987 </span>                :            : </a>
+<span class="lineNum">     988 </span>                :            : Datum
+<span class="lineNum">     989 </span>                :            : pg_stat_get_db_xact_commit(PG_FUNCTION_ARGS)
+<span class="lineNum">     990 </span>                :            : {
+<span class="lineNum">     991 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">     992 </span>                :            :         int64           result;
+<span class="lineNum">     993 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">     994 </span>                :            : 
+<span class="lineNum">     995 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">     996 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">     997 </span>                :            :         else
+<span class="lineNum">     998 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_xact_commit);</span>
+<span class="lineNum">     999 </span>                :            : 
+<span class="lineNum">    1000 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1001 </span>                :            : }
+<span class="lineNum">    1002 </span>                :            : 
+<a name="1003"><span class="lineNum">    1003 </span>                :            : </a>
+<span class="lineNum">    1004 </span>                :            : Datum
+<span class="lineNum">    1005 </span>                :            : pg_stat_get_db_xact_rollback(PG_FUNCTION_ARGS)
+<span class="lineNum">    1006 </span>                :            : {
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1008 </span>                :            :         int64           result;
+<span class="lineNum">    1009 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1010 </span>                :            : 
+<span class="lineNum">    1011 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1013 </span>                :            :         else
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_xact_rollback);</span>
+<span class="lineNum">    1015 </span>                :            : 
+<span class="lineNum">    1016 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1017 </span>                :            : }
+<span class="lineNum">    1018 </span>                :            : 
+<a name="1019"><span class="lineNum">    1019 </span>                :            : </a>
+<span class="lineNum">    1020 </span>                :            : Datum
+<span class="lineNum">    1021 </span>                :            : pg_stat_get_db_blocks_fetched(PG_FUNCTION_ARGS)
+<span class="lineNum">    1022 </span>                :            : {
+<span class="lineNum">    1023 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1024 </span>                :            :         int64           result;
+<span class="lineNum">    1025 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1026 </span>                :            : 
+<span class="lineNum">    1027 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1028 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1029 </span>                :            :         else
+<span class="lineNum">    1030 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_blocks_fetched);</span>
+<span class="lineNum">    1031 </span>                :            : 
+<span class="lineNum">    1032 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1033 </span>                :            : }
+<span class="lineNum">    1034 </span>                :            : 
+<a name="1035"><span class="lineNum">    1035 </span>                :            : </a>
+<span class="lineNum">    1036 </span>                :            : Datum
+<span class="lineNum">    1037 </span>                :            : pg_stat_get_db_blocks_hit(PG_FUNCTION_ARGS)
+<span class="lineNum">    1038 </span>                :            : {
+<span class="lineNum">    1039 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1040 </span>                :            :         int64           result;
+<span class="lineNum">    1041 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1042 </span>                :            : 
+<span class="lineNum">    1043 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1044 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1045 </span>                :            :         else
+<span class="lineNum">    1046 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_blocks_hit);</span>
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1049 </span>                :            : }
+<span class="lineNum">    1050 </span>                :            : 
+<a name="1051"><span class="lineNum">    1051 </span>                :            : </a>
+<span class="lineNum">    1052 </span>                :            : Datum
+<span class="lineNum">    1053 </span>                :            : pg_stat_get_db_tuples_returned(PG_FUNCTION_ARGS)
+<span class="lineNum">    1054 </span>                :            : {
+<span class="lineNum">    1055 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1056 </span>                :            :         int64           result;
+<span class="lineNum">    1057 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1058 </span>                :            : 
+<span class="lineNum">    1059 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1060 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1061 </span>                :            :         else
+<span class="lineNum">    1062 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_tuples_returned);</span>
+<span class="lineNum">    1063 </span>                :            : 
+<span class="lineNum">    1064 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1065 </span>                :            : }
+<span class="lineNum">    1066 </span>                :            : 
+<a name="1067"><span class="lineNum">    1067 </span>                :            : </a>
+<span class="lineNum">    1068 </span>                :            : Datum
+<span class="lineNum">    1069 </span>                :            : pg_stat_get_db_tuples_fetched(PG_FUNCTION_ARGS)
+<span class="lineNum">    1070 </span>                :            : {
+<span class="lineNum">    1071 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1072 </span>                :            :         int64           result;
+<span class="lineNum">    1073 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1074 </span>                :            : 
+<span class="lineNum">    1075 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1076 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1077 </span>                :            :         else
+<span class="lineNum">    1078 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_tuples_fetched);</span>
+<span class="lineNum">    1079 </span>                :            : 
+<span class="lineNum">    1080 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1081 </span>                :            : }
+<span class="lineNum">    1082 </span>                :            : 
+<a name="1083"><span class="lineNum">    1083 </span>                :            : </a>
+<span class="lineNum">    1084 </span>                :            : Datum
+<span class="lineNum">    1085 </span>                :            : pg_stat_get_db_tuples_inserted(PG_FUNCTION_ARGS)
+<span class="lineNum">    1086 </span>                :            : {
+<span class="lineNum">    1087 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1088 </span>                :            :         int64           result;
+<span class="lineNum">    1089 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1090 </span>                :            : 
+<span class="lineNum">    1091 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1092 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1093 </span>                :            :         else
+<span class="lineNum">    1094 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_tuples_inserted);</span>
+<span class="lineNum">    1095 </span>                :            : 
+<span class="lineNum">    1096 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1097 </span>                :            : }
+<span class="lineNum">    1098 </span>                :            : 
+<a name="1099"><span class="lineNum">    1099 </span>                :            : </a>
+<span class="lineNum">    1100 </span>                :            : Datum
+<span class="lineNum">    1101 </span>                :            : pg_stat_get_db_tuples_updated(PG_FUNCTION_ARGS)
+<span class="lineNum">    1102 </span>                :            : {
+<span class="lineNum">    1103 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1104 </span>                :            :         int64           result;
+<span class="lineNum">    1105 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1106 </span>                :            : 
+<span class="lineNum">    1107 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1108 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1109 </span>                :            :         else
+<span class="lineNum">    1110 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_tuples_updated);</span>
+<span class="lineNum">    1111 </span>                :            : 
+<span class="lineNum">    1112 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1113 </span>                :            : }
+<span class="lineNum">    1114 </span>                :            : 
+<a name="1115"><span class="lineNum">    1115 </span>                :            : </a>
+<span class="lineNum">    1116 </span>                :            : Datum
+<span class="lineNum">    1117 </span>                :            : pg_stat_get_db_tuples_deleted(PG_FUNCTION_ARGS)
+<span class="lineNum">    1118 </span>                :            : {
+<span class="lineNum">    1119 </span>                :<span class="lineNoCov">          0 :         Oid                     dbid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1120 </span>                :            :         int64           result;
+<span class="lineNum">    1121 </span>                :            :         PgStat_StatDBEntry *dbentry;
+<span class="lineNum">    1122 </span>                :            : 
+<span class="lineNum">    1123 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((dbentry = pgstat_fetch_stat_dbentry(dbid)) == NULL)</span>
+<span class="lineNum">    1124 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1125 </span>                :            :         else
+<span class="lineNum">    1126 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (dbentry-&gt;n_tuples_deleted);</span>
+<span class="lineNum">    1127 </span>                :            : 
+<span class="lineNum">    1128 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1129 </span>                :            : }
+<a name="1130"><span class="lineNum">    1130 </span>                :            : </a>
+<span class="lineNum">    1131 </span>                :            : Datum
+<span class="lineNum">    1132 </span>                :            : pg_stat_get_bgwriter_timed_checkpoints(PG_FUNCTION_ARGS)
+<span class="lineNum">    1133 </span>                :            : {
+<span class="lineNum">    1134 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;timed_checkpoints);</span>
+<span class="lineNum">    1135 </span>                :            : }
+<a name="1136"><span class="lineNum">    1136 </span>                :            : </a>
+<span class="lineNum">    1137 </span>                :            : Datum
+<span class="lineNum">    1138 </span>                :            : pg_stat_get_bgwriter_requested_checkpoints(PG_FUNCTION_ARGS)
+<span class="lineNum">    1139 </span>                :            : {
+<span class="lineNum">    1140 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;requested_checkpoints);</span>
+<span class="lineNum">    1141 </span>                :            : }
+<a name="1142"><span class="lineNum">    1142 </span>                :            : </a>
+<span class="lineNum">    1143 </span>                :            : Datum
+<span class="lineNum">    1144 </span>                :            : pg_stat_get_bgwriter_buf_written_checkpoints(PG_FUNCTION_ARGS)
+<span class="lineNum">    1145 </span>                :            : {
+<span class="lineNum">    1146 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;buf_written_checkpoints);</span>
+<span class="lineNum">    1147 </span>                :            : }
+<a name="1148"><span class="lineNum">    1148 </span>                :            : </a>
+<span class="lineNum">    1149 </span>                :            : Datum
+<span class="lineNum">    1150 </span>                :            : pg_stat_get_bgwriter_buf_written_clean(PG_FUNCTION_ARGS)
+<span class="lineNum">    1151 </span>                :            : {
+<span class="lineNum">    1152 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;buf_written_clean);</span>
+<span class="lineNum">    1153 </span>                :            : }
+<a name="1154"><span class="lineNum">    1154 </span>                :            : </a>
+<span class="lineNum">    1155 </span>                :            : Datum
+<span class="lineNum">    1156 </span>                :            : pg_stat_get_bgwriter_maxwritten_clean(PG_FUNCTION_ARGS)
+<span class="lineNum">    1157 </span>                :            : {
+<span class="lineNum">    1158 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;maxwritten_clean);</span>
+<span class="lineNum">    1159 </span>                :            : }
+<a name="1160"><span class="lineNum">    1160 </span>                :            : </a>
+<span class="lineNum">    1161 </span>                :            : Datum
+<span class="lineNum">    1162 </span>                :            : pg_stat_get_buf_written_backend(PG_FUNCTION_ARGS)
+<span class="lineNum">    1163 </span>                :            : {
+<span class="lineNum">    1164 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;buf_written_backend);</span>
+<span class="lineNum">    1165 </span>                :            : }
+<a name="1166"><span class="lineNum">    1166 </span>                :            : </a>
+<span class="lineNum">    1167 </span>                :            : Datum
+<span class="lineNum">    1168 </span>                :            : pg_stat_get_buf_alloc(PG_FUNCTION_ARGS)
+<span class="lineNum">    1169 </span>                :            : {
+<span class="lineNum">    1170 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(pgstat_fetch_global()-&gt;buf_alloc);</span>
+<span class="lineNum">    1171 </span>                :            : }
+<span class="lineNum">    1172 </span>                :            : 
+<span class="lineNum">    1173 </span>                :            : 
+<a name="1174"><span class="lineNum">    1174 </span>                :            : /* Discard the active statistics snapshot */</a>
+<span class="lineNum">    1175 </span>                :            : Datum
+<span class="lineNum">    1176 </span>                :            : pg_stat_clear_snapshot(PG_FUNCTION_ARGS)
+<span class="lineNum">    1177 </span>                :            : {
+<span class="lineNum">    1178 </span>                :<span class="lineNoCov">          0 :         pgstat_clear_snapshot();</span>
+<span class="lineNum">    1179 </span>                :            : 
+<span class="lineNum">    1180 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_VOID();</span>
+<span class="lineNum">    1181 </span>                :            : }
+<span class="lineNum">    1182 </span>                :            : 
+<a name="1183"><span class="lineNum">    1183 </span>                :            : </a>
+<span class="lineNum">    1184 </span>                :            : Datum
+<span class="lineNum">    1185 </span>                :            : pg_stat_get_queue_num_exec(PG_FUNCTION_ARGS)
+<span class="lineNum">    1186 </span>                :            : {
+<span class="lineNum">    1187 </span>                :<span class="lineNoCov">          0 :         Oid                     queueid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1188 </span>                :            :         int64           result;
+<span class="lineNum">    1189 </span>                :            :         PgStat_StatQueueEntry *queueentry;
+<span class="lineNum">    1190 </span>                :            : 
+<span class="lineNum">    1191 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((queueentry = pgstat_fetch_stat_queueentry(queueid)) == NULL)</span>
+<span class="lineNum">    1192 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1193 </span>                :            :         else
+<span class="lineNum">    1194 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (queueentry-&gt;n_queries_exec);</span>
+<span class="lineNum">    1195 </span>                :            : 
+<span class="lineNum">    1196 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1197 </span>                :            : }
+<span class="lineNum">    1198 </span>                :            : 
+<a name="1199"><span class="lineNum">    1199 </span>                :            : </a>
+<span class="lineNum">    1200 </span>                :            : Datum
+<span class="lineNum">    1201 </span>                :            : pg_stat_get_queue_num_wait(PG_FUNCTION_ARGS)
+<span class="lineNum">    1202 </span>                :            : {
+<span class="lineNum">    1203 </span>                :<span class="lineNoCov">          0 :         Oid                     queueid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1204 </span>                :            :         int64           result;
+<span class="lineNum">    1205 </span>                :            :         PgStat_StatQueueEntry *queueentry;
+<span class="lineNum">    1206 </span>                :            : 
+<span class="lineNum">    1207 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((queueentry = pgstat_fetch_stat_queueentry(queueid)) == NULL)</span>
+<span class="lineNum">    1208 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1209 </span>                :            :         else
+<span class="lineNum">    1210 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (queueentry-&gt;n_queries_wait);</span>
+<span class="lineNum">    1211 </span>                :            : 
+<span class="lineNum">    1212 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1213 </span>                :            : }
+<span class="lineNum">    1214 </span>                :            : 
+<a name="1215"><span class="lineNum">    1215 </span>                :            : </a>
+<span class="lineNum">    1216 </span>                :            : Datum
+<span class="lineNum">    1217 </span>                :            : pg_stat_get_queue_elapsed_exec(PG_FUNCTION_ARGS)
+<span class="lineNum">    1218 </span>                :            : {
+<span class="lineNum">    1219 </span>                :<span class="lineNoCov">          0 :         Oid                     queueid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1220 </span>                :            :         int64           result;
+<span class="lineNum">    1221 </span>                :            :         PgStat_StatQueueEntry *queueentry;
+<span class="lineNum">    1222 </span>                :            : 
+<span class="lineNum">    1223 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((queueentry = pgstat_fetch_stat_queueentry(queueid)) == NULL)</span>
+<span class="lineNum">    1224 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1225 </span>                :            :         else
+<span class="lineNum">    1226 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (queueentry-&gt;elapsed_exec);</span>
+<span class="lineNum">    1227 </span>                :            : 
+<span class="lineNum">    1228 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1229 </span>                :            : }
+<span class="lineNum">    1230 </span>                :            : 
+<a name="1231"><span class="lineNum">    1231 </span>                :            : </a>
+<span class="lineNum">    1232 </span>                :            : Datum
+<span class="lineNum">    1233 </span>                :            : pg_stat_get_queue_elapsed_wait(PG_FUNCTION_ARGS)
+<span class="lineNum">    1234 </span>                :            : {
+<span class="lineNum">    1235 </span>                :<span class="lineNoCov">          0 :         Oid                     queueid = PG_GETARG_OID(0);</span>
+<span class="lineNum">    1236 </span>                :            :         int64           result;
+<span class="lineNum">    1237 </span>                :            :         PgStat_StatQueueEntry *queueentry;
+<span class="lineNum">    1238 </span>                :            : 
+<span class="lineNum">    1239 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((queueentry = pgstat_fetch_stat_queueentry(queueid)) == NULL)</span>
+<span class="lineNum">    1240 </span>                :<span class="lineNoCov">          0 :                 result = 0;</span>
+<span class="lineNum">    1241 </span>                :            :         else
+<span class="lineNum">    1242 </span>                :<span class="lineNoCov">          0 :                 result = (int64) (queueentry-&gt;elapsed_wait);</span>
+<span class="lineNum">    1243 </span>                :            : 
+<span class="lineNum">    1244 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">    1245 </span>                :            : }
+<span class="lineNum">    1246 </span>                :            : 
+<span class="lineNum">    1247 </span>                :            : 
+<span class="lineNum">    1248 </span>                :            : /*
+<span class="lineNum">    1249 </span>                :            :  * This should probably be moved to it's own file, or at least some better place.
+<span class="lineNum">    1250 </span>                :            :  * I put it here because it uses pgstat_fetch_stat_beentry
+<span class="lineNum">    1251 </span>                :            :  */
+<span class="lineNum">    1252 </span>                :            : 
+<span class="lineNum">    1253 </span>                :            : #include &lt;sys/time.h&gt;
+<span class="lineNum">    1254 </span>                :            : #ifndef WIN32
+<span class="lineNum">    1255 </span>                :            : #include &lt;sys/resource.h&gt;
+<span class="lineNum">    1256 </span>                :            : #endif
+<span class="lineNum">    1257 </span>                :            : #include &quot;lib/stringinfo.h&quot;
+<span class="lineNum">    1258 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">    1259 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">    1260 </span>                :            : 
+<span class="lineNum">    1261 </span>                :            : /**
+<span class="lineNum">    1262 </span>                :            :  * We no longer support pg_renice_session. For the time being issue an error.
+<a name="1263"><span class="lineNum">    1263 </span>                :            :  */</a>
+<span class="lineNum">    1264 </span>                :            : Datum
+<span class="lineNum">    1265 </span>                :            : pg_renice_session(PG_FUNCTION_ARGS)
+<span class="lineNum">    1266 </span>                :            : {
+<span class="lineNum">    1267 </span>                :<span class="lineNoCov">          0 :         int prio_out = -1;  </span>
+<span class="lineNum">    1268 </span>                :<span class="lineNoCov">          0 :         elog(NOTICE, &quot;Renicing a session is not longer supported. Please use the Query Prioritization feature.&quot;);</span>
+<span class="lineNum">    1269 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(prio_out);</span>
+<span class="lineNum">    1270 </span>                :            : }
+<span class="lineNum">    1271 </span>                :            : 
+<a name="1272"><span class="lineNum">    1272 </span>                :            : /* Reset all counters for the current database */</a>
+<span class="lineNum">    1273 </span>                :            : Datum
+<span class="lineNum">    1274 </span>                :            : pg_stat_reset(PG_FUNCTION_ARGS)
+<span class="lineNum">    1275 </span>                :            : {
+<span class="lineNum">    1276 </span>                :<span class="lineNoCov">          0 :         pgstat_reset_counters();</span>
+<span class="lineNum">    1277 </span>                :            : 
+<span class="lineNum">    1278 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_VOID();</span>
+<span class="lineNum">    1279 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

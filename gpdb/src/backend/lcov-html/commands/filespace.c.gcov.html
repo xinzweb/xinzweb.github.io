@@ -1,0 +1,1342 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - commands/filespace.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">commands</a> - filespace.c<span style="font-size: 80%;"> (source / <a href="filespace.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">357</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">262</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * filespace.c
+<span class="lineNum">       4 </span>                :            :  *        Commands to manipulate filespaces
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Copyright (c) 2009-2010 Greenplum Inc
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">       9 </span>                :            :  */
+<span class="lineNum">      10 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      11 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      12 </span>                :            : 
+<span class="lineNum">      13 </span>                :            : /* System libraries for file and directory operations */
+<span class="lineNum">      14 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      15 </span>                :            : #include &lt;dirent.h&gt;
+<span class="lineNum">      16 </span>                :            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;catalog/catalog.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;catalog/dependency.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;catalog/gp_segment_config.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;catalog/heap.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/indexing.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;catalog/pg_filespace.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;catalog/pg_filespace_entry.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;catalog/pg_tablespace.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;commands/comment.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;commands/filespace.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;storage/fd.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;utils/acl.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;utils/fmgroids.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      34 </span>                :            : 
+<span class="lineNum">      35 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;cdb/cdbmirroredfilesysobj.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;cdb/cdbutil.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;postmaster/primary_mirror_mode.h&quot;
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : static void checkPathFormat(char *path);
+<span class="lineNum">      43 </span>                :            : static void checkPathPermissions(char *path);
+<span class="lineNum">      44 </span>                :            : static void duplicatePathCheck(FileSpaceEntry *fse1, FileSpaceEntry *fse2);
+<span class="lineNum">      45 </span>                :            : static void filespace_check_empty(Oid fsoid);
+<span class="lineNum">      46 </span>                :            : 
+<span class="lineNum">      47 </span>                :            : static void DeleteFilespaceEntryTuples(Oid fsoid);
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>                :            : /*
+<span class="lineNum">      51 </span>                :            :  * Calculate maximum filespace path length, Remember that we're going to append
+<span class="lineNum">      52 </span>                :            :  * '/&lt;tbsoid&gt;/&lt;dboid&gt;/&lt;relid&gt;.&lt;nnn&gt;'  
+<span class="lineNum">      53 </span>                :            :  *
+<span class="lineNum">      54 </span>                :            :  *      10 digits for each oid and the extension number,
+<span class="lineNum">      55 </span>                :            :  *       1 digit for each slash and the '.' of the extension
+<span class="lineNum">      56 </span>                :            :  *       = 10*4 + 4 = +44 characters
+<span class="lineNum">      57 </span>                :            :  *
+<span class="lineNum">      58 </span>                :            :  * Note: This may be overly conservative.  Do we ever form the whole path 
+<span class="lineNum">      59 </span>                :            :  * explicitly?
+<span class="lineNum">      60 </span>                :            :  */
+<span class="lineNum">      61 </span>                :            : #define MAX_FILESPACE_PATH (MAXPGPATH - 44)
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : /*
+<span class="lineNum">      64 </span>                :            :  * Set maximum allowed number of filespaces.
+<span class="lineNum">      65 </span>                :            :  *
+<span class="lineNum">      66 </span>                :            :  * Expected number of filespaces is &lt; 10
+<span class="lineNum">      67 </span>                :            :  *
+<span class="lineNum">      68 </span>                :            :  * Should probably be made into a guc.
+<span class="lineNum">      69 </span>                :            :  */
+<span class="lineNum">      70 </span>                :            : #define MAX_FILESPACES 64
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            : typedef struct
+<span class="lineNum">      74 </span>                :            : {
+<span class="lineNum">      75 </span>                :            :         int32                dbid;
+<span class="lineNum">      76 </span>                :            :         FileSpaceEntry          *fse;
+<span class="lineNum">      77 </span>                :            : } segHashElem;
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :            : /*
+<span class="lineNum">      80 </span>                :            :  * Create a filespace
+<span class="lineNum">      81 </span>                :            :  *
+<span class="lineNum">      82 </span>                :            :  * Only superusers can create a filespace. This seems a reasonable restriction
+<span class="lineNum">      83 </span>                :            :  * since we're determining the system layout and, anyway, we probably have root
+<span class="lineNum">      84 </span>                :            :  * if we're doing this kind of activity
+<a name="85"><span class="lineNum">      85 </span>                :            :  */</a>
+<span class="lineNum">      86 </span>                :            : void
+<span class="lineNum">      87 </span>                :            : CreateFileSpace(CreateFileSpaceStmt *stmt)
+<span class="lineNum">      88 </span>                :            : {
+<span class="lineNum">      89 </span>                :            :         Relation                         rel;   
+<span class="lineNum">      90 </span>                :            :         HeapTuple                        tuple;
+<span class="lineNum">      91 </span>                :            :         NameData                         fsname;                /* filespace name */
+<span class="lineNum">      92 </span>                :            :         Oid                                      ownerId;               /* OID of the OWNER of the filespace */
+<span class="lineNum">      93 </span>                :            :         Oid                                      fsoid; /* OID of the created filespace */
+<span class="lineNum">      94 </span>                :            :         ListCell                        *cell;  /* List loop variable */
+<span class="lineNum">      95 </span>                :            :         int                                      i;     /* Array loop variable */
+<span class="lineNum">      96 </span>                :            :         bool                             nulls[Natts_pg_filespace];
+<span class="lineNum">      97 </span>                :            :         Datum                            values[Natts_pg_filespace];
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :         FileSpaceEntry      *primary  = NULL;</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :         FileSpaceEntry      *mirror       = NULL;</span>
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :         List                *nodeSegs = NULL;</span>
+<span class="lineNum">     101 </span>                :            :         ItemPointerData          persistentTid;
+<span class="lineNum">     102 </span>                :            :         int64                            persistentSerialNum;
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_UTILITY)</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cannot create filespaces in utility mode&quot;);</span>
+<span class="lineNum">     106 </span>                :            : 
+<span class="lineNum">     107 </span>                :            :         /* Must be super user */
+<span class="lineNum">     108 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser())</span>
+<span class="lineNum">     109 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     110 </span>                :            :                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     111 </span>                :            :                                  errmsg(&quot;permission denied to create filespace \&quot;%s\&quot;&quot;,
+<span class="lineNum">     112 </span>                :            :                                                 stmt-&gt;filespacename),
+<span class="lineNum">     113 </span>                :            :                                  errhint(&quot;Must be superuser to create a filespace.&quot;)));
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            :         /* However, the eventual owner of the filespace need not be */
+<span class="lineNum">     116 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (stmt-&gt;owner)</span>
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                 ownerId = get_roleid_checked(stmt-&gt;owner);</span>
+<span class="lineNum">     118 </span>                :            :         else
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                 ownerId = GetUserId();</span>
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :            :         /*
+<span class="lineNum">     122 </span>                :            :          * Disallow creation of filespaces named &quot;pg_xxx&quot;; we reserve this namespace
+<span class="lineNum">     123 </span>                :            :          * for system purposes.
+<span class="lineNum">     124 </span>                :            :          */
+<span class="lineNum">     125 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!allowSystemTableModsDDL &amp;&amp; IsReservedName(stmt-&gt;filespacename))</span>
+<span class="lineNum">     126 </span>                :            :         {
+<span class="lineNum">     127 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     128 </span>                :            :                                 (errcode(ERRCODE_RESERVED_NAME),
+<span class="lineNum">     129 </span>                :            :                                  errmsg(&quot;unacceptable filespace name \&quot;%s\&quot;&quot;,
+<span class="lineNum">     130 </span>                :            :                                                 stmt-&gt;filespacename),
+<span class="lineNum">     131 </span>                :            :                                  errdetail(&quot;The prefix \&quot;%s\&quot; is reserved for system filespaces.&quot;,
+<span class="lineNum">     132 </span>                :            :                                                    GetReservedPrefix(stmt-&gt;filespacename))));
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :         namestrcpy(&amp;fsname, stmt-&gt;filespacename);</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            :         /*
+<span class="lineNum">     137 </span>                :            :          * Because rollback of filespace creation is unpleasant we prefer
+<span class="lineNum">     138 </span>                :            :          * to ensure that we fully serialize CREATE FILESPACE operations.
+<span class="lineNum">     139 </span>                :            :          * Therefore we take a big lock up-front.
+<span class="lineNum">     140 </span>                :            :          * NOTE: AccessExclusiveLock, not RowExclusiveLock
+<span class="lineNum">     141 </span>                :            :          */
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(FileSpaceRelationId, AccessExclusiveLock);</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :            :         /* Check that there is no other filespace by this name. */
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :         fsoid = get_filespace_oid(rel, stmt-&gt;filespacename);</span>
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(fsoid))</span>
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     148 </span>                :            :                                 (errcode(ERRCODE_DUPLICATE_OBJECT),
+<span class="lineNum">     149 </span>                :            :                                  errmsg(&quot;filespace \&quot;%s\&quot; already exists&quot;,
+<span class="lineNum">     150 </span>                :            :                                                 stmt-&gt;filespacename)));
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :            :         /* Check specification against configuration information */
+<span class="lineNum">     153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     154 </span>                :            :         {
+<span class="lineNum">     155 </span>                :            :                 CdbComponentDatabases   *segments;
+<span class="lineNum">     156 </span>                :            :                 int                                              numsegs;
+<span class="lineNum">     157 </span>                :            :                 HTAB                                    *segHash;
+<span class="lineNum">     158 </span>                :            :                 HASHCTL                                  segInfo;
+<span class="lineNum">     159 </span>                :            :                 int                                              segFlags;
+<span class="lineNum">     160 </span>                :            :                 segHashElem                             *segElem;
+<span class="lineNum">     161 </span>                :            :                 HASH_SEQ_STATUS          status;
+<span class="lineNum">     162 </span>                :            :                 bool                                     found;
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :            :                 /* Get the segment information */
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                 segments = getCdbComponentDatabases();</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                 numsegs = segments-&gt;total_segment_dbs + segments-&gt;total_entry_dbs;</span>
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :            :                 /* 
+<span class="lineNum">     169 </span>                :            :                  * We need to perform several checks:
+<span class="lineNum">     170 </span>                :            :                  *   - Does every segment have a path specified?
+<span class="lineNum">     171 </span>                :            :                  *   - Does any segment have more than one path specified?
+<span class="lineNum">     172 </span>                :            :                  *   - Are there paths specified for non-existent segments?
+<span class="lineNum">     173 </span>                :            :                  *   - Are any paths duplicated between segments on the same host?
+<span class="lineNum">     174 </span>                :            :                  * 
+<span class="lineNum">     175 </span>                :            :                  * In order to answer those questions in a reasonable O(N) calculation
+<span class="lineNum">     176 </span>                :            :                  * we build a hash table mapping dbid =&gt; filespace entries
+<span class="lineNum">     177 </span>                :            :                  *   - segHash[dbid]      =&gt; {FileSpaceEntry}
+<span class="lineNum">     178 </span>                :            :                  *
+<span class="lineNum">     179 </span>                :            :                  * Note: the segHash is hashed on a 32 bit version of dbid.  This is due
+<span class="lineNum">     180 </span>                :            :                  * to the existence of a int32_hash function, to accomodate this we must
+<span class="lineNum">     181 </span>                :            :                  * be sure to upcast the 16 bit dbid to 32 bit versions before lookup in
+<span class="lineNum">     182 </span>                :            :                  * the hash.
+<span class="lineNum">     183 </span>                :            :                  */
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                 memset(&amp;segInfo,  0, sizeof(segInfo));</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                 segInfo.keysize    = sizeof(int32);</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                 segInfo.entrysize  = sizeof(segHashElem);</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                 segInfo.hash       = int32_hash;</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                 segInfo.hcxt       = CurrentMemoryContext;</span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                 segFlags           = HASH_ELEM | HASH_FUNCTION | HASH_CONTEXT;</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :                 segHash = hash_create(&quot;filespace segHash&quot;, </span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :                                                           numsegs, &amp;segInfo, segFlags);</span>
+<span class="lineNum">     192 </span>                :            :                 
+<span class="lineNum">     193 </span>                :            :                 /* 
+<span class="lineNum">     194 </span>                :            :                  * Pass 1 - Loop through all locations specified in the statement:
+<span class="lineNum">     195 </span>                :            :                  *   - segHash[dbid] =&gt; { _, FileSpaceEntry} 
+<span class="lineNum">     196 </span>                :            :                  *   - check for any duplicate dbids
+<span class="lineNum">     197 </span>                :            :                 */
+<span class="lineNum">     198 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach (cell, stmt-&gt;locations) </span>
+<span class="lineNum">     199 </span>                :            :                 {
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                         FileSpaceEntry          *fse  = (FileSpaceEntry*) lfirst(cell); </span>
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :                         int32                            dbid = (int32) fse-&gt;dbid;</span>
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            :                         /* Check for existing entry */
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                         segElem = (segHashElem *) \</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                                 hash_search(segHash, (void *) &amp;dbid, HASH_ENTER, &amp;found);</span>
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (found)</span>
+<span class="lineNum">     208 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     209 </span>                :            :                                                 (errcode(ERRCODE_GP_COMMAND_ERROR),
+<span class="lineNum">     210 </span>                :            :                                                  errmsg(&quot;multiple filespace locations specified &quot;
+<span class="lineNum">     211 </span>                :            :                                                                 &quot;for dbid %d&quot;, dbid)));
+<span class="lineNum">     212 </span>                :            : 
+<span class="lineNum">     213 </span>                :            :                         /* Populate the hash entry */
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                         segElem-&gt;fse = fse;</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     216 </span>                :            :                 
+<span class="lineNum">     217 </span>                :            :                 /* 
+<span class="lineNum">     218 </span>                :            :                  * Pass 2 - Loop through segment information in the array.
+<span class="lineNum">     219 </span>                :            :                  *   - check for any segments not specified in the command.
+<span class="lineNum">     220 </span>                :            :                  *   - annotates the FileSpaceEntry with the contentid and hostname
+<span class="lineNum">     221 </span>                :            :                  *
+<span class="lineNum">     222 </span>                :            :                  * Done in two loops, one through the &quot;entry_dbs&quot; list, the second
+<span class="lineNum">     223 </span>                :            :                  * through the &quot;segment_dbs&quot; list.
+<span class="lineNum">     224 </span>                :            :                  */
+<span class="lineNum">     225 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = 0; i &lt; segments-&gt;total_entry_dbs; i++)</span>
+<span class="lineNum">     226 </span>                :            :                 {
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :                         int32            dbid      = segments-&gt;entry_db_info[i].dbid;</span>
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :                         int32            contentid = segments-&gt;entry_db_info[i].segindex;</span>
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :                         char            *hostname  = segments-&gt;entry_db_info[i].hostname;</span>
+<span class="lineNum">     230 </span>                :            :                         
+<span class="lineNum">     231 </span>                :            :                         /* Lookup the entry in the segHash */
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                         segElem = (segHashElem *) \</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :                                 hash_search(segHash, (void *) &amp;dbid, HASH_FIND, &amp;found);</span>
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!found)</span>
+<span class="lineNum">     236 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     237 </span>                :            :                                                 (errcode(ERRCODE_GP_COMMAND_ERROR),
+<span class="lineNum">     238 </span>                :            :                                                  errmsg(&quot;missing filespace location for dbid %d&quot;,
+<span class="lineNum">     239 </span>                :            :                                                                 dbid)));
+<span class="lineNum">     240 </span>                :            : 
+<span class="lineNum">     241 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(segElem-&gt;fse);  /* should have been populated in pass 1 */</span>
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                         segElem-&gt;fse-&gt;hostname  = pstrdup(hostname);</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                         segElem-&gt;fse-&gt;contentid = contentid;</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = 0; i &lt; segments-&gt;total_segment_dbs; i++)</span>
+<span class="lineNum">     247 </span>                :            :                 {
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                         int32           dbid      = segments-&gt;segment_db_info[i].dbid;</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         int32           contentid = segments-&gt;segment_db_info[i].segindex;</span>
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                         char       *hostname  = segments-&gt;segment_db_info[i].hostname;</span>
+<span class="lineNum">     251 </span>                :            : 
+<span class="lineNum">     252 </span>                :            :                         /* Lookup the entry in the segHash */
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :                         segElem = (segHashElem *) \</span>
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :                                 hash_search(segHash, (void *) &amp;dbid, HASH_FIND, &amp;found);</span>
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!found)</span>
+<span class="lineNum">     257 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     258 </span>                :            :                                                 (errcode(ERRCODE_GP_COMMAND_ERROR),
+<span class="lineNum">     259 </span>                :            :                                                  errmsg(&quot;missing filespace location for dbid %d&quot;,
+<span class="lineNum">     260 </span>                :            :                                                                 dbid)));
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(segElem-&gt;fse);  /* should have been populated in pass 1 */</span>
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :                         segElem-&gt;fse-&gt;hostname  = pstrdup(hostname);</span>
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :                         segElem-&gt;fse-&gt;contentid = contentid;</span>
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :            :                 /*
+<span class="lineNum">     268 </span>                :            :                  * Scan through the segHash to see any locations were specified for
+<span class="lineNum">     269 </span>                :            :                  * segments that do not exist.
+<span class="lineNum">     270 </span>                :            :                  */
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                 hash_seq_init(&amp;status, segHash);</span>
+<span class="lineNum">     272 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while ((segElem = (segHashElem *) hash_seq_search(&amp;status)) != NULL)</span>
+<span class="lineNum">     273 </span>                :            :                 {
+<span class="lineNum">     274 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(segElem-&gt;fse);  /* should have been populated in pass 1 */</span>
+<span class="lineNum">     275 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(segElem-&gt;fse-&gt;location);</span>
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :            :                         /* Check that the path is well formed */
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                         checkPathFormat(segElem-&gt;fse-&gt;location);</span>
+<span class="lineNum">     279 </span>                :            : 
+<span class="lineNum">     280 </span>                :            :                         /* Check that the path is for a segment that exists */
+<span class="lineNum">     281 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (segElem-&gt;fse-&gt;hostname == NULL)</span>
+<span class="lineNum">     282 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     283 </span>                :            :                                                 (errcode(ERRCODE_GP_COMMAND_ERROR),
+<span class="lineNum">     284 </span>                :            :                                                  errmsg(&quot;filespace location specified for non-existent &quot;
+<span class="lineNum">     285 </span>                :            :                                                                 &quot;dbid %d&quot;, segElem-&gt;dbid)));
+<span class="lineNum">     286 </span>                :            :                 }
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :            :                 /* Done with the hash, cleanup */
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                 hash_destroy(segHash);</span>
+<span class="lineNum">     290 </span>                :            : 
+<span class="lineNum">     291 </span>                :            :                 /* Cleanup component info */
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :                 freeCdbComponentDatabases(segments);</span>
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>                :            :         /* 
+<span class="lineNum">     296 </span>                :            :          * Find the location of the filespace for *this* segment, and perform 
+<span class="lineNum">     297 </span>                :            :          * additional validations on the path.
+<span class="lineNum">     298 </span>                :            :          */
+<span class="lineNum">     299 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(cell, stmt-&gt;locations)</span>
+<span class="lineNum">     300 </span>                :            :         {
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :                 FileSpaceEntry *fse  = (FileSpaceEntry*) lfirst(cell);</span>
+<span class="lineNum">     302 </span>                :            : 
+<span class="lineNum">     303 </span>                :            :                 /* 
+<span class="lineNum">     304 </span>                :            :                  * Find the location information for this dbid, and identify the
+<span class="lineNum">     305 </span>                :            :                  * dbid and location for our mirror pair (matching contentid)
+<span class="lineNum">     306 </span>                :            :                  */
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (fse-&gt;dbid == GpIdentity.dbid)</span>
+<span class="lineNum">     308 </span>                :            :                 {
+<span class="lineNum">     309 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(primary == NULL);</span>
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                         primary = fse;</span>
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     312 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (fse-&gt;contentid == GpIdentity.segindex)</span>
+<span class="lineNum">     313 </span>                :            :                 {
+<span class="lineNum">     314 </span>                :            :                         /* 
+<span class="lineNum">     315 </span>                :            :                          * This will require work if we start supporting multiple 
+<span class="lineNum">     316 </span>                :            :                          * mirrors per segment. 
+<span class="lineNum">     317 </span>                :            :                          */
+<span class="lineNum">     318 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(mirror == NULL);</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                         mirror = fse;</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :            :         /* 
+<span class="lineNum">     324 </span>                :            :          * Should have been checked before QE dispatch, something is weird if
+<span class="lineNum">     325 </span>                :            :          * we hit this condition here.
+<span class="lineNum">     326 </span>                :            :          */
+<span class="lineNum">     327 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (primary == NULL)</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;filespace location not specified for dbid %d&quot;,</span>
+<span class="lineNum">     329 </span>                :            :                          GpIdentity.dbid);
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :            :         /* 
+<span class="lineNum">     332 </span>                :            :          * Check the path for the primary and mirror.  
+<span class="lineNum">     333 </span>                :            :          *
+<span class="lineNum">     334 </span>                :            :          * We need to check this this before we ask the persistent object layer to
+<span class="lineNum">     335 </span>                :            :          * create the directory because once we switch to &quot;CreatePending&quot; any
+<span class="lineNum">     336 </span>                :            :          * failure will remove any directories that exist on the assumption that we
+<span class="lineNum">     337 </span>                :            :          * created them, but if they already existed then that is a mistake.
+<span class="lineNum">     338 </span>                :            :          *
+<span class="lineNum">     339 </span>                :            :          * Note that this is theoretically a race condidition with someone manually
+<span class="lineNum">     340 </span>                :            :          * creating the directories in the filesystem between when we check the
+<span class="lineNum">     341 </span>                :            :          * paths and when we mark &quot;CreatePending&quot;.  The race condition doesn't exist
+<span class="lineNum">     342 </span>                :            :          * purely in the database because we have a giant lock and only a single
+<span class="lineNum">     343 </span>                :            :          * transaction can create filespaces at one time.
+<span class="lineNum">     344 </span>                :            :          */
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :         checkPathPermissions(primary-&gt;location);</span>
+<span class="lineNum">     346 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (mirror)</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                 MirroredFileSysObj_ValidateFilespaceDir(mirror-&gt;location);</span>
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :            :         /* 
+<span class="lineNum">     350 </span>                :            :          * Having identified the fse entry for this segment we now know what
+<span class="lineNum">     351 </span>                :            :          * the canonical hostname is for this host and can identify the other
+<span class="lineNum">     352 </span>                :            :          * segments running on this host.  
+<span class="lineNum">     353 </span>                :            :          *
+<span class="lineNum">     354 </span>                :            :          * Note: since we need to check the mirrors against other mirrors and
+<span class="lineNum">     355 </span>                :            :          * we can't do this on the mirror side it is the responsibility of
+<span class="lineNum">     356 </span>                :            :          * the primaries on the node to check the mirrors.  Since they can't
+<span class="lineNum">     357 </span>                :            :          * currently differentiate which of the other segments are primaries
+<span class="lineNum">     358 </span>                :            :          * and which are mirrors all of them end up checking everything. 
+<span class="lineNum">     359 </span>                :            :          * This is redundant, but its the only way we can check the mirrors.
+<span class="lineNum">     360 </span>                :            :          *
+<span class="lineNum">     361 </span>                :            :          * Note: This is only a best effort attempt at verifying the mirrors.
+<span class="lineNum">     362 </span>                :            :          * If there is a configuration where some node has no primaries
+<span class="lineNum">     363 </span>                :            :          * then this methodology means that there is no primary available to
+<span class="lineNum">     364 </span>                :            :          * check those mirrors and we will not be able pre-validate against
+<span class="lineNum">     365 </span>                :            :          * duplicate paths.  This could result in much uglier error messages,
+<span class="lineNum">     366 </span>                :            :          * but the underlying code in TransactionCreateFilespaceDir() should
+<span class="lineNum">     367 </span>                :            :          * be able to handle this.  (MPP-8595)
+<span class="lineNum">     368 </span>                :            :          */
+<span class="lineNum">     369 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(cell, stmt-&gt;locations)</span>
+<span class="lineNum">     370 </span>                :            :         {
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 FileSpaceEntry  *outer = (FileSpaceEntry*) lfirst(cell);</span>
+<span class="lineNum">     372 </span>                :            :                 ListCell        *cell2;
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>                :            :                 /* 
+<span class="lineNum">     375 </span>                :            :                  * For every segment on this host:
+<span class="lineNum">     376 </span>                :            :                  *  - compare against every segments found so far
+<span class="lineNum">     377 </span>                :            :                  *  - add to the list of segments
+<span class="lineNum">     378 </span>                :            :                  *
+<span class="lineNum">     379 </span>                :            :                  * Segments on other hosts are not compared and are not added to the
+<span class="lineNum">     380 </span>                :            :                  * list of segments to compare against.
+<span class="lineNum">     381 </span>                :            :                  */
+<span class="lineNum">     382 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((strcmp(outer-&gt;hostname, primary-&gt;hostname) == 0))</span>
+<span class="lineNum">     383 </span>                :            :                 {
+<span class="lineNum">     384 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(cell2, nodeSegs)</span>
+<span class="lineNum">     385 </span>                :            :                         {
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :                                 FileSpaceEntry  *inner = (FileSpaceEntry *) lfirst(cell2);</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :                                 duplicatePathCheck(outer, inner);</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :                         nodeSegs = lappend(nodeSegs, outer);</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :         list_free(nodeSegs);</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :         nodeSegs = NULL;</span>
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :            :         /* 
+<span class="lineNum">     396 </span>                :            :          * Everything possible has been checked: 
+<span class="lineNum">     397 </span>                :            :          *  - Begin actual creation of the filespace
+<span class="lineNum">     398 </span>                :            :          */
+<span class="lineNum">     399 </span>                :            : 
+<span class="lineNum">     400 </span>                :            :         /* The relation was opened up at the top of the function */
+<span class="lineNum">     401 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(rel);</span>
+<span class="lineNum">     402 </span>                :            : 
+<span class="lineNum">     403 </span>                :            :         /* Insert tuple into pg_filespace */
+<span class="lineNum">     404 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(nulls, false, sizeof(nulls));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_filespace_fsname - 1]  = NameGetDatum(&amp;fsname);</span>
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_filespace_fsowner - 1] = ObjectIdGetDatum(ownerId);</span>
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :         tuple = heap_form_tuple(RelationGetDescr(rel), values, nulls);</span>
+<span class="lineNum">     408 </span>                :            : 
+<span class="lineNum">     409 </span>                :            :         /* Insert a new tuple */
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :         fsoid = simple_heap_insert(rel, tuple);</span>
+<span class="lineNum">     411 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(fsoid));</span>
+<span class="lineNum">     412 </span>                :            : 
+<span class="lineNum">     413 </span>                :            :         /* Update indexes */
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, tuple);</span>
+<span class="lineNum">     415 </span>                :            : 
+<span class="lineNum">     416 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tuple);</span>
+<span class="lineNum">     417 </span>                :            : 
+<span class="lineNum">     418 </span>                :            :         /* Record dependency on owner */
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :         recordDependencyOnOwner(FileSpaceRelationId, fsoid, ownerId);</span>
+<span class="lineNum">     420 </span>                :            : 
+<span class="lineNum">     421 </span>                :            :         /* Keep the lock until commit/abort */
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">     423 </span>                :            : 
+<span class="lineNum">     424 </span>                :            :         /* 
+<span class="lineNum">     425 </span>                :            :          * Master only:
+<span class="lineNum">     426 </span>                :            :          *   1) Add all locations to the pg_filespace_entry table
+<span class="lineNum">     427 </span>                :            :          *   2) Dispatch to the segments
+<span class="lineNum">     428 </span>                :            :          *
+<span class="lineNum">     429 </span>                :            :          * Note: we keep the filespace_entry catalog a master-only catalog
+<span class="lineNum">     430 </span>                :            :          * because this makes expansion and adding mirrors an easier process:
+<span class="lineNum">     431 </span>                :            :          *   - We can add them to the catalog to the master in utility mode
+<span class="lineNum">     432 </span>                :            :          *     while the system is down.
+<span class="lineNum">     433 </span>                :            :          *   - There isn't a bootstrapping problem of which to create first
+<span class="lineNum">     434 </span>                :            :          *     the new segment or the catalog that describes it.
+<span class="lineNum">     435 </span>                :            :          */
+<span class="lineNum">     436 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     437 </span>                :            :         {
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                 rel = heap_open(FileSpaceEntryRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     439 </span>                :            : 
+<span class="lineNum">     440 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(cell, stmt-&gt;locations)</span>
+<span class="lineNum">     441 </span>                :            :                 {
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                         FileSpaceEntry *fse  = (FileSpaceEntry*) lfirst(cell);</span>
+<span class="lineNum">     443 </span>                :            :                         
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                         add_catalog_filespace_entry(rel, fsoid, fse-&gt;dbid, fse-&gt;location);</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :                 heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     448 </span>                :            : 
+<span class="lineNum">     449 </span>                :            :                 /* Dispatch to segments */
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchUtilityStatement((Node *) stmt,</span>
+<span class="lineNum">     451 </span>                :            :                                                                         DF_CANCEL_ON_ERROR|
+<span class="lineNum">     452 </span>                :            :                                                                         DF_WITH_SNAPSHOT|
+<span class="lineNum">     453 </span>                :            :                                                                         DF_NEED_TWO_PHASE,
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 :                                                                         GetAssignedOidsForDispatch(),</span>
+<span class="lineNum">     455 </span>                :            :                                                                         NULL);
+<span class="lineNum">     456 </span>                :            : 
+<span class="lineNum">     457 </span>                :            :                 /* MPP-6929: metadata tracking */
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :                 MetaTrackAddObject(FileSpaceRelationId,</span>
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :                                                    fsoid,</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                                                    GetUserId(),</span>
+<span class="lineNum">     461 </span>                :            :                                                    &quot;CREATE&quot;, &quot;FILESPACE&quot;
+<span class="lineNum">     462 </span>                :            :                                 );
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     464 </span>                :            : 
+<span class="lineNum">     465 </span>                :            :         /* 
+<span class="lineNum">     466 </span>                :            :          * Update the gp_persistent_filespace_node table.
+<span class="lineNum">     467 </span>                :            :          *
+<span class="lineNum">     468 </span>                :            :          * The persistent object layer is responsible for ensuring that the
+<span class="lineNum">     469 </span>                :            :          * directories are created and maintained in the filesystem.  Most 
+<span class="lineNum">     470 </span>                :            :          * importantly this layer knows how to cleanup filesystem objects in the
+<span class="lineNum">     471 </span>                :            :          * event that this transaction aborts and the rollback and recovery 
+<span class="lineNum">     472 </span>                :            :          * mechanisms know how to use this to cleanup after a hard failure or 
+<span class="lineNum">     473 </span>                :            :          * replay the creation for mirror resynchronisation.
+<span class="lineNum">     474 </span>                :            :          */
+<span class="lineNum">     475 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (mirror == NULL)</span>
+<span class="lineNum">     476 </span>                :            :         {
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :                 MirroredFileSysObj_TransactionCreateFilespaceDir(</span>
+<span class="lineNum">     478 </span>                :<span class="lineNoCov">          0 :                         fsoid, </span>
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                         primary-&gt;dbid, primary-&gt;location, 0, NULL,</span>
+<span class="lineNum">     480 </span>                :            :                         &amp;persistentTid, &amp;persistentSerialNum);
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     482 </span>                :            :         else
+<span class="lineNum">     483 </span>                :            :         {
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                 MirroredFileSysObj_TransactionCreateFilespaceDir(</span>
+<span class="lineNum">     485 </span>                :<span class="lineNoCov">          0 :                         fsoid, </span>
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :                         primary-&gt;dbid, primary-&gt;location, mirror-&gt;dbid, mirror-&gt;location,</span>
+<span class="lineNum">     487 </span>                :            :                         &amp;persistentTid, &amp;persistentSerialNum);
+<span class="lineNum">     488 </span>                :            :         }
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     490 </span>                :            : 
+<span class="lineNum">     491 </span>                :            : /*
+<span class="lineNum">     492 </span>                :            :  * Drop a filespace
+<span class="lineNum">     493 </span>                :            :  *
+<span class="lineNum">     494 </span>                :            :  * Be careful to check that the filespace is empty.
+<a name="495"><span class="lineNum">     495 </span>                :            :  */</a>
+<span class="lineNum">     496 </span>                :            : void 
+<span class="lineNum">     497 </span>                :            : RemoveFileSpace(List *names, DropBehavior behavior, bool missing_ok)
+<span class="lineNum">     498 </span>                :            : {
+<span class="lineNum">     499 </span>                :            :         Relation      rel;
+<span class="lineNum">     500 </span>                :            :         char         *fsname;
+<span class="lineNum">     501 </span>                :            :         Oid                       fsoid;
+<span class="lineNum">     502 </span>                :            :         ObjectAddress object;
+<span class="lineNum">     503 </span>                :            : 
+<span class="lineNum">     504 </span>                :            :         /* 
+<span class="lineNum">     505 </span>                :            :          * General DROP (object) syntax allows fully qualified names, but
+<span class="lineNum">     506 </span>                :            :          * filespaces are global objects that do not live in schemas, so
+<span class="lineNum">     507 </span>                :            :          * it is a syntax error if a fully qualified name was given.
+<span class="lineNum">     508 </span>                :            :          */
+<span class="lineNum">     509 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (list_length(names) != 1)</span>
+<span class="lineNum">     510 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     511 </span>                :            :                                 (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     512 </span>                :            :                                  errmsg(&quot;filespace name may not be qualified&quot;)));
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         fsname = strVal(linitial(names));</span>
+<span class="lineNum">     514 </span>                :            : 
+<span class="lineNum">     515 </span>                :            :         /* Disallow CASCADE */
+<span class="lineNum">     516 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (behavior == DROP_CASCADE)</span>
+<span class="lineNum">     517 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     518 </span>                :            :                                 (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     519 </span>                :            :                                  errmsg(&quot;syntax at or near \&quot;cascade\&quot;&quot;)));
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>                :            :         /* 
+<span class="lineNum">     522 </span>                :            :          * Because rollback of filespace operations are difficult and expected
+<span class="lineNum">     523 </span>                :            :          * usage is anticipated to be light we remove concurrency worries by
+<span class="lineNum">     524 </span>                :            :          * taking a big lock up front.
+<span class="lineNum">     525 </span>                :            :          */
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(FileSpaceRelationId, AccessExclusiveLock);</span>
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :            :         /* Lookup the name in pg_filespace */
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :         fsoid = get_filespace_oid(rel, fsname);</span>
+<span class="lineNum">     530 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(fsoid))</span>
+<span class="lineNum">     531 </span>                :            :         {
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :                 heap_close(rel, AccessExclusiveLock);</span>
+<span class="lineNum">     533 </span>                :            : 
+<span class="lineNum">     534 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (missing_ok)</span>
+<span class="lineNum">     535 </span>                :            :                 {
+<span class="lineNum">     536 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (Gp_role != GP_ROLE_EXECUTE)</span>
+<span class="lineNum">     537 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(NOTICE,</span>
+<span class="lineNum">     538 </span>                :            :                                                 (errmsg(&quot;filespace \&quot;%s\&quot; does not exist, skipping&quot;, 
+<span class="lineNum">     539 </span>                :            :                                                                 fsname)));
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :                         return;</span>
+<span class="lineNum">     541 </span>                :            :                 }
+<span class="lineNum">     542 </span>                :            :                 else
+<span class="lineNum">     543 </span>                :            :                 {
+<span class="lineNum">     544 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     545 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     546 </span>                :            :                                          errmsg(&quot;filespace \&quot;%s\&quot; does not exist&quot;, fsname)));
+<span class="lineNum">     547 </span>                :            :                 }
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     549 </span>                :            : 
+<span class="lineNum">     550 </span>                :            :         /* Must be owner */
+<span class="lineNum">     551 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!pg_filespace_ownercheck(fsoid, GetUserId()))</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_FILESPACE, fsname);</span>
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :            :         /* Disallow drop of the standard filespaces, even by superuser */
+<span class="lineNum">     555 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fsoid == SYSTEMFILESPACE_OID)</span>
+<span class="lineNum">     556 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     557 </span>                :            :                                 (errcode(ERRCODE_OBJECT_IN_USE),
+<span class="lineNum">     558 </span>                :            :                                  errmsg(&quot;cannot drop filespace %s because it is required by the database system&quot;,
+<span class="lineNum">     559 </span>                :            :                                                 fsname)));
+<span class="lineNum">     560 </span>                :            : 
+<span class="lineNum">     561 </span>                :            :         /* 
+<span class="lineNum">     562 </span>                :            :          * Disallow drop of filespace if it is used for transaction files or
+<span class="lineNum">     563 </span>                :            :          * temporary files.
+<span class="lineNum">     564 </span>                :            :          */
+<span class="lineNum">     565 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (isFilespaceUsedForTempFiles(fsoid))</span>
+<span class="lineNum">     566 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     567 </span>                :            :                                 (errcode(ERRCODE_OBJECT_IN_USE),
+<span class="lineNum">     568 </span>                :            :                                  errmsg(&quot;cannot drop filespace %s because it is used by temporary files&quot;, fsname),
+<span class="lineNum">     569 </span>                :            :                                  errhint(&quot;Use \&quot;gpfilespace --movetempfilespace &lt;newFilespaceName&gt;\&quot; to move temporary files to a different filespace, and try again&quot;)));
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (isFilespaceUsedForTxnFiles(fsoid))</span>
+<span class="lineNum">     572 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     573 </span>                :            :                                 (errcode(ERRCODE_OBJECT_IN_USE),
+<span class="lineNum">     574 </span>                :            :                                  errmsg(&quot;cannot drop filespace %s because it is used by transaction files&quot;, fsname),
+<span class="lineNum">     575 </span>                :            :                                  errhint(&quot;Use gpfilespace --movetransfilespace &lt;newFilespaceName&gt; to move transaction files to a different filespace, and try again&quot;)));
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>                :            :         /*
+<span class="lineNum">     578 </span>                :            :          * performDeletion only drops things that have dependencies in
+<span class="lineNum">     579 </span>                :            :          * pg_depend/pg_shdepend which does NOT include dependencies on tablespaces
+<span class="lineNum">     580 </span>                :            :          * (perhaps pg_shdepend should).  So we look for these dependencies by
+<span class="lineNum">     581 </span>                :            :          * looking at the pg_tablespace table.
+<span class="lineNum">     582 </span>                :            :          */
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :         filespace_check_empty(fsoid);</span>
+<span class="lineNum">     584 </span>                :            : 
+<span class="lineNum">     585 </span>                :            :         /* Check for dependencies and remove the filespace */
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :         object.classId = FileSpaceRelationId;</span>
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :         object.objectId = fsoid;</span>
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :         object.objectSubId = 0;</span>
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :         performDeletion(&amp;object, DROP_RESTRICT);</span>
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :            :         /*
+<span class="lineNum">     592 </span>                :            :          * Remove any comments on this filespace
+<span class="lineNum">     593 </span>                :            :          */
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         DeleteSharedComments(fsoid, FileSpaceRelationId);</span>
+<span class="lineNum">     595 </span>                :            : 
+<span class="lineNum">     596 </span>                :            :         /* 
+<span class="lineNum">     597 </span>                :            :          * Keep the lock until commit/abort 
+<span class="lineNum">     598 </span>                :            :          */
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">     600 </span>                :            : 
+<span class="lineNum">     601 </span>                :            :         /* 
+<span class="lineNum">     602 </span>                :            :          * Master Only:
+<span class="lineNum">     603 </span>                :            :          *   1) Remove entries from pg_filespace_entry
+<span class="lineNum">     604 </span>                :            :          *
+<span class="lineNum">     605 </span>                :            :          * Note: no need for dispatch, that is handled in utility.c
+<span class="lineNum">     606 </span>                :            :          */
+<span class="lineNum">     607 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     608 </span>                :            :         {
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                 DeleteFilespaceEntryTuples(fsoid);</span>
+<span class="lineNum">     610 </span>                :            : 
+<span class="lineNum">     611 </span>                :            :                 /* MPP-6929: metadata tracking */
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                 MetaTrackDropObject(FileSpaceRelationId,</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                                                         fsoid);</span>
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :            :         /* 
+<span class="lineNum">     617 </span>                :            :          * The persistent object layer is responsible for actually managing the
+<span class="lineNum">     618 </span>                :            :          * actual directory on disk.  Tell it that this filespace is removed by
+<span class="lineNum">     619 </span>                :            :          * this transaction.  This marks the filespace as pending delete and it
+<span class="lineNum">     620 </span>                :            :          * will be deleted iff the transaction commits.
+<span class="lineNum">     621 </span>                :            :          */
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :         MirroredFileSysObj_ScheduleDropFilespaceDir(fsoid);</span>
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     624 </span>                :            : 
+<span class="lineNum">     625 </span>                :            : /* 
+<span class="lineNum">     626 </span>                :            :  * RemoveFileSpaceById
+<span class="lineNum">     627 </span>                :            :  *   Guts of Filespace Deletion, called by dependency.c
+<a name="628"><span class="lineNum">     628 </span>                :            :  */</a>
+<span class="lineNum">     629 </span>                :            : void
+<span class="lineNum">     630 </span>                :            : RemoveFileSpaceById(Oid fsoid)
+<span class="lineNum">     631 </span>                :            : {
+<span class="lineNum">     632 </span>                :            :         Relation        fsrel;
+<span class="lineNum">     633 </span>                :            :         ScanKeyData skey;
+<span class="lineNum">     634 </span>                :            :         SysScanDesc sd;
+<span class="lineNum">     635 </span>                :            :         HeapTuple       oldtuple;
+<span class="lineNum">     636 </span>                :            : 
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;skey,</span>
+<span class="lineNum">     638 </span>                :            :                                 ObjectIdAttributeNumber,
+<span class="lineNum">     639 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(fsoid));</span>
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :         fsrel = heap_open(FileSpaceRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :         sd = systable_beginscan(fsrel, FilespaceOidIndexId, true,</span>
+<span class="lineNum">     645 </span>                :            :                                                         SnapshotNow, 1, &amp;skey);
+<span class="lineNum">     646 </span>                :            : 
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :         oldtuple = systable_getnext(sd);</span>
+<span class="lineNum">     648 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(oldtuple)) /* shouldn't happen */</span>
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for filespace %u&quot;, fsoid);</span>
+<span class="lineNum">     650 </span>                :            : 
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :         simple_heap_delete(fsrel, &amp;oldtuple-&gt;t_self);</span>
+<span class="lineNum">     652 </span>                :            : 
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :         oldtuple = systable_getnext(sd);</span>
+<span class="lineNum">     654 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(oldtuple))</span>
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;more than one filespace with OID %u&quot;, fsoid);</span>
+<span class="lineNum">     656 </span>                :            : 
+<span class="lineNum">     657 </span>                :            :         /* Done */
+<span class="lineNum">     658 </span>                :            : 
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :         systable_endscan(sd);</span>
+<span class="lineNum">     660 </span>                :<span class="lineNoCov">          0 :         heap_close(fsrel, RowExclusiveLock);</span>
+<span class="lineNum">     661 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="662"><span class="lineNum">     662 </span>                :            : </a>
+<span class="lineNum">     663 </span>                :            : static void 
+<span class="lineNum">     664 </span>                :            : DeleteFilespaceEntryTuples(Oid fsoid)
+<span class="lineNum">     665 </span>                :            : {
+<span class="lineNum">     666 </span>                :            :         Relation        fserel;
+<span class="lineNum">     667 </span>                :            :         ScanKeyData skey;
+<span class="lineNum">     668 </span>                :            :         SysScanDesc sd;
+<span class="lineNum">     669 </span>                :            :         HeapTuple       oldtuple;
+<span class="lineNum">     670 </span>                :            : 
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;skey,</span>
+<span class="lineNum">     672 </span>                :            :                                 Anum_pg_filespace_entry_fsefsoid,
+<span class="lineNum">     673 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     674 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(fsoid));</span>
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :         fserel = heap_open(FileSpaceEntryRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     677 </span>                :            : 
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :         sd = systable_beginscan(fserel, FileSpaceEntryFsefsoidIndexId, true,</span>
+<span class="lineNum">     679 </span>                :            :                                                         SnapshotNow, 1, &amp;skey);
+<span class="lineNum">     680 </span>                :            : 
+<span class="lineNum">     681 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((oldtuple = systable_getnext(sd)) != NULL)</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :                 simple_heap_delete(fserel, &amp;oldtuple-&gt;t_self);</span>
+<span class="lineNum">     683 </span>                :            : 
+<span class="lineNum">     684 </span>                :            :         /* Done */
+<span class="lineNum">     685 </span>                :            : 
+<span class="lineNum">     686 </span>                :<span class="lineNoCov">          0 :         systable_endscan(sd);</span>
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :         heap_close(fserel, RowExclusiveLock);</span>
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     689 </span>                :            : 
+<span class="lineNum">     690 </span>                :            : 
+<span class="lineNum">     691 </span>                :            : /*
+<span class="lineNum">     692 </span>                :            :  * Change filespace owner
+<a name="693"><span class="lineNum">     693 </span>                :            :  */</a>
+<span class="lineNum">     694 </span>                :            : void
+<span class="lineNum">     695 </span>                :            : AlterFileSpaceOwner(List *names, Oid newOwnerId)
+<span class="lineNum">     696 </span>                :            : {
+<span class="lineNum">     697 </span>                :            :         char             *fsname;
+<span class="lineNum">     698 </span>                :            :         Oid               fsoid;
+<span class="lineNum">     699 </span>                :            :         Relation              rel;
+<span class="lineNum">     700 </span>                :            :         ScanKeyData scankey;
+<span class="lineNum">     701 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     702 </span>                :            :         Form_pg_filespace fsForm;
+<span class="lineNum">     703 </span>                :            :         HeapTuple             tup;
+<span class="lineNum">     704 </span>                :            : 
+<span class="lineNum">     705 </span>                :            :         /*
+<span class="lineNum">     706 </span>                :            :          * This was from a generic AltrStmt node which allows for fully qualified
+<span class="lineNum">     707 </span>                :            :          * object names, but filespaces don't exist inside schemas so fully
+<span class="lineNum">     708 </span>                :            :          * qualified names are a syntax error.
+<span class="lineNum">     709 </span>                :            :          */
+<span class="lineNum">     710 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (list_length(names) != 1)</span>
+<span class="lineNum">     711 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     712 </span>                :            :                                 (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     713 </span>                :            :                                  errmsg(&quot;filespace name may not be qualified&quot;)));
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :         fsname = strVal(linitial(names));</span>
+<span class="lineNum">     715 </span>                :            : 
+<span class="lineNum">     716 </span>                :            :         /* Search pg_filespace */
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(FileSpaceRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;scankey,</span>
+<span class="lineNum">     719 </span>                :            :                                 Anum_pg_filespace_fsname,
+<span class="lineNum">     720 </span>                :            :                                 BTEqualStrategyNumber, F_NAMEEQ,
+<span class="lineNum">     721 </span>                :<span class="lineNoCov">          0 :                                 CStringGetDatum(fsname));</span>
+<span class="lineNum">     722 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, FilespaceNameIndexId, true,</span>
+<span class="lineNum">     723 </span>                :            :                                                           SnapshotNow, 1, &amp;scankey);
+<span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 :         tup = systable_getnext(scan);</span>
+<span class="lineNum">     725 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">     726 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     727 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     728 </span>                :            :                                  errmsg(&quot;filespace \&quot;%s\&quot; does not exist&quot;, fsname)));
+<span class="lineNum">     729 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         fsoid  = HeapTupleGetOid(tup);</span>
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :         fsForm = (Form_pg_filespace) GETSTRUCT(tup);</span>
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>                :            :         /* Cannot alter system filespaces */
+<span class="lineNum">     733 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!allowSystemTableModsDDL &amp;&amp; IsReservedName(fsname))</span>
+<span class="lineNum">     734 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     735 </span>                :            :                                 (errcode(ERRCODE_RESERVED_NAME),
+<span class="lineNum">     736 </span>                :            :                                  errmsg(&quot;permission denied: \&quot;%s\&quot; is a system filespace&quot;, 
+<span class="lineNum">     737 </span>                :            :                                                 fsname)));
+<span class="lineNum">     738 </span>                :            : 
+<span class="lineNum">     739 </span>                :            :         /*
+<span class="lineNum">     740 </span>                :            :          * If the new owner is the same as the existing owner, consider the
+<span class="lineNum">     741 </span>                :            :          * command to have succeeded.  This is for dump restoration purposes.
+<span class="lineNum">     742 </span>                :            :          */
+<span class="lineNum">     743 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (fsForm-&gt;fsowner != newOwnerId)</span>
+<span class="lineNum">     744 </span>                :            :         {
+<span class="lineNum">     745 </span>                :            :                 Datum           values[Natts_pg_filespace];
+<span class="lineNum">     746 </span>                :            :                 bool            nulls[Natts_pg_filespace];
+<span class="lineNum">     747 </span>                :            :                 bool            replace[Natts_pg_filespace];
+<span class="lineNum">     748 </span>                :            :                 HeapTuple       newtuple;
+<span class="lineNum">     749 </span>                :            : 
+<span class="lineNum">     750 </span>                :            :                 /* Otherwise, must be owner of the existing object */
+<span class="lineNum">     751 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!pg_filespace_ownercheck(fsoid, GetUserId()))</span>
+<span class="lineNum">     752 </span>                :<span class="lineNoCov">          0 :                         aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_FILESPACE, fsname);</span>
+<span class="lineNum">     753 </span>                :            : 
+<span class="lineNum">     754 </span>                :            :                 /* Must be able to become new owner */
+<span class="lineNum">     755 </span>                :<span class="lineNoCov">          0 :                 check_is_member_of_role(GetUserId(), newOwnerId);</span>
+<span class="lineNum">     756 </span>                :            : 
+<span class="lineNum">     757 </span>                :            :                 /*
+<span class="lineNum">     758 </span>                :            :                  * Normally we would also check for create permissions here, but there
+<span class="lineNum">     759 </span>                :            :                  * are none for filespaces so we follow what rename filespace does
+<span class="lineNum">     760 </span>                :            :                  * and omit the create permissions check.
+<span class="lineNum">     761 </span>                :            :                  *
+<span class="lineNum">     762 </span>                :            :                  * NOTE: Only superusers may create filespaces to begin with and so
+<span class="lineNum">     763 </span>                :            :                  * initially only a superuser would be able to change its ownership
+<span class="lineNum">     764 </span>                :            :                  * anyway.
+<span class="lineNum">     765 </span>                :            :                  */
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :                 memset(nulls, false, sizeof(nulls));</span>
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :                 memset(replace, false, sizeof(replace));</span>
+<span class="lineNum">     768 </span>                :            : 
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :                 replace[Anum_pg_filespace_fsowner - 1] = true;</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                 values[Anum_pg_filespace_fsowner - 1] = ObjectIdGetDatum(newOwnerId);</span>
+<span class="lineNum">     771 </span>                :            : 
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                 newtuple = heap_modify_tuple(tup,</span>
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :                                                                          RelationGetDescr(rel),</span>
+<span class="lineNum">     774 </span>                :<span class="lineNoCov">          0 :                                                                          values, nulls, replace);</span>
+<span class="lineNum">     775 </span>                :<span class="lineNoCov">          0 :                 simple_heap_update(rel, &amp;newtuple-&gt;t_self, newtuple);</span>
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :                 CatalogUpdateIndexes(rel, newtuple);</span>
+<span class="lineNum">     777 </span>                :            : 
+<span class="lineNum">     778 </span>                :            :                 /* MPP-6929: metadata tracking */
+<span class="lineNum">     779 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     780 </span>                :<span class="lineNoCov">          0 :                         MetaTrackUpdObject(FileSpaceRelationId,</span>
+<span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 :                                                            fsoid,</span>
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :                                                            GetUserId(),</span>
+<span class="lineNum">     783 </span>                :            :                                                            &quot;ALTER&quot;, &quot;OWNER&quot;
+<span class="lineNum">     784 </span>                :            :                                         );
+<span class="lineNum">     785 </span>                :            : 
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :                 heap_freetuple(newtuple);</span>
+<span class="lineNum">     787 </span>                :            : 
+<span class="lineNum">     788 </span>                :            :                 /* Update owner dependency reference */
+<span class="lineNum">     789 </span>                :<span class="lineNoCov">          0 :                 changeDependencyOnOwner(FileSpaceRelationId, fsoid, newOwnerId);</span>
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     791 </span>                :            : 
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     793 </span>                :            : 
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     796 </span>                :            : 
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>                :            : /*
+<span class="lineNum">     799 </span>                :            :  * Rename a filespace
+<a name="800"><span class="lineNum">     800 </span>                :            :  */</a>
+<span class="lineNum">     801 </span>                :            : void
+<span class="lineNum">     802 </span>                :            : RenameFileSpace(const char *oldname, const char *newname)
+<span class="lineNum">     803 </span>                :            : {
+<span class="lineNum">     804 </span>                :            :         Relation         rel;
+<span class="lineNum">     805 </span>                :            :         Oid          fsoid;
+<span class="lineNum">     806 </span>                :            :         HeapTuple        newtuple;
+<span class="lineNum">     807 </span>                :            :         ScanKeyData scankey;
+<span class="lineNum">     808 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     809 </span>                :            :         Form_pg_filespace newform;
+<span class="lineNum">     810 </span>                :            : 
+<span class="lineNum">     811 </span>                :            :         /* Search pg_filespace */
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(FileSpaceRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;scankey,</span>
+<span class="lineNum">     814 </span>                :            :                                 Anum_pg_filespace_fsname,
+<span class="lineNum">     815 </span>                :            :                                 BTEqualStrategyNumber, F_NAMEEQ,
+<span class="lineNum">     816 </span>                :<span class="lineNoCov">          0 :                                 CStringGetDatum(oldname));</span>
+<span class="lineNum">     817 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, FilespaceNameIndexId, true,</span>
+<span class="lineNum">     818 </span>                :            :                                                           SnapshotNow, 1, &amp;scankey);
+<span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 :         newtuple = systable_getnext(scan);</span>
+<span class="lineNum">     820 </span>                :            : 
+<span class="lineNum">     821 </span>                :<span class="lineNoCov">          0 :         newtuple = heap_copytuple(newtuple);</span>
+<span class="lineNum">     822 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(newtuple))</span>
+<span class="lineNum">     823 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     824 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     825 </span>                :            :                                  errmsg(&quot;filespace \&quot;%s\&quot; does not exist&quot;,
+<span class="lineNum">     826 </span>                :            :                                                 oldname)));
+<span class="lineNum">     827 </span>                :<span class="lineNoCov">          0 :         newform = (Form_pg_filespace) GETSTRUCT(newtuple);</span>
+<span class="lineNum">     828 </span>                :            : 
+<span class="lineNum">     829 </span>                :            :         /* Can't rename system filespaces */
+<span class="lineNum">     830 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!allowSystemTableModsDDL &amp;&amp; IsReservedName(oldname))</span>
+<span class="lineNum">     831 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     832 </span>                :            :                                 (errcode(ERRCODE_RESERVED_NAME),
+<span class="lineNum">     833 </span>                :            :                                  errmsg(&quot;permission denied: \&quot;%s\&quot; is a system filespace&quot;, 
+<span class="lineNum">     834 </span>                :            :                                                 oldname)));
+<span class="lineNum">     835 </span>                :            : 
+<span class="lineNum">     836 </span>                :            :         /* Must be owner */
+<span class="lineNum">     837 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         fsoid = HeapTupleGetOid(newtuple);</span>
+<span class="lineNum">     838 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!pg_filespace_ownercheck(fsoid, GetUserId()))</span>
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(ACLCHECK_NO_PRIV, ACL_KIND_FILESPACE, oldname);</span>
+<span class="lineNum">     840 </span>                :            : 
+<span class="lineNum">     841 </span>                :            :         /* Validate new name */
+<span class="lineNum">     842 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!allowSystemTableModsDDL &amp;&amp; IsReservedName(newname))</span>
+<span class="lineNum">     843 </span>                :            :         {
+<span class="lineNum">     844 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     845 </span>                :            :                                 (errcode(ERRCODE_RESERVED_NAME),
+<span class="lineNum">     846 </span>                :            :                                  errmsg(&quot;unacceptable filespace name \&quot;%s\&quot;&quot;, newname),
+<span class="lineNum">     847 </span>                :            :                                  errdetail(&quot;The prefix \&quot;%s\&quot; is reserved for system filespaces.&quot;,
+<span class="lineNum">     848 </span>                :            :                                                    GetReservedPrefix(newname))));
+<span class="lineNum">     849 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (get_filespace_oid(rel, newname) != InvalidOid)</span>
+<span class="lineNum">     852 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     853 </span>                :            :                                 (errcode(ERRCODE_DUPLICATE_OBJECT),
+<span class="lineNum">     854 </span>                :            :                                  errmsg(&quot;filespace \&quot;%s\&quot; already exists&quot;, newname)));
+<span class="lineNum">     855 </span>                :            : 
+<span class="lineNum">     856 </span>                :            :         /* OK, update the entry */
+<span class="lineNum">     857 </span>                :<span class="lineNoCov">          0 :         namestrcpy(&amp;(newform-&gt;fsname), newname);</span>
+<span class="lineNum">     858 </span>                :<span class="lineNoCov">          0 :         simple_heap_update(rel, &amp;newtuple-&gt;t_self, newtuple);</span>
+<span class="lineNum">     859 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, newtuple);</span>
+<span class="lineNum">     860 </span>                :            : 
+<span class="lineNum">     861 </span>                :            :         /* MPP-6929: metadata tracking */
+<span class="lineNum">     862 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     863 </span>                :<span class="lineNoCov">          0 :                 MetaTrackUpdObject(FileSpaceRelationId,</span>
+<span class="lineNum">     864 </span>                :<span class="lineNoCov">          0 :                                                    fsoid,</span>
+<span class="lineNum">     865 </span>                :<span class="lineNoCov">          0 :                                                    GetUserId(),</span>
+<span class="lineNum">     866 </span>                :            :                                                    &quot;ALTER&quot;, &quot;RENAME&quot;
+<span class="lineNum">     867 </span>                :            :                                 );
+<span class="lineNum">     868 </span>                :            : 
+<span class="lineNum">     869 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     870 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     871 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     872 </span>                :            : 
+<span class="lineNum">     873 </span>                :            : 
+<span class="lineNum">     874 </span>                :            : 
+<span class="lineNum">     875 </span>                :            : /*
+<span class="lineNum">     876 </span>                :            :  * get_filespace_name - given a filespace OID, look up the name
+<span class="lineNum">     877 </span>                :            :  *
+<span class="lineNum">     878 </span>                :            :  * Returns a palloc'd string, or NULL if no such filespace
+<a name="879"><span class="lineNum">     879 </span>                :            :  */</a>
+<span class="lineNum">     880 </span>                :            : char *
+<span class="lineNum">     881 </span>                :            : get_filespace_name(Oid fsoid)
+<span class="lineNum">     882 </span>                :            : {
+<span class="lineNum">     883 </span>                :            :         Relation        rel;
+<span class="lineNum">     884 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     885 </span>                :            :         ScanKeyData scankey;
+<span class="lineNum">     886 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     887 </span>                :<span class="lineNoCov">          0 :         char       *result = NULL;</span>
+<span class="lineNum">     888 </span>                :            : 
+<span class="lineNum">     889 </span>                :            :         /* Search pg_filespace */
+<span class="lineNum">     890 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(FileSpaceRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;scankey,</span>
+<span class="lineNum">     892 </span>                :            :                                 ObjectIdAttributeNumber,
+<span class="lineNum">     893 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(fsoid));</span>
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, FilespaceOidIndexId, true,</span>
+<span class="lineNum">     896 </span>                :            :                                                           SnapshotNow, 1, &amp;scankey);
+<span class="lineNum">     897 </span>                :            :         /* We assume that there can be at most one matching tuple */
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :         tup = systable_getnext(scan);</span>
+<span class="lineNum">     899 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(tup))</span>
+<span class="lineNum">     900 </span>                :            :         {
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                 Form_pg_filespace fsform = (Form_pg_filespace) GETSTRUCT(tup);</span>
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :                 result = pstrdup(NameStr(fsform-&gt;fsname));</span>
+<span class="lineNum">     903 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     904 </span>                :            : 
+<span class="lineNum">     905 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     906 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     907 </span>                :            : 
+<span class="lineNum">     908 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     909 </span>                :            : }
+<span class="lineNum">     910 </span>                :            : 
+<span class="lineNum">     911 </span>                :            : 
+<span class="lineNum">     912 </span>                :            : /*
+<span class="lineNum">     913 </span>                :            :  * get_filespace_oid - given a filespace name, look up the OID
+<span class="lineNum">     914 </span>                :            :  *
+<span class="lineNum">     915 </span>                :            :  * Returns InvalidOid if filespace name not found.
+<a name="916"><span class="lineNum">     916 </span>                :            :  */</a>
+<span class="lineNum">     917 </span>                :            : Oid
+<span class="lineNum">     918 </span>                :            : get_filespace_oid(Relation rel, const char *filespacename)
+<span class="lineNum">     919 </span>                :            : {
+<span class="lineNum">     920 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     921 </span>                :            :         ScanKeyData scankey;
+<span class="lineNum">     922 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :         Oid                     result = InvalidOid;</span>
+<span class="lineNum">     924 </span>                :            : 
+<span class="lineNum">     925 </span>                :            :         /* Search pg_filespace */
+<span class="lineNum">     926 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;scankey,</span>
+<span class="lineNum">     927 </span>                :            :                                 Anum_pg_filespace_fsname,
+<span class="lineNum">     928 </span>                :            :                                 BTEqualStrategyNumber, F_NAMEEQ,
+<span class="lineNum">     929 </span>                :<span class="lineNoCov">          0 :                                 CStringGetDatum(filespacename));</span>
+<span class="lineNum">     930 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, FilespaceNameIndexId, true,</span>
+<span class="lineNum">     931 </span>                :            :                                                           SnapshotNow, 1, &amp;scankey);
+<span class="lineNum">     932 </span>                :            :         /* We assume that there can be at most one matching tuple */
+<span class="lineNum">     933 </span>                :<span class="lineNoCov">          0 :         tup = systable_getnext(scan);</span>
+<span class="lineNum">     934 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(tup))</span>
+<span class="lineNum">     935 </span>                :            :         {
+<span class="lineNum">     936 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 result = HeapTupleGetOid(tup);</span>
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     940 </span>                :            : 
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     942 </span>                :            : }
+<span class="lineNum">     943 </span>                :            : 
+<span class="lineNum">     944 </span>                :            : /*
+<span class="lineNum">     945 </span>                :            :  * checkPathFormat(path)
+<span class="lineNum">     946 </span>                :            :  *
+<span class="lineNum">     947 </span>                :            :  * Runs simple validations on a path supplied to CREATE FILESPACE:
+<span class="lineNum">     948 </span>                :            :  *  - Standardizes paths via canonicalize_path()
+<span class="lineNum">     949 </span>                :            :  *  - Disallow paths with single quotes
+<span class="lineNum">     950 </span>                :            :  *  - Disallow relative paths
+<span class="lineNum">     951 </span>                :            :  *  - Disallow paths that are too long.
+<span class="lineNum">     952 </span>                :            :  *
+<span class="lineNum">     953 </span>                :            :  * We have other checks to perform, but these are the only ones that we
+<span class="lineNum">     954 </span>                :            :  * can run based only on the name without the local file system present.
+<a name="955"><span class="lineNum">     955 </span>                :            :  */</a>
+<span class="lineNum">     956 </span>                :            : static void 
+<span class="lineNum">     957 </span>                :            : checkPathFormat(char *path)
+<span class="lineNum">     958 </span>                :            : {
+<span class="lineNum">     959 </span>                :            :         /* Unix-ify the offered path and strip any trailing slashes */
+<span class="lineNum">     960 </span>                :<span class="lineNoCov">          0 :         canonicalize_path(path);</span>
+<span class="lineNum">     961 </span>                :            : 
+<span class="lineNum">     962 </span>                :            :         /* disallow quotes, else CREATE DATABASE would be at risk */
+<span class="lineNum">     963 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strchr(path, '\''))</span>
+<span class="lineNum">     964 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     965 </span>                :            :                                 (errcode(ERRCODE_INVALID_NAME),
+<span class="lineNum">     966 </span>                :            :                                  errmsg(&quot;filespace location \&quot;%s\&quot; &quot;
+<span class="lineNum">     967 </span>                :            :                                                 &quot;cannot contain single quotes&quot;, path)));
+<span class="lineNum">     968 </span>                :            :         
+<span class="lineNum">     969 </span>                :            :         /*
+<span class="lineNum">     970 </span>                :            :          * Allowing relative paths seems risky
+<span class="lineNum">     971 </span>                :            :          *
+<span class="lineNum">     972 </span>                :            :          * this also helps us ensure that path is not empty or whitespace
+<span class="lineNum">     973 </span>                :            :          */
+<span class="lineNum">     974 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!is_absolute_path(path))</span>
+<span class="lineNum">     975 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     976 </span>                :            :                                 (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+<span class="lineNum">     977 </span>                :            :                                  errmsg(&quot;filespace location \&quot;%s\&quot; &quot;
+<span class="lineNum">     978 </span>                :            :                                                 &quot;must be an absolute path&quot;, path)));
+<span class="lineNum">     979 </span>                :            : 
+<span class="lineNum">     980 </span>                :            :         /*
+<span class="lineNum">     981 </span>                :            :          * Check that location isn't too long. 
+<span class="lineNum">     982 </span>                :            :          */
+<span class="lineNum">     983 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strlen(path) &gt;= MAX_FILESPACE_PATH)</span>
+<span class="lineNum">     984 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     985 </span>                :            :                                 (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+<span class="lineNum">     986 </span>                :            :                                  errmsg(&quot;filespace location \&quot;%s\&quot; is too long&quot;,
+<span class="lineNum">     987 </span>                :            :                                                 path),
+<span class="lineNum">     988 </span>                :            :                                  errhint(&quot;maximum length %d characters&quot;, 
+<span class="lineNum">     989 </span>                :            :                                                  MAX_FILESPACE_PATH)));
+<span class="lineNum">     990 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     991 </span>                :            : 
+<span class="lineNum">     992 </span>                :            : /*
+<span class="lineNum">     993 </span>                :            :  * checkPathPermissions(path)
+<span class="lineNum">     994 </span>                :            :  *
+<span class="lineNum">     995 </span>                :            :  * Runs additional validations on a path supplied to CREATE FILESPACE.
+<span class="lineNum">     996 </span>                :            :  * The assumption is that the path given to us is the original path
+<span class="lineNum">     997 </span>                :            :  * that was specified in the gpfilespace command plus a path extension
+<span class="lineNum">     998 </span>                :            :  * to uniquely identify this segment.  We further assume that the original
+<span class="lineNum">     999 </span>                :            :  * path exists, but that the segment extension does not and must be created.
+<span class="lineNum">    1000 </span>                :            :  * Or... if the extension path does exist then it must be an empty directory.
+<span class="lineNum">    1001 </span>                :            :  *
+<span class="lineNum">    1002 </span>                :            :  *  We must:
+<span class="lineNum">    1003 </span>                :            :  *    - Validate that the specified path does not exist
+<span class="lineNum">    1004 </span>                :            :  *    - Validate that the parent directory exists
+<span class="lineNum">    1005 </span>                :            :  *    - Validate that the parent is a directory.
+<span class="lineNum">    1006 </span>                :            :  *    - Validate that the parent has appropriate permissions
+<span class="lineNum">    1007 </span>                :            :  *
+<span class="lineNum">    1008 </span>                :            :  * Note: Passing these checks does not guarantee that everything is good.
+<span class="lineNum">    1009 </span>                :            :  * In particular we have not checked anywhere that the paths are all 
+<span class="lineNum">    1010 </span>                :            :  * unique on a given host.  We omit this only because this is a difficult
+<span class="lineNum">    1011 </span>                :            :  * test when we don't have metadata about what segments are on the same host.
+<span class="lineNum">    1012 </span>                :            :  * 
+<span class="lineNum">    1013 </span>                :            :  * If there is a conflict we should see it when we actually try to claim
+<span class="lineNum">    1014 </span>                :            :  * the directories for the segments.
+<span class="lineNum">    1015 </span>                :            :  *
+<span class="lineNum">    1016 </span>                :            :  * Note: May need to add additional checks that there is not a pending
+<span class="lineNum">    1017 </span>                :            :  * background delete on this directory location?
+<span class="lineNum">    1018 </span>                :            :  *
+<span class="lineNum">    1019 </span>                :            :  * Note: See FileRepMirror_Validation() in cdb/cdbfilerepmirror.c for the same
+<span class="lineNum">    1020 </span>                :            :  * checks run on the mirror side.
+<a name="1021"><span class="lineNum">    1021 </span>                :            :  */</a>
+<span class="lineNum">    1022 </span>                :            : static void 
+<span class="lineNum">    1023 </span>                :            : checkPathPermissions(char *path)
+<span class="lineNum">    1024 </span>                :            : {
+<span class="lineNum">    1025 </span>                :            :         struct stat st;
+<span class="lineNum">    1026 </span>                :            :         char *parentdir;
+<span class="lineNum">    1027 </span>                :            : 
+<span class="lineNum">    1028 </span>                :            :         /* The specified path should not exist yet */
+<span class="lineNum">    1029 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (stat(path, &amp;st) &gt;= 0)</span>
+<span class="lineNum">    1030 </span>                :            :         {
+<span class="lineNum">    1031 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR, </span>
+<span class="lineNum">    1032 </span>                :            :                                 (errcode_for_file_access(),
+<span class="lineNum">    1033 </span>                :            :                                  errmsg(&quot;%s: File exists&quot;, path)));
+<span class="lineNum">    1034 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1035 </span>                :            : 
+<span class="lineNum">    1036 </span>                :            :         /* Find the parent directory */
+<span class="lineNum">    1037 </span>                :<span class="lineNoCov">          0 :         parentdir = pstrdup(path);</span>
+<span class="lineNum">    1038 </span>                :<span class="lineNoCov">          0 :         get_parent_directory(parentdir);</span>
+<span class="lineNum">    1039 </span>                :            : 
+<span class="lineNum">    1040 </span>                :            :         /* The parent directory must already exist */
+<span class="lineNum">    1041 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (stat(parentdir, &amp;st) &lt; 0)</span>
+<span class="lineNum">    1042 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">    1043 </span>                :            :                                 (errcode_for_file_access(),
+<span class="lineNum">    1044 </span>                :            :                                  errmsg(&quot;%s: No such file or directory&quot;, 
+<span class="lineNum">    1045 </span>                :            :                                                 parentdir)));
+<span class="lineNum">    1046 </span>                :            :                 
+<span class="lineNum">    1047 </span>                :            :         /* The parent directory must be a directory */
+<span class="lineNum">    1048 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (! S_ISDIR(st.st_mode))</span>
+<span class="lineNum">    1049 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">    1050 </span>                :            :                                 (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+<span class="lineNum">    1051 </span>                :            :                                  errmsg(&quot;%s: Not a directory&quot;, parentdir)));
+<span class="lineNum">    1052 </span>                :            : 
+<span class="lineNum">    1053 </span>                :            :         /* 
+<span class="lineNum">    1054 </span>                :            :          * Check write permissions of the parent directory 
+<span class="lineNum">    1055 </span>                :            :          *
+<span class="lineNum">    1056 </span>                :            :          * Note: According to the BSD manual access shouldn't be used because it
+<span class="lineNum">    1057 </span>                :            :          * is a security hole, but what they are actually referring to is the fact
+<span class="lineNum">    1058 </span>                :            :          * that the permissions could change between the time of the check and the
+<span class="lineNum">    1059 </span>                :            :          * time an action is taken.  This is primarily a courtesy check to produce
+<span class="lineNum">    1060 </span>                :            :          * a cleaner error message.  If the filesystem should change between now
+<span class="lineNum">    1061 </span>                :            :          * and the actual mkdir() then the transaction will abort later with an
+<span class="lineNum">    1062 </span>                :            :          * uglier error message, but it is not actually a security hole.
+<span class="lineNum">    1063 </span>                :            :          */
+<span class="lineNum">    1064 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (access(parentdir, W_OK|X_OK) &lt; 0)</span>
+<span class="lineNum">    1065 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">    1066 </span>                :            :                                 (errcode_for_file_access(),
+<span class="lineNum">    1067 </span>                :            :                                  errmsg(&quot;%s: Permission denied&quot;, path)));
+<span class="lineNum">    1068 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1069 </span>                :            : 
+<span class="lineNum">    1070 </span>                :            : /*
+<span class="lineNum">    1071 </span>                :            :  * duplicatePathCheck()
+<span class="lineNum">    1072 </span>                :            :  *
+<span class="lineNum">    1073 </span>                :            :  * Compares two filespace entries to determine if they have the same location.
+<span class="lineNum">    1074 </span>                :            :  * 
+<span class="lineNum">    1075 </span>                :            :  * The main complication is that two paths that look different from
+<span class="lineNum">    1076 </span>                :            :  * each other could in fact be the same due to links, mount points, etc.
+<span class="lineNum">    1077 </span>                :            :  *
+<span class="lineNum">    1078 </span>                :            :  * Note: it is assumed that both paths have already been canonicalized.
+<a name="1079"><span class="lineNum">    1079 </span>                :            :  */</a>
+<span class="lineNum">    1080 </span>                :            : static void
+<span class="lineNum">    1081 </span>                :            : duplicatePathCheck(FileSpaceEntry *fse1, FileSpaceEntry *fse2)
+<span class="lineNum">    1082 </span>                :            : {
+<span class="lineNum">    1083 </span>                :<span class="lineNoCov">          0 :         char            *path1 = fse1-&gt;location;</span>
+<span class="lineNum">    1084 </span>                :<span class="lineNoCov">          0 :         char            *path2 = fse2-&gt;location;</span>
+<span class="lineNum">    1085 </span>                :            :         char            *parent1;
+<span class="lineNum">    1086 </span>                :            :         char            *parent2;
+<span class="lineNum">    1087 </span>                :            :         char            *tail1;
+<span class="lineNum">    1088 </span>                :            :         char            *tail2;
+<span class="lineNum">    1089 </span>                :            :         struct stat      st1;
+<span class="lineNum">    1090 </span>                :            :         struct stat      st2;
+<span class="lineNum">    1091 </span>                :            : 
+<span class="lineNum">    1092 </span>                :            :         /* Split both paths into parent directory and tail */
+<span class="lineNum">    1093 </span>                :<span class="lineNoCov">          0 :         parent1 = pstrdup(path1);</span>
+<span class="lineNum">    1094 </span>                :<span class="lineNoCov">          0 :         parent2 = pstrdup(path2);</span>
+<span class="lineNum">    1095 </span>                :<span class="lineNoCov">          0 :         get_parent_directory(parent1);</span>
+<span class="lineNum">    1096 </span>                :<span class="lineNoCov">          0 :         get_parent_directory(parent2);</span>
+<span class="lineNum">    1097 </span>                :<span class="lineNoCov">          0 :         tail1 = path1 + strlen(parent1) + 1;</span>
+<span class="lineNum">    1098 </span>                :<span class="lineNoCov">          0 :         tail2 = path2 + strlen(parent2) + 1;</span>
+<span class="lineNum">    1099 </span>                :            : 
+<span class="lineNum">    1100 </span>                :            :         /* 
+<span class="lineNum">    1101 </span>                :            :          * It is assumed that we have run at least one of these two paths through
+<span class="lineNum">    1102 </span>                :            :          * checkPathPermissions, which means that it's parent directory exists.  If
+<span class="lineNum">    1103 </span>                :            :          * the OTHER paths parent doesn't exist, then they aren't the same path.
+<span class="lineNum">    1104 </span>                :            :          */
+<span class="lineNum">    1105 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (stat(parent1, &amp;st1) &lt; 0 || stat(parent2, &amp;st2) &lt; 0)</span>
+<span class="lineNum">    1106 </span>                :<span class="lineNoCov">          0 :                 goto dup_path_return;</span>
+<span class="lineNum">    1107 </span>                :            : 
+<span class="lineNum">    1108 </span>                :            :         /*
+<span class="lineNum">    1109 </span>                :            :          * If the parent paths have different inodes then they are not the same.
+<span class="lineNum">    1110 </span>                :            :          */
+<span class="lineNum">    1111 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (st1.st_ino != st2.st_ino)</span>
+<span class="lineNum">    1112 </span>                :<span class="lineNoCov">          0 :                 goto dup_path_return;</span>
+<span class="lineNum">    1113 </span>                :            : 
+<span class="lineNum">    1114 </span>                :            :         /*
+<span class="lineNum">    1115 </span>                :            :          * Parents are the same; check if the tails are the same.
+<span class="lineNum">    1116 </span>                :            :          *
+<span class="lineNum">    1117 </span>                :            :          * We don't know if the underlying file system is case-sensitive or not,
+<span class="lineNum">    1118 </span>                :            :          * so it is possible that this check is over-aggressive.  But it is
+<span class="lineNum">    1119 </span>                :            :          * probably not reasonable to name one directory /gpdata/gp0 and a second
+<span class="lineNum">    1120 </span>                :            :          * one /gpdata/Gp0 so we'll go ahead and complain about case-insentive
+<span class="lineNum">    1121 </span>                :            :          * matches on the tail even for case-sensitive filesystems.  This saves
+<span class="lineNum">    1122 </span>                :            :          * us the trouble of trying to figure out what this file system supports.
+<span class="lineNum">    1123 </span>                :            :          */
+<span class="lineNum">    1124 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strcasecmp(tail1, tail2) == 0)</span>
+<span class="lineNum">    1125 </span>                :            :         {
+<span class="lineNum">    1126 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">    1127 </span>                :            :                                 (errcode(ERRCODE_DUPLICATE_OBJECT),
+<span class="lineNum">    1128 </span>                :            :                                  errmsg(&quot;duplicate filespace locations: &quot;
+<span class="lineNum">    1129 </span>                :            :                                                 &quot;(%d: '%s', %d: '%s')&quot;,
+<span class="lineNum">    1130 </span>                :            :                                                 fse2-&gt;dbid, fse2-&gt;location,
+<span class="lineNum">    1131 </span>                :            :                                                 fse1-&gt;dbid, fse1-&gt;location)));
+<span class="lineNum">    1132 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1133 </span>                :            : 
+<span class="lineNum">    1134 </span>                :            : dup_path_return:
+<span class="lineNum">    1135 </span>                :            :         /* Release memory and return */
+<span class="lineNum">    1136 </span>                :<span class="lineNoCov">          0 :         pfree(parent1);</span>
+<span class="lineNum">    1137 </span>                :<span class="lineNoCov">          0 :         pfree(parent2);</span>
+<span class="lineNum">    1138 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1139 </span>                :            : 
+<span class="lineNum">    1140 </span>                :            : /*
+<span class="lineNum">    1141 </span>                :            :  * filespace_check_empty(fsoid):
+<span class="lineNum">    1142 </span>                :            :  *
+<span class="lineNum">    1143 </span>                :            :  * Checks the gp_persistent_tablespace_node table to determine if the specified
+<span class="lineNum">    1144 </span>                :            :  * filespace is empty.
+<a name="1145"><span class="lineNum">    1145 </span>                :            :  */</a>
+<span class="lineNum">    1146 </span>                :            : static void 
+<span class="lineNum">    1147 </span>                :            : filespace_check_empty(Oid fsoid)
+<span class="lineNum">    1148 </span>                :            : {
+<span class="lineNum">    1149 </span>                :            :         Relation        rel;
+<span class="lineNum">    1150 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">    1151 </span>                :            :         ScanKeyData scankey;
+<span class="lineNum">    1152 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">    1153 </span>                :            : 
+<span class="lineNum">    1154 </span>                :            :         /* Search pg_filespace */
+<span class="lineNum">    1155 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(TableSpaceRelationId, RowExclusiveLock);</span>
+<span class="lineNum">    1156 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;scankey,</span>
+<span class="lineNum">    1157 </span>                :            :                                 Anum_pg_tablespace_spcfsoid,
+<span class="lineNum">    1158 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">    1159 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(fsoid));</span>
+<span class="lineNum">    1160 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, InvalidOid, false,</span>
+<span class="lineNum">    1161 </span>                :            :                                                           SnapshotNow, 1, &amp;scankey);
+<span class="lineNum">    1162 </span>                :<span class="lineNoCov">          0 :         tup = systable_getnext(scan);</span>
+<span class="lineNum">    1163 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(tup))</span>
+<span class="lineNum">    1164 </span>                :            :         {
+<span class="lineNum">    1165 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">    1166 </span>                :            :                                 (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+<span class="lineNum">    1167 </span>                :            :                                  errmsg(&quot;filespace \&quot;%s\&quot; is not empty&quot;, 
+<span class="lineNum">    1168 </span>                :            :                                                 get_filespace_name(fsoid))));
+<span class="lineNum">    1169 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1170 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">    1171 </span>                :            : 
+<span class="lineNum">    1172 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">    1173 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1174 </span>                :            : 
+<a name="1175"><span class="lineNum">    1175 </span>                :            : /* Add a pg_filespace_entry for a given filespace definition. */</a>
+<span class="lineNum">    1176 </span>                :            : void
+<span class="lineNum">    1177 </span>                :            : add_catalog_filespace_entry(Relation rel, Oid fsoid, int16 dbid, char *location)
+<span class="lineNum">    1178 </span>                :            : {
+<span class="lineNum">    1179 </span>                :            :         HeapTuple        tuple;
+<span class="lineNum">    1180 </span>                :            :         Datum            evalues[Natts_pg_filespace_entry];
+<span class="lineNum">    1181 </span>                :            :         bool             enulls[Natts_pg_filespace_entry];
+<span class="lineNum">    1182 </span>                :            : 
+<span class="lineNum">    1183 </span>                :            :         /* NOTE: rel must have correct lock mode for INSERT */
+<span class="lineNum">    1184 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(enulls, false, sizeof(enulls));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">    1185 </span>                :            : 
+<span class="lineNum">    1186 </span>                :<span class="lineNoCov">          0 :         evalues[Anum_pg_filespace_entry_fsefsoid - 1] = ObjectIdGetDatum(fsoid);</span>
+<span class="lineNum">    1187 </span>                :            : 
+<span class="lineNum">    1188 </span>                :<span class="lineNoCov">          0 :         evalues[Anum_pg_filespace_entry_fsedbid - 1] = Int16GetDatum(dbid);</span>
+<span class="lineNum">    1189 </span>                :<span class="lineNoCov">          0 :         evalues[Anum_pg_filespace_entry_fselocation - 1] =</span>
+<span class="lineNum">    1190 </span>                :<span class="lineNoCov">          0 :                                 DirectFunctionCall1(textin, CStringGetDatum(location));</span>
+<span class="lineNum">    1191 </span>                :            : 
+<span class="lineNum">    1192 </span>                :<span class="lineNoCov">          0 :         tuple = heap_form_tuple(RelationGetDescr(rel), evalues, enulls);</span>
+<span class="lineNum">    1193 </span>                :            : 
+<span class="lineNum">    1194 </span>                :            :         /* insert a new tuple */
+<span class="lineNum">    1195 </span>                :<span class="lineNoCov">          0 :         simple_heap_insert(rel, tuple);</span>
+<span class="lineNum">    1196 </span>                :            : 
+<span class="lineNum">    1197 </span>                :            :         /* Update indexes */
+<span class="lineNum">    1198 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, tuple);</span>
+<span class="lineNum">    1199 </span>                :            : 
+<span class="lineNum">    1200 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tuple);</span>
+<span class="lineNum">    1201 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1202"><span class="lineNum">    1202 </span>                :            : </a>
+<span class="lineNum">    1203 </span>                :            : void
+<span class="lineNum">    1204 </span>                :            : dbid_remove_filespace_entries(Relation rel, int16 dbid)
+<span class="lineNum">    1205 </span>                :            : {
+<span class="lineNum">    1206 </span>                :            :         ScanKeyData skey;
+<span class="lineNum">    1207 </span>                :            :         SysScanDesc sd;
+<span class="lineNum">    1208 </span>                :            :         HeapTuple       oldtuple;
+<span class="lineNum">    1209 </span>                :            : 
+<span class="lineNum">    1210 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;skey,</span>
+<span class="lineNum">    1211 </span>                :            :                                 Anum_pg_filespace_entry_fsedbid,
+<span class="lineNum">    1212 </span>                :            :                                 BTEqualStrategyNumber, F_INT2EQ,
+<span class="lineNum">    1213 </span>                :<span class="lineNoCov">          0 :                                 Int16GetDatum(dbid));</span>
+<span class="lineNum">    1214 </span>                :            : 
+<span class="lineNum">    1215 </span>                :<span class="lineNoCov">          0 :         sd = systable_beginscan(rel, InvalidOid, false, /* no index */</span>
+<span class="lineNum">    1216 </span>                :            :                                                         SnapshotNow, 1, &amp;skey);
+<span class="lineNum">    1217 </span>                :            : 
+<span class="lineNum">    1218 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((oldtuple = systable_getnext(sd)) != NULL)</span>
+<span class="lineNum">    1219 </span>                :<span class="lineNoCov">          0 :                 simple_heap_delete(rel, &amp;oldtuple-&gt;t_self);</span>
+<span class="lineNum">    1220 </span>                :            : 
+<span class="lineNum">    1221 </span>                :            :         /* Done */
+<span class="lineNum">    1222 </span>                :<span class="lineNoCov">          0 :         systable_endscan(sd);</span>
+<span class="lineNum">    1223 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1224"><span class="lineNum">    1224 </span>                :            : </a>
+<span class="lineNum">    1225 </span>                :            : int
+<span class="lineNum">    1226 </span>                :            : num_filespaces(void)
+<span class="lineNum">    1227 </span>                :            : {
+<span class="lineNum">    1228 </span>                :<span class="lineNoCov">          0 :         Relation rel = heap_open(FileSpaceRelationId, AccessShareLock);</span>
+<span class="lineNum">    1229 </span>                :            :         SysScanDesc sd;
+<span class="lineNum">    1230 </span>                :<span class="lineNoCov">          0 :         int n = 0;</span>
+<span class="lineNum">    1231 </span>                :            : 
+<span class="lineNum">    1232 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(GpIdentity.segindex == MASTER_CONTENT_ID);</span>
+<span class="lineNum">    1233 </span>                :            : 
+<span class="lineNum">    1234 </span>                :            :         /* XXX: should we do this via gp_persistent_filespace_node? */
+<span class="lineNum">    1235 </span>                :<span class="lineNoCov">          0 :         sd = systable_beginscan(rel, InvalidOid, false, /* no index */</span>
+<span class="lineNum">    1236 </span>                :            :                                                         SnapshotNow, 0, NULL);
+<span class="lineNum">    1237 </span>                :            : 
+<span class="lineNum">    1238 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (systable_getnext(sd) != NULL)</span>
+<span class="lineNum">    1239 </span>                :<span class="lineNoCov">          0 :                 n++;</span>
+<span class="lineNum">    1240 </span>                :            : 
+<span class="lineNum">    1241 </span>                :            :         /* Done */
+<span class="lineNum">    1242 </span>                :<span class="lineNoCov">          0 :         systable_endscan(sd);</span>
+<span class="lineNum">    1243 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">    1244 </span>                :            : 
+<span class="lineNum">    1245 </span>                :<span class="lineNoCov">          0 :         return n;</span>
+<span class="lineNum">    1246 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

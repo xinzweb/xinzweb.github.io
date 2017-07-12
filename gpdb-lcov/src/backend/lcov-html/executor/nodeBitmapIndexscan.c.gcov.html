@@ -1,0 +1,346 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/nodeBitmapIndexscan.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - nodeBitmapIndexscan.c<span style="font-size: 80%;"> (source / <a href="nodeBitmapIndexscan.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">75</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">82</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nodeBitmapIndexscan.c
+<span class="lineNum">       4 </span>                :            :  *        Routines to support bitmapped index scans of relations
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2007-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/executor/nodeBitmapIndexscan.c,v 1.25 2008/01/01 19:45:49 momjian Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : /*
+<span class="lineNum">      17 </span>                :            :  * INTERFACE ROUTINES
+<span class="lineNum">      18 </span>                :            :  *              MultiExecBitmapIndexScan        scans a relation using index.
+<span class="lineNum">      19 </span>                :            :  *              ExecInitBitmapIndexScan         creates and initializes state info.
+<span class="lineNum">      20 </span>                :            :  *              ExecBitmapIndexReScan           prepares to rescan the plan.
+<span class="lineNum">      21 </span>                :            :  *              ExecEndBitmapIndexScan          releases all storage.
+<span class="lineNum">      22 </span>                :            :  */
+<span class="lineNum">      23 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;cdb/cdbpartition.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;executor/execdebug.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;executor/execDynamicIndexScan.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;executor/instrument.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;executor/nodeBitmapIndexscan.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;executor/nodeIndexscan.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;nodes/tidbitmap.h&quot;
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : #define BITMAPINDEXSCAN_NSLOTS 0
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">      41 </span>                :            :  *              MultiExecBitmapIndexScan(node)
+<span class="lineNum">      42 </span>                :            :  *
+<span class="lineNum">      43 </span>                :            :  *              If IndexScanState's iss_NumArrayKeys = 0, then BitmapIndexScan
+<span class="lineNum">      44 </span>                :            :  *              node returns a StreamBitmap that stores all the interesting rows.
+<span class="lineNum">      45 </span>                :            :  *              The returning StreamBitmap will point to an IndexStream that contains
+<span class="lineNum">      46 </span>                :            :  *              pointers to functions for handling the output.
+<span class="lineNum">      47 </span>                :            :  *
+<span class="lineNum">      48 </span>                :            :  *              If IndexScanState's iss_NumArrayKeys &gt; 0 (e.g., WHERE clause contains
+<span class="lineNum">      49 </span>                :            :  *              `d in (0,1)` condition and a bitmap index has been created on column d),
+<span class="lineNum">      50 </span>                :            :  *              then iss_NumArrayKeys StreamBitmaps will be created, where every bitmap
+<span class="lineNum">      51 </span>                :            :  *              points to an individual IndexStream. BitmapIndexScan node
+<span class="lineNum">      52 </span>                :            :  *              returns a StreamBitmap that ORs all the above StreamBitmaps. Also, the
+<span class="lineNum">      53 </span>                :            :  *              returning StreamBitmap will point to an OpStream of type BMS_OR whose input
+<span class="lineNum">      54 </span>                :            :  *              streams are the IndexStreams created for every array key.
+<span class="lineNum">      55 </span>                :            :  * ----------------------------------------------------------------
+<a name="56"><span class="lineNum">      56 </span>                :            :  */</a>
+<span class="lineNum">      57 </span>                :            : Node *
+<span class="lineNum">      58 </span>                :            : MultiExecBitmapIndexScan(BitmapIndexScanState *node)
+<span class="lineNum">      59 </span>                :            : {
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :         IndexScanState *scanState = (IndexScanState*)node;</span>
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :<span class="lineNoCov">          0 :         Node            *bitmap = NULL;</span>
+<span class="lineNum">      63 </span>                :            : 
+<span class="lineNum">      64 </span>                :            :         /* Make sure we are not leaking a previous bitmap */
+<span class="lineNum">      65 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL == node-&gt;bitmap);</span>
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            :         /* must provide our own instrumentation support */
+<span class="lineNum">      68 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (scanState-&gt;ss.ps.instrument)</span>
+<span class="lineNum">      69 </span>                :            :         {
+<span class="lineNum">      70 </span>                :<span class="lineNoCov">          0 :                 InstrStartNode(scanState-&gt;ss.ps.instrument);</span>
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :         bool partitionIsReady = IndexScan_BeginIndexPartition(scanState, node-&gt;partitionMemoryContext, false /* initQual */,</span>
+<span class="lineNum">      73 </span>                :            :                         false /* initTargetList */, true /* supportsArrayKeys */,
+<span class="lineNum">      74 </span>                :            :                         true /* isMultiScan */);
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(partitionIsReady);</span>
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (partitionIsReady)</span>
+<span class="lineNum">      79 </span>                :            :         {
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :                 bool doscan = node-&gt;indexScanState.iss_RuntimeKeysReady;</span>
+<span class="lineNum">      81 </span>                :            : 
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :                 IndexScanDesc scandesc = scanState-&gt;iss_ScanDesc;</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            :                 /* Get bitmap from index */
+<span class="lineNum">      85 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (doscan)</span>
+<span class="lineNum">      86 </span>                :            :                 {
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :                         bitmap = index_getmulti(scandesc, node-&gt;bitmap);</span>
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ((NULL != bitmap) &amp;&amp;</span>
+<span class="lineNum">      90 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 !(IsA(bitmap, HashBitmap) || IsA(bitmap, StreamBitmap)))</span>
+<span class="lineNum">      91 </span>                :            :                         {
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :                                 elog(ERROR, &quot;unrecognized result from bitmap index scan&quot;);</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (QueryFinishPending)</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            :                 /* CDB: If EXPLAIN ANALYZE, let bitmap share our Instrumentation. */
+<span class="lineNum">     101 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (scanState-&gt;ss.ps.instrument)</span>
+<span class="lineNum">     102 </span>                :            :                 {
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                     tbm_bitmap_set_instrument(bitmap, scanState-&gt;ss.ps.instrument);</span>
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(node-&gt;bitmap == NULL)</span>
+<span class="lineNum">     107 </span>                :            :                         {
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :                                 node-&gt;bitmap = (Node *)bitmap;</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                         doscan = ExecIndexAdvanceArrayKeys(scanState-&gt;iss_ArrayKeys,</span>
+<span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 :                                                                                                    scanState-&gt;iss_NumArrayKeys);</span>
+<span class="lineNum">     113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (doscan)</span>
+<span class="lineNum">     114 </span>                :            :                         {
+<span class="lineNum">     115 </span>                :            :                                 /* reset index scan */
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :                                 index_rescan(scanState-&gt;iss_ScanDesc, scanState-&gt;iss_ScanKeys);</span>
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     118 </span>                :            :                 }
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :         IndexScan_EndIndexPartition(scanState);</span>
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :            :         /* must provide our own instrumentation support */
+<span class="lineNum">     124 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (scanState-&gt;ss.ps.instrument)</span>
+<span class="lineNum">     125 </span>                :            :         {
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                 InstrStopNode(scanState-&gt;ss.ps.instrument, 1 /* nTuples */);</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         return (Node *) bitmap;</span>
+<span class="lineNum">     130 </span>                :            : }
+<span class="lineNum">     131 </span>                :            : 
+<span class="lineNum">     132 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     133 </span>                :            :  *              ExecBitmapIndexReScan(node)
+<span class="lineNum">     134 </span>                :            :  *
+<span class="lineNum">     135 </span>                :            :  *              Recalculates the value of the scan keys whose value depends on
+<span class="lineNum">     136 </span>                :            :  *              information known at runtime and rescans the indexed relation.
+<span class="lineNum">     137 </span>                :            :  * ----------------------------------------------------------------
+<a name="138"><span class="lineNum">     138 </span>                :            :  */</a>
+<span class="lineNum">     139 </span>                :            : void
+<span class="lineNum">     140 </span>                :            : ExecBitmapIndexReScan(BitmapIndexScanState *node, ExprContext *exprCtxt)
+<span class="lineNum">     141 </span>                :            : {
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         IndexScanState *scanState = (IndexScanState*)node;</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :         IndexScan_RescanIndex(scanState, exprCtxt, false, false, true);</span>
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>                :            :         /* Sanity check */
+<span class="lineNum">     147 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((node-&gt;bitmap) &amp;&amp; (!IsA(node-&gt;bitmap, HashBitmap) &amp;&amp; !IsA(node-&gt;bitmap, StreamBitmap)))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     148 </span>                :            :         {
+<span class="lineNum">     149 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     150 </span>                :            :                                 (errcode(ERRCODE_GP_INTERNAL_ERROR),
+<span class="lineNum">     151 </span>                :            :                                  errmsg(&quot;the returning bitmap in nodeBitmapIndexScan is invalid.&quot;)));
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     153 </span>                :            : 
+<span class="lineNum">     154 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(NULL != node-&gt;bitmap)</span>
+<span class="lineNum">     155 </span>                :            :         {
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                 tbm_bitmap_free(node-&gt;bitmap);</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                 node-&gt;bitmap = NULL;</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :         CheckSendPlanStateGpmonPkt(&amp;scanState-&gt;ss.ps);</span>
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     164 </span>                :            :  *              ExecEndBitmapIndexScan
+<span class="lineNum">     165 </span>                :            :  * ----------------------------------------------------------------
+<a name="166"><span class="lineNum">     166 </span>                :            :  */</a>
+<span class="lineNum">     167 </span>                :            : void
+<span class="lineNum">     168 </span>                :            : ExecEndBitmapIndexScan(BitmapIndexScanState *node)
+<span class="lineNum">     169 </span>                :            : {
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         IndexScanState *scanState = (IndexScanState*)node;</span>
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         IndexScan_EndIndexScan(scanState);</span>
+<span class="lineNum">     173 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(SCAN_END == scanState-&gt;ss.scan_state);</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         tbm_bitmap_free(node-&gt;bitmap);</span>
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :         node-&gt;bitmap = NULL;</span>
+<span class="lineNum">     177 </span>                :            : 
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         MemoryContextDelete(node-&gt;partitionMemoryContext);</span>
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :         node-&gt;partitionMemoryContext = NULL;</span>
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :         EndPlanStateGpmonPkt(&amp;scanState-&gt;ss.ps);</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     185 </span>                :            :  *              ExecInitBitmapIndexScan
+<span class="lineNum">     186 </span>                :            :  *
+<span class="lineNum">     187 </span>                :            :  *              Initializes the index scan's state information.
+<span class="lineNum">     188 </span>                :            :  * ----------------------------------------------------------------
+<a name="189"><span class="lineNum">     189 </span>                :            :  */</a>
+<span class="lineNum">     190 </span>                :            : BitmapIndexScanState *
+<span class="lineNum">     191 </span>                :            : ExecInitBitmapIndexScan(BitmapIndexScan *node, EState *estate, int eflags)
+<span class="lineNum">     192 </span>                :            : {
+<span class="lineNum">     193 </span>                :            :         BitmapIndexScanState *indexstate;
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>                :            :         /* check for unsupported flags */
+<span class="lineNum">     196 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!(eflags &amp; (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :         /*
+<span class="lineNum">     199 </span>                :            :          * create state structure
+<span class="lineNum">     200 </span>                :            :          */
+<span class="lineNum">     201 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         indexstate = makeNode(BitmapIndexScanState);</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :         indexstate-&gt;partitionMemoryContext = AllocSetContextCreate(CurrentMemoryContext,</span>
+<span class="lineNum">     203 </span>                :            :                          &quot;BitmapIndexScanPerPartition&quot;,
+<span class="lineNum">     204 </span>                :            :                          ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     205 </span>                :            :                          ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     206 </span>                :            :                          ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     207 </span>                :            : 
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         IndexScanState *scanState = (IndexScanState*)indexstate;</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :         scanState-&gt;ss.ps.plan = (Plan *) node;</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         scanState-&gt;ss.ps.state = estate;</span>
+<span class="lineNum">     212 </span>                :            : 
+<span class="lineNum">     213 </span>                :            :         /*
+<span class="lineNum">     214 </span>                :            :          * If we are just doing EXPLAIN (ie, aren't going to run the plan), stop
+<span class="lineNum">     215 </span>                :            :          * here.  This allows an index-advisor plugin to EXPLAIN a plan containing
+<span class="lineNum">     216 </span>                :            :          * references to nonexistent indexes.
+<span class="lineNum">     217 </span>                :            :          */
+<span class="lineNum">     218 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (eflags &amp; EXEC_FLAG_EXPLAIN_ONLY)</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :                 return indexstate;</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :         IndexScan_BeginIndexScan(scanState, indexstate-&gt;partitionMemoryContext, false, false, true);</span>
+<span class="lineNum">     222 </span>                :            : 
+<span class="lineNum">     223 </span>                :            :         /*
+<span class="lineNum">     224 </span>                :            :          * We do not open or lock the base relation here.  We assume that an
+<span class="lineNum">     225 </span>                :            :          * ancestor BitmapHeapScan node is holding AccessShareLock (or better) on
+<span class="lineNum">     226 </span>                :            :          * the heap relation throughout the execution of the plan tree.
+<span class="lineNum">     227 </span>                :            :          */
+<span class="lineNum">     228 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL == scanState-&gt;ss.ss_currentRelation);</span>
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :         initGpmonPktForBitmapIndexScan((Plan *)node, &amp;scanState-&gt;ss.ps.gpmon_pkt, estate);</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         return indexstate;</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="234"><span class="lineNum">     234 </span>                :            : </a>
+<span class="lineNum">     235 </span>                :            : int
+<span class="lineNum">     236 </span>                :            : ExecCountSlotsBitmapIndexScan(BitmapIndexScan *node)
+<span class="lineNum">     237 </span>                :            : {
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :         return ExecCountSlotsNode(outerPlan((Plan *) node)) +</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                 ExecCountSlotsNode(innerPlan((Plan *) node)) + BITMAPINDEXSCAN_NSLOTS;</span>
+<span class="lineNum">     240 </span>                :            : }
+<span class="lineNum">     241 </span>                :            : 
+<a name="242"><span class="lineNum">     242 </span>                :            : </a>
+<span class="lineNum">     243 </span>                :            : void
+<span class="lineNum">     244 </span>                :            : initGpmonPktForBitmapIndexScan(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *estate)
+<span class="lineNum">     245 </span>                :            : {
+<span class="lineNum">     246 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != planNode &amp;&amp; NULL != gpmon_pkt &amp;&amp; IsA(planNode, BitmapIndexScan));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :         InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

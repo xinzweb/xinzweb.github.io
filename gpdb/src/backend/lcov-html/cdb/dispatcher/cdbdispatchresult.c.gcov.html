@@ -1,0 +1,1065 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - cdb/dispatcher/cdbdispatchresult.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">cdb/dispatcher</a> - cdbdispatchresult.c<span style="font-size: 80%;"> (source / <a href="cdbdispatchresult.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">357</td>
+            <td class="headerCovTableEntryLo">4.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">27</td>
+            <td class="headerCovTableEntryLo">3.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">5</td>
+            <td class="headerCovTableEntry">290</td>
+            <td class="headerCovTableEntryLo">1.7 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * cdbdispatchresult.c
+<span class="lineNum">       4 </span>                :            :  *        Functions for handling dispatch results
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Copyright (c) 2005-2008, Greenplum inc
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      10 </span>                :            :  */
+<span class="lineNum">      11 </span>                :            : 
+<span class="lineNum">      12 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &lt;pthread.h&gt;
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : #include &quot;gp-libpq-fe.h&quot;              /* prerequisite for libpq-int.h */
+<span class="lineNum">      16 </span>                :            : #include &quot;gp-libpq-int.h&quot;             /* PQExpBufferData */
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;lib/stringinfo.h&quot;           /* StringInfoData */
+<span class="lineNum">      19 </span>                :            : #include &quot;utils/guc.h&quot;                        /* log_min_messages */
+<span class="lineNum">      20 </span>                :            : 
+<span class="lineNum">      21 </span>                :            : #include &quot;cdb/cdbconn.h&quot;              /* SegmentDatabaseDescriptor */
+<span class="lineNum">      22 </span>                :            : #include &quot;cdb/cdbpartition.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;cdb/cdbsreh.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;cdb/cdbdispatchresult.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;commands/tablecmds.h&quot;
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :            : /*
+<span class="lineNum">      29 </span>                :            :  * This mutex serializes writes by dispatcher threads to the
+<span class="lineNum">      30 </span>                :            :  * iFirstError and errcode fields of CdbDispatchResults objects.
+<span class="lineNum">      31 </span>                :            :  */
+<span class="lineNum">      32 </span>                :            : static pthread_mutex_t setErrcodeMutex = PTHREAD_MUTEX_INITIALIZER;
+<span class="lineNum">      33 </span>                :            : 
+<span class="lineNum">      34 </span>                :            : static int
+<span class="lineNum">      35 </span>                :            : cdbdisp_snatchPGresults(CdbDispatchResult *dispatchResult,
+<span class="lineNum">      36 </span>                :            :                                                 struct pg_result **pgresultptrs, int maxresults);
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : /*
+<span class="lineNum">      39 </span>                :            :  * Make sure buffer has no trailing newline, whitespace, etc.
+<a name="40"><span class="lineNum">      40 </span>                :            :  */</a>
+<span class="lineNum">      41 </span>                :            : static void
+<span class="lineNum">      42 </span>                :            : noTrailingNewline(StringInfo buf)
+<span class="lineNum">      43 </span>                :            : {
+<span class="lineNum">      44 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (buf-&gt;len &gt; 0 &amp;&amp; buf-&gt;data[buf-&gt;len - 1] &lt;= ' ' &amp;&amp; buf-&gt;data[buf-&gt;len - 1] &gt; '\0')</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">      45 </span>                :<span class="lineNoCov">          0 :                 buf-&gt;data[--buf-&gt;len] = '\0';</span>
+<span class="lineNum">      46 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="47"><span class="lineNum">      47 </span>                :            : </a>
+<span class="lineNum">      48 </span>                :            : static void
+<span class="lineNum">      49 </span>                :            : noTrailingNewlinePQ(PQExpBuffer buf)
+<span class="lineNum">      50 </span>                :            : {
+<span class="lineNum">      51 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (buf-&gt;len &gt; 0 &amp;&amp; buf-&gt;data[buf-&gt;len - 1] &lt;= ' ' &amp;&amp; buf-&gt;data[buf-&gt;len - 1] &gt; '\0')</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :                 buf-&gt;data[--buf-&gt;len] = '\0';</span>
+<span class="lineNum">      53 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      54 </span>                :            : 
+<span class="lineNum">      55 </span>                :            : /*
+<span class="lineNum">      56 </span>                :            :  * If buffer is nonempty, make sure it has exactly one trailing newline.
+<a name="57"><span class="lineNum">      57 </span>                :            :  */</a>
+<span class="lineNum">      58 </span>                :            : static void
+<span class="lineNum">      59 </span>                :            : oneTrailingNewline(StringInfo buf)
+<span class="lineNum">      60 </span>                :            : {
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 :         noTrailingNewline(buf);</span>
+<span class="lineNum">      62 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (buf-&gt;len &gt; 0)</span>
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(buf, '\n');</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="65"><span class="lineNum">      65 </span>                :            : </a>
+<span class="lineNum">      66 </span>                :            : static void
+<span class="lineNum">      67 </span>                :            : oneTrailingNewlinePQ(PQExpBuffer buf)
+<span class="lineNum">      68 </span>                :            : {
+<span class="lineNum">      69 </span>                :<span class="lineNoCov">          0 :         noTrailingNewlinePQ(buf);</span>
+<span class="lineNum">      70 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (buf-&gt;len &gt; 0)</span>
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :                 appendPQExpBufferChar(buf, '\n');</span>
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : /*
+<span class="lineNum">      75 </span>                :            :  * Create a CdbDispatchResult object, appending it to the
+<span class="lineNum">      76 </span>                :            :  * resultArray of a given CdbDispatchResults object.
+<a name="77"><span class="lineNum">      77 </span>                :            :  */</a>
+<span class="lineNum">      78 </span>                :            : CdbDispatchResult *
+<span class="lineNum">      79 </span>                :            : cdbdisp_makeResult(struct CdbDispatchResults *meleeResults,
+<span class="lineNum">      80 </span>                :            :                                    struct SegmentDatabaseDescriptor *segdbDesc, int sliceIndex)
+<span class="lineNum">      81 </span>                :            : {
+<span class="lineNum">      82 </span>                :            :         CdbDispatchResult *dispatchResult;
+<span class="lineNum">      83 </span>                :            :         int     meleeIndex;
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          1 :         Assert(meleeResults &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchNoCov" title="Branch 6 was not taken"> - </span><span class="branchCov" title="Branch 7 was taken 1 time"> + </span>]
+<span class="lineNum">      86 </span>                :            :                    meleeResults-&gt;resultArray &amp;&amp;
+<span class="lineNum">      87 </span>                :            :                    meleeResults-&gt;resultCount &lt; meleeResults-&gt;resultCapacity);
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            :         /*
+<span class="lineNum">      90 </span>                :            :          * Allocate a slot for the new CdbDispatchResult object.
+<span class="lineNum">      91 </span>                :            :          */
+<span class="lineNum">      92 </span>                :<span class="lineCov">          1 :         meleeIndex = meleeResults-&gt;resultCount++;</span>
+<span class="lineNum">      93 </span>                :<span class="lineCov">          1 :         dispatchResult = &amp;meleeResults-&gt;resultArray[meleeIndex];</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            :         /*
+<span class="lineNum">      96 </span>                :            :          * Initialize CdbDispatchResult.
+<span class="lineNum">      97 </span>                :            :          */
+<span class="lineNum">      98 </span>                :<span class="lineCov">          1 :         dispatchResult-&gt;meleeResults = meleeResults;</span>
+<span class="lineNum">      99 </span>                :<span class="lineCov">          1 :         dispatchResult-&gt;meleeIndex = meleeIndex;</span>
+<span class="lineNum">     100 </span>                :<span class="lineCov">          1 :         dispatchResult-&gt;segdbDesc = segdbDesc;</span>
+<span class="lineNum">     101 </span>                :<span class="lineCov">          1 :         dispatchResult-&gt;resultbuf = createPQExpBuffer();</span>
+<span class="lineNum">     102 </span>                :<span class="lineCov">          1 :         dispatchResult-&gt;error_message = createPQExpBuffer();</span>
+<span class="lineNum">     103 </span>                :<span class="lineCov">          1 :         dispatchResult-&gt;numrowsrejected = 0;</span>
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>[<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">          1 :         if (PQExpBufferBroken(dispatchResult-&gt;resultbuf) ||</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 PQExpBufferBroken(dispatchResult-&gt;error_message))</span>
+<span class="lineNum">     107 </span>                :            :         {
+<span class="lineNum">     108 </span>                :<span class="lineCov">          1 :                 destroyPQExpBuffer(dispatchResult-&gt;resultbuf);</span>
+<span class="lineNum">     109 </span>                :<span class="lineCov">          1 :                 dispatchResult-&gt;resultbuf = NULL;</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :<span class="lineCov">          1 :                 destroyPQExpBuffer(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     112 </span>                :<span class="lineCov">          1 :                 dispatchResult-&gt;error_message = NULL;</span>
+<span class="lineNum">     113 </span>                :            :                 /*
+<span class="lineNum">     114 </span>                :            :                  * caller is responsible for cleanup -- can't elog(ERROR, ...) from here.
+<span class="lineNum">     115 </span>                :            :                  */
+<span class="lineNum">     116 </span>                :<span class="lineCov">          1 :                 return NULL;</span>
+<span class="lineNum">     117 </span>                :            :         }
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :            :         /*
+<span class="lineNum">     120 </span>                :            :          * Reset summary indicators.
+<span class="lineNum">     121 </span>                :            :          */
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :         cdbdisp_resetResult(dispatchResult);</span>
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :            :         /*
+<span class="lineNum">     125 </span>                :            :          * Update slice map entry.
+<span class="lineNum">     126 </span>                :            :          */
+<span class="lineNum">     127 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sliceIndex &gt;= 0 &amp;&amp; sliceIndex &lt; meleeResults-&gt;sliceCapacity)</span>
+<span class="lineNum">     128 </span>                :            :         {
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchResults_SliceInfo *si = &amp;meleeResults-&gt;sliceMap[sliceIndex];</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (si-&gt;resultBegin == si-&gt;resultEnd)</span>
+<span class="lineNum">     132 </span>                :            :                 {
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                         si-&gt;resultBegin = meleeIndex;</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                         si-&gt;resultEnd = meleeIndex + 1;</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     136 </span>                :            :                 else
+<span class="lineNum">     137 </span>                :            :                 {
+<span class="lineNum">     138 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (si-&gt;resultBegin &gt; meleeIndex)</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                                 si-&gt;resultBegin = meleeIndex;</span>
+<span class="lineNum">     140 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (si-&gt;resultEnd &lt;= meleeIndex)</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                                 si-&gt;resultEnd = meleeIndex + 1;</span>
+<span class="lineNum">     142 </span>                :            :                 }
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     144 </span>                :            : 
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :         return dispatchResult;</span>
+<span class="lineNum">     146 </span>                :<span class="lineCov">          1 : }</span>
+<span class="lineNum">     147 </span>                :            : 
+<span class="lineNum">     148 </span>                :            : /*
+<span class="lineNum">     149 </span>                :            :  * Destroy a CdbDispatchResult object.
+<a name="150"><span class="lineNum">     150 </span>                :            :  */</a>
+<span class="lineNum">     151 </span>                :            : void
+<span class="lineNum">     152 </span>                :            : cdbdisp_termResult(CdbDispatchResult *dispatchResult)
+<span class="lineNum">     153 </span>                :            : {
+<span class="lineNum">     154 </span>                :            :         PQExpBuffer trash;
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;segdbDesc = NULL;</span>
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :            :         /*
+<span class="lineNum">     159 </span>                :            :          * Free the PGresult objects.
+<span class="lineNum">     160 </span>                :            :          */
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :         cdbdisp_resetResult(dispatchResult);</span>
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :            :         /*
+<span class="lineNum">     164 </span>                :            :          * Free the error message buffer and result buffer.
+<span class="lineNum">     165 </span>                :            :          */
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         trash = dispatchResult-&gt;resultbuf;</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;resultbuf = NULL;</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         destroyPQExpBuffer(trash);</span>
+<span class="lineNum">     169 </span>                :            : 
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         trash = dispatchResult-&gt;error_message;</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;error_message = NULL;</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         destroyPQExpBuffer(trash);</span>
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :            : /*
+<span class="lineNum">     176 </span>                :            :  * Reset a CdbDispatchResult object for possible reuse.
+<a name="177"><span class="lineNum">     177 </span>                :            :  */</a>
+<span class="lineNum">     178 </span>                :            : void
+<span class="lineNum">     179 </span>                :            : cdbdisp_resetResult(CdbDispatchResult *dispatchResult)
+<span class="lineNum">     180 </span>                :            : {
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :         PQExpBuffer buf = dispatchResult-&gt;resultbuf;</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         PGresult **begp = (PGresult **) buf-&gt;data;</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :         PGresult **endp = (PGresult **) (buf-&gt;data + buf-&gt;len);</span>
+<span class="lineNum">     184 </span>                :            :         PGresult **p;
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :            :         /*
+<span class="lineNum">     187 </span>                :            :          * Free the PGresult objects.
+<span class="lineNum">     188 </span>                :            :          */
+<span class="lineNum">     189 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (p = begp; p &lt; endp; ++p)</span>
+<span class="lineNum">     190 </span>                :            :         {
+<span class="lineNum">     191 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(*p != NULL);</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                 PQclear(*p);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>                :            :         /*
+<span class="lineNum">     196 </span>                :            :          * Reset summary indicators.
+<span class="lineNum">     197 </span>                :            :          */
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;errcode = 0;</span>
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;errindex = -1;</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;okindex = -1;</span>
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>                :            :         /*
+<span class="lineNum">     203 </span>                :            :          * Reset progress indicators.
+<span class="lineNum">     204 </span>                :            :          */
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;hasDispatched = false;</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;stillRunning = false;</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;sentSignal = DISPATCH_WAIT_NONE;</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;wasCanceled = false;</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :            :         /*
+<span class="lineNum">     211 </span>                :            :          * Empty (but don't free) the error message buffer and result buffer.
+<span class="lineNum">     212 </span>                :            :          */
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         resetPQExpBuffer(dispatchResult-&gt;resultbuf);</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :         resetPQExpBuffer(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     216 </span>                :            : 
+<span class="lineNum">     217 </span>                :            : /*
+<span class="lineNum">     218 </span>                :            :  * Take note of an error.
+<span class="lineNum">     219 </span>                :            :  * 'errcode' is the ERRCODE_xxx value for setting the client's SQLSTATE.
+<span class="lineNum">     220 </span>                :            :  * NB: This can be called from a dispatcher thread, so it must not use
+<span class="lineNum">     221 </span>                :            :  * palloc/pfree or elog/ereport because they are not thread safe.
+<a name="222"><span class="lineNum">     222 </span>                :            :  */</a>
+<span class="lineNum">     223 </span>                :            : void
+<span class="lineNum">     224 </span>                :            : cdbdisp_seterrcode(int errcode, /* ERRCODE_xxx or 0 */
+<span class="lineNum">     225 </span>                :            :                                    int resultIndex,     /* -1 if no PGresult */
+<span class="lineNum">     226 </span>                :            :                                    CdbDispatchResult *dispatchResult)
+<span class="lineNum">     227 </span>                :            : {
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :         CdbDispatchResults *meleeResults = dispatchResult-&gt;meleeResults;</span>
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :            :         /*
+<span class="lineNum">     231 </span>                :            :          * We must ensure a nonzero errcode.
+<span class="lineNum">     232 </span>                :            :          */
+<span class="lineNum">     233 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!errcode)</span>
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :                 errcode = ERRCODE_INTERNAL_ERROR;</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :            :         /*
+<span class="lineNum">     237 </span>                :            :          * Was the command canceled?
+<span class="lineNum">     238 </span>                :            :          */
+<span class="lineNum">     239 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errcode == ERRCODE_GP_OPERATION_CANCELED ||</span>
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                 errcode == ERRCODE_QUERY_CANCELED)</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                 dispatchResult-&gt;wasCanceled = true;</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :            :         /*
+<span class="lineNum">     244 </span>                :            :          * If this is the first error from this QE, save the error code
+<span class="lineNum">     245 </span>                :            :          * and the index of the PGresult buffer entry. We assume the
+<span class="lineNum">     246 </span>                :            :          * caller has not yet added the item to the PGresult buffer.
+<span class="lineNum">     247 </span>                :            :          */
+<span class="lineNum">     248 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!dispatchResult-&gt;errcode)</span>
+<span class="lineNum">     249 </span>                :            :         {
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                 dispatchResult-&gt;errcode = errcode;</span>
+<span class="lineNum">     251 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (resultIndex &gt;= 0)</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :                         dispatchResult-&gt;errindex = resultIndex;</span>
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!meleeResults)</span>
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     257 </span>                :            : 
+<span class="lineNum">     258 </span>                :            :         /*
+<span class="lineNum">     259 </span>                :            :          * Remember which QE reported an error first among the gangs,
+<span class="lineNum">     260 </span>                :            :          * but keep quiet about cancellation done at our request.
+<span class="lineNum">     261 </span>                :            :          *
+<span class="lineNum">     262 </span>                :            :          * Interconnection errors are given lower precedence because often
+<span class="lineNum">     263 </span>                :            :          * they are secondary to an earlier and more interesting error.
+<span class="lineNum">     264 </span>                :            :          */
+<span class="lineNum">     265 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errcode == ERRCODE_GP_OPERATION_CANCELED &amp;&amp;</span>
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :                 dispatchResult-&gt;sentSignal == DISPATCH_WAIT_CANCEL)</span>
+<span class="lineNum">     267 </span>                :            :         {
+<span class="lineNum">     268 </span>                :            :                 /* nop */
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     270 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (meleeResults-&gt;errcode == 0 ||</span>
+<span class="lineNum">     271 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                          (meleeResults-&gt;errcode == ERRCODE_GP_INTERCONNECTION_ERROR &amp;&amp;</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                           errcode != ERRCODE_GP_INTERCONNECTION_ERROR))</span>
+<span class="lineNum">     273 </span>                :            :         {
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                 pthread_mutex_lock(&amp;setErrcodeMutex);</span>
+<span class="lineNum">     275 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (meleeResults-&gt;errcode == 0 ||</span>
+<span class="lineNum">     276 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         (meleeResults-&gt;errcode == ERRCODE_GP_INTERCONNECTION_ERROR &amp;&amp;</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :                          errcode != ERRCODE_GP_INTERCONNECTION_ERROR))</span>
+<span class="lineNum">     278 </span>                :            :                 {
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                         meleeResults-&gt;errcode = errcode;</span>
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :                         meleeResults-&gt;iFirstError = dispatchResult-&gt;meleeIndex;</span>
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                 pthread_mutex_unlock(&amp;setErrcodeMutex);</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>                :            : /*
+<span class="lineNum">     287 </span>                :            :  * Format a message, printf-style, and append to the error_message buffer.
+<span class="lineNum">     288 </span>                :            :  * Also write it to stderr if logging is enabled for messages of the
+<span class="lineNum">     289 </span>                :            :  * given severity level 'elevel' (for example, DEBUG1; or 0 to suppress).
+<span class="lineNum">     290 </span>                :            :  * 'errcode' is the ERRCODE_xxx value for setting the client's SQLSTATE.
+<span class="lineNum">     291 </span>                :            :  * NB: This can be called from a dispatcher thread, so it must not use
+<span class="lineNum">     292 </span>                :            :  * palloc/pfree or elog/ereport because they are not thread safe.
+<a name="293"><span class="lineNum">     293 </span>                :            :  */</a>
+<span class="lineNum">     294 </span>                :            : void
+<span class="lineNum">     295 </span>                :            : cdbdisp_appendMessage(CdbDispatchResult * dispatchResult,
+<span class="lineNum">     296 </span>                :            :                                           int elevel, const char *fmt, ...)
+<span class="lineNum">     297 </span>                :            : {
+<span class="lineNum">     298 </span>                :            :         va_list args;
+<span class="lineNum">     299 </span>                :            :         int     msgoff;
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :            :         /*
+<span class="lineNum">     302 </span>                :            :          * Remember first error.
+<span class="lineNum">     303 </span>                :            :          */
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         cdbdisp_seterrcode(ERRCODE_GP_INTERCONNECTION_ERROR, -1, dispatchResult);</span>
+<span class="lineNum">     305 </span>                :            : 
+<span class="lineNum">     306 </span>                :            :         /*
+<span class="lineNum">     307 </span>                :            :          * Allocate buffer if first message.
+<span class="lineNum">     308 </span>                :            :          * Insert newline between previous message and new one.
+<span class="lineNum">     309 </span>                :            :          */
+<span class="lineNum">     310 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(dispatchResult-&gt;error_message != NULL);</span>
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :         oneTrailingNewlinePQ(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     312 </span>                :            : 
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :         msgoff = dispatchResult-&gt;error_message-&gt;len;</span>
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>                :            :         /*
+<span class="lineNum">     316 </span>                :            :          * Format the message and append it to the buffer.
+<span class="lineNum">     317 </span>                :            :          */
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :         va_start(args, fmt);</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :         appendPQExpBufferVA(dispatchResult-&gt;error_message, fmt, args);</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         va_end(args);</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>                :            :         /*
+<span class="lineNum">     323 </span>                :            :          * Display the message on stderr for debugging, if requested.
+<span class="lineNum">     324 </span>                :            :          * This helps to clarify the actual timing of threaded events.
+<span class="lineNum">     325 </span>                :            :          */
+<span class="lineNum">     326 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (elevel &gt;= log_min_messages)</span>
+<span class="lineNum">     327 </span>                :            :         {
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                 oneTrailingNewlinePQ(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :                 write_log(&quot;%s&quot;, dispatchResult-&gt;error_message-&gt;data + msgoff);</span>
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     331 </span>                :            : 
+<span class="lineNum">     332 </span>                :            :         /*
+<span class="lineNum">     333 </span>                :            :          * In case the caller wants to hand the buffer to ereport(),
+<span class="lineNum">     334 </span>                :            :          * follow the ereport() convention of not ending with a newline.
+<span class="lineNum">     335 </span>                :            :          */
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         noTrailingNewlinePQ(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     338 </span>                :            : 
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>                :            : /*
+<span class="lineNum">     341 </span>                :            :  * NonThread version of cdbdisp_appendMessage.
+<span class="lineNum">     342 </span>                :            :  *
+<span class="lineNum">     343 </span>                :            :  * It's safe to use palloc/pfree or elog/ereport.
+<a name="344"><span class="lineNum">     344 </span>                :            :  */</a>
+<span class="lineNum">     345 </span>                :            : void
+<span class="lineNum">     346 </span>                :            : cdbdisp_appendMessageNonThread(CdbDispatchResult * dispatchResult,
+<span class="lineNum">     347 </span>                :            :                                                            int elevel, const char *fmt, ...)
+<span class="lineNum">     348 </span>                :            : {
+<span class="lineNum">     349 </span>                :            :         va_list args;
+<span class="lineNum">     350 </span>                :            :         int     msgoff;
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>                :            :         /*
+<span class="lineNum">     353 </span>                :            :          * Remember first error.
+<span class="lineNum">     354 </span>                :            :          */
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :         cdbdisp_seterrcode(ERRCODE_GP_INTERCONNECTION_ERROR, -1, dispatchResult);</span>
+<span class="lineNum">     356 </span>                :            : 
+<span class="lineNum">     357 </span>                :            :         /*
+<span class="lineNum">     358 </span>                :            :          * Allocate buffer if first message.
+<span class="lineNum">     359 </span>                :            :          * Insert newline between previous message and new one.
+<span class="lineNum">     360 </span>                :            :          */
+<span class="lineNum">     361 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(dispatchResult-&gt;error_message != NULL);</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :         oneTrailingNewlinePQ(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :<span class="lineNoCov">          0 :         msgoff = dispatchResult-&gt;error_message-&gt;len;</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :            :         /*
+<span class="lineNum">     367 </span>                :            :          * Format the message and append it to the buffer.
+<span class="lineNum">     368 </span>                :            :          */
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :         va_start(args, fmt);</span>
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :         appendPQExpBufferVA(dispatchResult-&gt;error_message, fmt, args);</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :         va_end(args);</span>
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :            :         /*
+<span class="lineNum">     374 </span>                :            :          * Display the message on stderr for debugging, if requested.
+<span class="lineNum">     375 </span>                :            :          * This helps to clarify the actual timing of threaded events.
+<span class="lineNum">     376 </span>                :            :          */
+<span class="lineNum">     377 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (elevel &gt;= log_min_messages)</span>
+<span class="lineNum">     378 </span>                :            :         {
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :                 oneTrailingNewlinePQ(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;%s&quot;, dispatchResult-&gt;error_message-&gt;data + msgoff);</span>
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :            :         /*
+<span class="lineNum">     384 </span>                :            :          * In case the caller wants to hand the buffer to ereport(),
+<span class="lineNum">     385 </span>                :            :          * follow the ereport() convention of not ending with a newline.
+<span class="lineNum">     386 </span>                :            :          */
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         noTrailingNewlinePQ(dispatchResult-&gt;error_message);</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     389 </span>                :            : 
+<span class="lineNum">     390 </span>                :            : /*
+<span class="lineNum">     391 </span>                :            :  * Store a PGresult object ptr in the result buffer.
+<span class="lineNum">     392 </span>                :            :  * NB: Caller must not PQclear() the PGresult object.
+<a name="393"><span class="lineNum">     393 </span>                :            :  */</a>
+<span class="lineNum">     394 </span>                :            : void
+<span class="lineNum">     395 </span>                :            : cdbdisp_appendResult(CdbDispatchResult *dispatchResult, struct pg_result *res)
+<span class="lineNum">     396 </span>                :            : {
+<span class="lineNum">     397 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(dispatchResult &amp;&amp; res);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :            :         /*
+<span class="lineNum">     400 </span>                :            :          * Attach the QE identification string to the PGresult
+<span class="lineNum">     401 </span>                :            :          */
+<span class="lineNum">     402 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dispatchResult-&gt;segdbDesc &amp;&amp; dispatchResult-&gt;segdbDesc-&gt;whoami)</span>
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                 pqSaveMessageField(res, PG_DIAG_GP_PROCESS_TAG, dispatchResult-&gt;segdbDesc-&gt;whoami);</span>
+<span class="lineNum">     404 </span>                :            : 
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         appendBinaryPQExpBuffer(dispatchResult-&gt;resultbuf, (char *) &amp;res, sizeof(res));</span>
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     407 </span>                :            : 
+<span class="lineNum">     408 </span>                :            : /*
+<span class="lineNum">     409 </span>                :            :  * Return the i'th PGresult object ptr (if i &gt;= 0), or
+<span class="lineNum">     410 </span>                :            :  * the n+i'th one (if i &lt; 0), or NULL (if i out of bounds).
+<span class="lineNum">     411 </span>                :            :  * NB: Caller must not PQclear() the PGresult object.
+<a name="412"><span class="lineNum">     412 </span>                :            :  */</a>
+<span class="lineNum">     413 </span>                :            : struct pg_result *
+<span class="lineNum">     414 </span>                :            : cdbdisp_getPGresult(CdbDispatchResult *dispatchResult, int i)
+<span class="lineNum">     415 </span>                :            : {
+<span class="lineNum">     416 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dispatchResult)</span>
+<span class="lineNum">     417 </span>                :            :         {
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                 PQExpBuffer buf = dispatchResult-&gt;resultbuf;</span>
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :                 PGresult **begp = (PGresult **) buf-&gt;data;</span>
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :                 PGresult **endp = (PGresult **) (buf-&gt;data + buf-&gt;len);</span>
+<span class="lineNum">     421 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 PGresult **p = (i &gt;= 0) ? &amp;begp[i] : &amp;endp[i];</span>
+<span class="lineNum">     422 </span>                :            : 
+<span class="lineNum">     423 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (p &gt;= begp &amp;&amp; p &lt; endp)</span>
+<span class="lineNum">     424 </span>                :            :                 {
+<span class="lineNum">     425 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(*p != NULL);</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                         return *p;</span>
+<span class="lineNum">     427 </span>                :            :                 }
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>                :            : /*
+<span class="lineNum">     433 </span>                :            :  * Return the number of PGresult objects in the result buffer.
+<a name="434"><span class="lineNum">     434 </span>                :            :  */</a>
+<span class="lineNum">     435 </span>                :            : int
+<span class="lineNum">     436 </span>                :            : cdbdisp_numPGresult(CdbDispatchResult *dispatchResult)
+<span class="lineNum">     437 </span>                :            : {
+<span class="lineNum">     438 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         return dispatchResult ? dispatchResult-&gt;resultbuf-&gt;len / sizeof(PGresult *) : 0;</span>
+<span class="lineNum">     439 </span>                :            : }
+<span class="lineNum">     440 </span>                :            : 
+<span class="lineNum">     441 </span>                :            : /*
+<span class="lineNum">     442 </span>                :            :  * Display a CdbDispatchResult in the log for debugging.
+<span class="lineNum">     443 </span>                :            :  * Call only from main thread, during or after cdbdisp_checkDispatchResults.
+<a name="444"><span class="lineNum">     444 </span>                :            :  */</a>
+<span class="lineNum">     445 </span>                :            : void
+<span class="lineNum">     446 </span>                :            : cdbdisp_debugDispatchResult(CdbDispatchResult * dispatchResult)
+<span class="lineNum">     447 </span>                :            : {
+<span class="lineNum">     448 </span>                :            :         int     ires;
+<span class="lineNum">     449 </span>                :            :         int     nres;
+<span class="lineNum">     450 </span>                :            : 
+<span class="lineNum">     451 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert (dispatchResult != NULL);</span>
+<span class="lineNum">     452 </span>                :            : 
+<span class="lineNum">     453 </span>                :            :         /*
+<span class="lineNum">     454 </span>                :            :          * PGresult messages
+<span class="lineNum">     455 </span>                :            :          */
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :         nres = cdbdisp_numPGresult(dispatchResult);</span>
+<span class="lineNum">     457 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (ires = 0; ires &lt; nres; ++ires)</span>
+<span class="lineNum">     458 </span>                :            :         {
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :                 PGresult *pgresult = cdbdisp_getPGresult(dispatchResult, ires);</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                 ExecStatusType resultStatus = PQresultStatus(pgresult);</span>
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :                 char *whoami = PQresultErrorField(pgresult, PG_DIAG_GP_PROCESS_TAG);</span>
+<span class="lineNum">     462 </span>                :            : 
+<span class="lineNum">     463 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!whoami)</span>
+<span class="lineNum">     464 </span>                :<span class="lineNoCov">          0 :                         whoami = &quot;no process id&quot;;</span>
+<span class="lineNum">     465 </span>                :            : 
+<span class="lineNum">     466 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (resultStatus == PGRES_COMMAND_OK ||</span>
+<span class="lineNum">     467 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         resultStatus == PGRES_TUPLES_OK ||</span>
+<span class="lineNum">     468 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         resultStatus == PGRES_COPY_IN ||</span>
+<span class="lineNum">     469 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         resultStatus == PGRES_COPY_OUT ||</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                         resultStatus == PGRES_EMPTY_QUERY)</span>
+<span class="lineNum">     471 </span>                :            :                 {
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :                         char *cmdStatus = PQcmdStatus(pgresult);</span>
+<span class="lineNum">     473 </span>                :            : 
+<span class="lineNum">     474 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         elog(LOG, &quot;DispatchResult from %s: ok %s (%s)&quot;,</span>
+<span class="lineNum">     475 </span>                :            :                                  dispatchResult-&gt;segdbDesc-&gt;whoami,
+<span class="lineNum">     476 </span>                :            :                                  cmdStatus ? cmdStatus : &quot;(no cmdStatus)&quot;, whoami);
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     478 </span>                :            :                 else
+<span class="lineNum">     479 </span>                :            :                 {
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :                         char *sqlstate = PQresultErrorField(pgresult, PG_DIAG_SQLSTATE);</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                         char *pri = PQresultErrorField(pgresult, PG_DIAG_MESSAGE_PRIMARY);</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :                         char *dtl = PQresultErrorField(pgresult, PG_DIAG_MESSAGE_DETAIL);</span>
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :                         char *sourceFile = PQresultErrorField(pgresult, PG_DIAG_SOURCE_FILE);</span>
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                         char *sourceLine = PQresultErrorField(pgresult, PG_DIAG_SOURCE_LINE);</span>
+<span class="lineNum">     485 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         int     lenpri = (pri == NULL) ? 0 : strlen(pri);</span>
+<span class="lineNum">     486 </span>                :            : 
+<span class="lineNum">     487 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!sqlstate)</span>
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :                                 sqlstate = &quot;no SQLSTATE&quot;;</span>
+<span class="lineNum">     489 </span>                :            : 
+<span class="lineNum">     490 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         while (lenpri &gt; 0 &amp;&amp; pri[lenpri - 1] &lt;= ' ' &amp;&amp; pri[lenpri - 1] &gt; '\0')</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :                                 lenpri--;</span>
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     494 </span>                :            :                                         (errmsg(&quot;DispatchResult from %s: error (%s) %s %.*s (%s)&quot;,
+<span class="lineNum">     495 </span>                :            :                                                         dispatchResult-&gt;segdbDesc-&gt;whoami,
+<span class="lineNum">     496 </span>                :            :                                                         sqlstate,
+<span class="lineNum">     497 </span>                :            :                                                         PQresStatus(resultStatus),
+<span class="lineNum">     498 </span>                :            :                                                         lenpri,
+<span class="lineNum">     499 </span>                :            :                                                         pri ? pri : &quot;&quot;, whoami),
+<span class="lineNum">     500 </span>                :            :                                          errdetail(&quot;(%s:%s) %s&quot;,
+<span class="lineNum">     501 </span>                :            :                                                          sourceFile ? sourceFile : &quot;unknown file&quot;,
+<span class="lineNum">     502 </span>                :            :                                                          sourceLine ? sourceLine : &quot;unknown line&quot;,
+<span class="lineNum">     503 </span>                :            :                                                          dtl ? dtl : &quot;&quot;)));
+<span class="lineNum">     504 </span>                :            :                 }
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     506 </span>                :            : 
+<span class="lineNum">     507 </span>                :            :         /*
+<span class="lineNum">     508 </span>                :            :          * Error found on our side of the libpq interface?
+<span class="lineNum">     509 </span>                :            :          */
+<span class="lineNum">     510 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dispatchResult-&gt;error_message &amp;&amp;</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                 dispatchResult-&gt;error_message-&gt;len &gt; 0)</span>
+<span class="lineNum">     512 </span>                :            :         {
+<span class="lineNum">     513 </span>                :            :                 char esqlstate[6];
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                 errcode_to_sqlstate(dispatchResult-&gt;errcode, esqlstate);</span>
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;DispatchResult from %s: connect error (%s) %s&quot;,</span>
+<span class="lineNum">     516 </span>                :            :                          dispatchResult-&gt;segdbDesc-&gt;whoami,
+<span class="lineNum">     517 </span>                :            :                          esqlstate, dispatchResult-&gt;error_message-&gt;data);
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     519 </span>                :            : 
+<span class="lineNum">     520 </span>                :            :         /*
+<span class="lineNum">     521 </span>                :            :          * Should have either an error code or an ok result.
+<span class="lineNum">     522 </span>                :            :          */
+<span class="lineNum">     523 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dispatchResult-&gt;errcode == 0 &amp;&amp; dispatchResult-&gt;okindex &lt; 0)</span>
+<span class="lineNum">     524 </span>                :            :         {
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;DispatchResult from %s: No ending status.&quot;,</span>
+<span class="lineNum">     526 </span>                :            :                          dispatchResult-&gt;segdbDesc-&gt;whoami);
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     529 </span>                :            : 
+<span class="lineNum">     530 </span>                :            : /*
+<span class="lineNum">     531 </span>                :            :  * Format a CdbDispatchResult into a StringInfo buffer provided by caller.
+<span class="lineNum">     532 </span>                :            :  * It reports at most one error.
+<a name="533"><span class="lineNum">     533 </span>                :            :  */</a>
+<span class="lineNum">     534 </span>                :            : void
+<span class="lineNum">     535 </span>                :            : cdbdisp_dumpDispatchResult(CdbDispatchResult *dispatchResult,
+<span class="lineNum">     536 </span>                :            :                                                    struct StringInfoData *buf)
+<span class="lineNum">     537 </span>                :            : {
+<span class="lineNum">     538 </span>                :            :         int ires;
+<span class="lineNum">     539 </span>                :            :         int nres;
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!dispatchResult || !buf)</span>
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            :         /*
+<span class="lineNum">     545 </span>                :            :          * Format PGresult messages
+<span class="lineNum">     546 </span>                :            :          */
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :         nres = cdbdisp_numPGresult(dispatchResult);</span>
+<span class="lineNum">     548 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (ires = 0; ires &lt; nres; ++ires)</span>
+<span class="lineNum">     549 </span>                :            :         {
+<span class="lineNum">     550 </span>                :<span class="lineNoCov">          0 :                 PGresult *pgresult = cdbdisp_getPGresult(dispatchResult, ires);</span>
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :                 ExecStatusType resultStatus = PQresultStatus(pgresult);</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                 char *whoami = PQresultErrorField(pgresult, PG_DIAG_GP_PROCESS_TAG);</span>
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :            :                 /*
+<span class="lineNum">     555 </span>                :            :                  * QE success
+<span class="lineNum">     556 </span>                :            :                  */
+<span class="lineNum">     557 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (resultStatus == PGRES_COMMAND_OK ||</span>
+<span class="lineNum">     558 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         resultStatus == PGRES_TUPLES_OK ||</span>
+<span class="lineNum">     559 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         resultStatus == PGRES_COPY_IN ||</span>
+<span class="lineNum">     560 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         resultStatus == PGRES_COPY_OUT ||</span>
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                         resultStatus == PGRES_EMPTY_QUERY)</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            :                 /*
+<span class="lineNum">     565 </span>                :            :                  * QE error or libpq error
+<span class="lineNum">     566 </span>                :            :                  */
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                 char *pri = PQresultErrorField(pgresult, PG_DIAG_MESSAGE_PRIMARY);</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                 char *dtl = PQresultErrorField(pgresult, PG_DIAG_MESSAGE_DETAIL);</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :                 char *ctx = PQresultErrorField(pgresult, PG_DIAG_CONTEXT);</span>
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                 oneTrailingNewline(buf);</span>
+<span class="lineNum">     572 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pri)</span>
+<span class="lineNum">     573 </span>                :            :                 {
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, pri);</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     576 </span>                :            :                 else
+<span class="lineNum">     577 </span>                :            :                 {
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :                         elog(LOG, &quot;No primary message?&quot;);</span>
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, PQresultErrorMessage(pgresult));</span>
+<span class="lineNum">     580 </span>                :            :                 }
+<span class="lineNum">     581 </span>                :            : 
+<span class="lineNum">     582 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (whoami)</span>
+<span class="lineNum">     583 </span>                :            :                 {
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                         noTrailingNewline(buf);</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(buf, &quot;  (%s)&quot;, whoami);</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     587 </span>                :            : 
+<span class="lineNum">     588 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (dtl)</span>
+<span class="lineNum">     589 </span>                :            :                 {
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :                         oneTrailingNewline(buf);</span>
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(buf, &quot;%s&quot;, dtl);</span>
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     593 </span>                :            : 
+<span class="lineNum">     594 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ctx)</span>
+<span class="lineNum">     595 </span>                :            :                 {
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :                         oneTrailingNewline(buf);</span>
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(buf, &quot;%s&quot;, ctx);</span>
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     599 </span>                :            : 
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :                 noTrailingNewline(buf);</span>
+<span class="lineNum">     601 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     602 </span>                :            :         }
+<span class="lineNum">     603 </span>                :            : 
+<span class="lineNum">     604 </span>                :            :         /*
+<span class="lineNum">     605 </span>                :            :          * Error found on our side of the libpq interface?
+<span class="lineNum">     606 </span>                :            :          */
+<span class="lineNum">     607 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dispatchResult-&gt;error_message &amp;&amp;</span>
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                 dispatchResult-&gt;error_message-&gt;len &gt; 0)</span>
+<span class="lineNum">     609 </span>                :            :         {
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :                 oneTrailingNewline(buf);</span>
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, dispatchResult-&gt;error_message-&gt;data);</span>
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                 noTrailingNewline(buf);</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :            : /*
+<span class="lineNum">     617 </span>                :            :  * Format a CdbDispatchResults object.
+<span class="lineNum">     618 </span>                :            :  * Appends error messages to caller's StringInfo buffer.
+<span class="lineNum">     619 </span>                :            :  * Returns ERRCODE_xxx if some error was found, or 0 if no errors.
+<span class="lineNum">     620 </span>                :            :  * Before calling this function, you must call CdbCheckDispatchResult().
+<a name="621"><span class="lineNum">     621 </span>                :            :  */</a>
+<span class="lineNum">     622 </span>                :            : int
+<span class="lineNum">     623 </span>                :            : cdbdisp_dumpDispatchResults(struct CdbDispatchResults *meleeResults,
+<span class="lineNum">     624 </span>                :            :                                                         struct StringInfoData *buffer)
+<span class="lineNum">     625 </span>                :            : {
+<span class="lineNum">     626 </span>                :            :         CdbDispatchResult *dispatchResult;
+<span class="lineNum">     627 </span>                :            : 
+<span class="lineNum">     628 </span>                :            :         /*
+<span class="lineNum">     629 </span>                :            :          * Quick exit if no error (not counting ERRCODE_GP_OPERATION_CANCELED).
+<span class="lineNum">     630 </span>                :            :          */
+<span class="lineNum">     631 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!meleeResults || !meleeResults-&gt;errcode)</span>
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     633 </span>                :            : 
+<span class="lineNum">     634 </span>                :            :         /*
+<span class="lineNum">     635 </span>                :            :          * Find the CdbDispatchResult of the first QE that got an error.
+<span class="lineNum">     636 </span>                :            :          */
+<span class="lineNum">     637 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(meleeResults-&gt;iFirstError &gt;= 0 &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     638 </span>                :            :                    meleeResults-&gt;iFirstError &lt; meleeResults-&gt;resultCount);
+<span class="lineNum">     639 </span>                :            : 
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :         dispatchResult = &amp;meleeResults-&gt;resultArray[meleeResults-&gt;iFirstError];</span>
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(dispatchResult-&gt;meleeResults == meleeResults &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     643 </span>                :            :                    dispatchResult-&gt;errcode != 0);
+<span class="lineNum">     644 </span>                :            : 
+<span class="lineNum">     645 </span>                :            :         /*
+<span class="lineNum">     646 </span>                :            :          * Format one QE's result.
+<span class="lineNum">     647 </span>                :            :          */
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :         cdbdisp_dumpDispatchResult(dispatchResult, buffer);</span>
+<span class="lineNum">     649 </span>                :            : 
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :         return meleeResults-&gt;errcode;</span>
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     652 </span>                :            : 
+<span class="lineNum">     653 </span>                :            : /*
+<span class="lineNum">     654 </span>                :            :  * Return sum of the cmdTuples values from CdbDispatchResult
+<span class="lineNum">     655 </span>                :            :  * entries that have a successful PGresult. If sliceIndex &gt;= 0,
+<span class="lineNum">     656 </span>                :            :  * uses only the results belonging to the specified slice.
+<a name="657"><span class="lineNum">     657 </span>                :            :  */</a>
+<span class="lineNum">     658 </span>                :            : int64
+<span class="lineNum">     659 </span>                :            : cdbdisp_sumCmdTuples(CdbDispatchResults *results, int sliceIndex)
+<span class="lineNum">     660 </span>                :            : {
+<span class="lineNum">     661 </span>                :            :         CdbDispatchResult *dispatchResult;
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :         CdbDispatchResult *resultEnd = cdbdisp_resultEnd(results, sliceIndex);</span>
+<span class="lineNum">     663 </span>                :            :         PGresult *pgresult;
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :         int64 sum = 0;</span>
+<span class="lineNum">     665 </span>                :            : 
+<span class="lineNum">     666 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (dispatchResult = cdbdisp_resultBegin(results, sliceIndex);</span>
+<span class="lineNum">     667 </span>                :<span class="lineNoCov">          0 :                  dispatchResult &lt; resultEnd; ++dispatchResult)</span>
+<span class="lineNum">     668 </span>                :            :         {
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 :                 pgresult = cdbdisp_getPGresult(dispatchResult, dispatchResult-&gt;okindex);</span>
+<span class="lineNum">     670 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pgresult &amp;&amp; !dispatchResult-&gt;errcode)</span>
+<span class="lineNum">     671 </span>                :            :                 {
+<span class="lineNum">     672 </span>                :<span class="lineNoCov">          0 :                         char *cmdTuples = PQcmdTuples(pgresult);</span>
+<span class="lineNum">     673 </span>                :            : 
+<span class="lineNum">     674 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (cmdTuples)</span>
+<span class="lineNum">     675 </span>                :<span class="lineNoCov">          0 :                                 sum += atoll(cmdTuples);</span>
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     677 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :         return sum;</span>
+<span class="lineNum">     679 </span>                :            : }
+<span class="lineNum">     680 </span>                :            : 
+<span class="lineNum">     681 </span>                :            : /*
+<span class="lineNum">     682 </span>                :            :  * If several tuples were eliminated/rejected from the result because of
+<span class="lineNum">     683 </span>                :            :  * bad data formatting (this is currenly only possible in external tables
+<span class="lineNum">     684 </span>                :            :  * with single row error handling) - sum up the total rows rejected from
+<span class="lineNum">     685 </span>                :            :  * all QE's and notify the client.
+<a name="686"><span class="lineNum">     686 </span>                :            :  */</a>
+<span class="lineNum">     687 </span>                :            : void
+<span class="lineNum">     688 </span>                :            : cdbdisp_sumRejectedRows(CdbDispatchResults *results)
+<span class="lineNum">     689 </span>                :            : {
+<span class="lineNum">     690 </span>                :            :         CdbDispatchResult *dispatchResult;
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :         CdbDispatchResult *resultEnd = cdbdisp_resultEnd(results, -1);</span>
+<span class="lineNum">     692 </span>                :            :         PGresult *pgresult;
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :         int     totalRejected = 0;</span>
+<span class="lineNum">     694 </span>                :            : 
+<span class="lineNum">     695 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (dispatchResult = cdbdisp_resultBegin(results, -1);</span>
+<span class="lineNum">     696 </span>                :<span class="lineNoCov">          0 :                  dispatchResult &lt; resultEnd; ++dispatchResult)</span>
+<span class="lineNum">     697 </span>                :            :         {
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :                 pgresult = cdbdisp_getPGresult(dispatchResult, dispatchResult-&gt;okindex);</span>
+<span class="lineNum">     699 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pgresult &amp;&amp; !dispatchResult-&gt;errcode)</span>
+<span class="lineNum">     700 </span>                :            :                 {
+<span class="lineNum">     701 </span>                :            :                         /*
+<span class="lineNum">     702 </span>                :            :                          * add num rows rejected from this QE to the total
+<span class="lineNum">     703 </span>                :            :                          */
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                         totalRejected += dispatchResult-&gt;numrowsrejected;</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     707 </span>                :            : 
+<span class="lineNum">     708 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (totalRejected &gt; 0)</span>
+<span class="lineNum">     709 </span>                :<span class="lineNoCov">          0 :                 ReportSrehResults(NULL, totalRejected);</span>
+<span class="lineNum">     710 </span>                :            : 
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     712 </span>                :            : 
+<span class="lineNum">     713 </span>                :            : /*
+<span class="lineNum">     714 </span>                :            :  * sum tuple counts that were added into a partitioned AO table
+<a name="715"><span class="lineNum">     715 </span>                :            :  */</a>
+<span class="lineNum">     716 </span>                :            : HTAB *
+<span class="lineNum">     717 </span>                :            : cdbdisp_sumAoPartTupCount(PartitionNode *parts, CdbDispatchResults *results)
+<span class="lineNum">     718 </span>                :            : {
+<span class="lineNum">     719 </span>                :            :         int     i;
+<span class="lineNum">     720 </span>                :<span class="lineNoCov">          0 :         HTAB *ht = NULL;</span>
+<span class="lineNum">     721 </span>                :            : 
+<span class="lineNum">     722 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!parts)</span>
+<span class="lineNum">     723 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     724 </span>                :            : 
+<span class="lineNum">     725 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; results-&gt;resultCount; ++i)</span>
+<span class="lineNum">     726 </span>                :            :         {
+<span class="lineNum">     727 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchResult *dispatchResult = &amp;results-&gt;resultArray[i];</span>
+<span class="lineNum">     728 </span>                :<span class="lineNoCov">          0 :                 int     nres = cdbdisp_numPGresult(dispatchResult);</span>
+<span class="lineNum">     729 </span>                :            :                 int     ires;
+<span class="lineNum">     730 </span>                :            : 
+<span class="lineNum">     731 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (ires = 0; ires &lt; nres; ++ires)</span>
+<span class="lineNum">     732 </span>                :            :                 {
+<span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 :                         PGresult *pgresult = cdbdisp_getPGresult(dispatchResult, ires);</span>
+<span class="lineNum">     734 </span>                :            : 
+<span class="lineNum">     735 </span>                :<span class="lineNoCov">          0 :                         ht = PQprocessAoTupCounts(parts, ht, (void *) pgresult-&gt;aotupcounts,</span>
+<span class="lineNum">     736 </span>                :<span class="lineNoCov">          0 :                                                                          pgresult-&gt;naotupcounts);</span>
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     739 </span>                :            : 
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :         return ht;</span>
+<span class="lineNum">     741 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            : /*
+<span class="lineNum">     744 </span>                :            :  * Find the max of the lastOid values returned from the QEs
+<a name="745"><span class="lineNum">     745 </span>                :            :  */</a>
+<span class="lineNum">     746 </span>                :            : Oid
+<span class="lineNum">     747 </span>                :            : cdbdisp_maxLastOid(CdbDispatchResults *results, int sliceIndex)
+<span class="lineNum">     748 </span>                :            : {
+<span class="lineNum">     749 </span>                :            :         CdbDispatchResult *dispatchResult;
+<span class="lineNum">     750 </span>                :<span class="lineNoCov">          0 :         CdbDispatchResult *resultEnd = cdbdisp_resultEnd(results, sliceIndex);</span>
+<span class="lineNum">     751 </span>                :            :         PGresult *pgresult;
+<span class="lineNum">     752 </span>                :<span class="lineNoCov">          0 :         Oid     oid = InvalidOid;</span>
+<span class="lineNum">     753 </span>                :            : 
+<span class="lineNum">     754 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (dispatchResult = cdbdisp_resultBegin(results, sliceIndex);</span>
+<span class="lineNum">     755 </span>                :<span class="lineNoCov">          0 :                  dispatchResult &lt; resultEnd; ++dispatchResult)</span>
+<span class="lineNum">     756 </span>                :            :         {
+<span class="lineNum">     757 </span>                :<span class="lineNoCov">          0 :                 pgresult = cdbdisp_getPGresult(dispatchResult, dispatchResult-&gt;okindex);</span>
+<span class="lineNum">     758 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pgresult &amp;&amp; !dispatchResult-&gt;errcode)</span>
+<span class="lineNum">     759 </span>                :            :                 {
+<span class="lineNum">     760 </span>                :<span class="lineNoCov">          0 :                         Oid     tmpoid = PQoidValue(pgresult);</span>
+<span class="lineNum">     761 </span>                :            : 
+<span class="lineNum">     762 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (tmpoid &gt; oid)</span>
+<span class="lineNum">     763 </span>                :<span class="lineNoCov">          0 :                                 oid = tmpoid;</span>
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     766 </span>                :            : 
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :         return oid;</span>
+<span class="lineNum">     768 </span>                :            : }
+<span class="lineNum">     769 </span>                :            : 
+<span class="lineNum">     770 </span>                :            : /*
+<span class="lineNum">     771 </span>                :            :  * Return ptr to first resultArray entry for a given sliceIndex.
+<a name="772"><span class="lineNum">     772 </span>                :            :  */</a>
+<span class="lineNum">     773 </span>                :            : CdbDispatchResult *
+<span class="lineNum">     774 </span>                :            : cdbdisp_resultBegin(CdbDispatchResults *results, int sliceIndex)
+<span class="lineNum">     775 </span>                :            : {
+<span class="lineNum">     776 </span>                :            :         CdbDispatchResults_SliceInfo *si;
+<span class="lineNum">     777 </span>                :            : 
+<span class="lineNum">     778 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!results)</span>
+<span class="lineNum">     779 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     780 </span>                :            : 
+<span class="lineNum">     781 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sliceIndex &lt; 0)</span>
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :                 return &amp;results-&gt;resultArray[0];</span>
+<span class="lineNum">     783 </span>                :            : 
+<span class="lineNum">     784 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(sliceIndex &lt; results-&gt;sliceCapacity);</span>
+<span class="lineNum">     785 </span>                :            : 
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :         si = &amp;results-&gt;sliceMap[sliceIndex];</span>
+<span class="lineNum">     787 </span>                :            : 
+<span class="lineNum">     788 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(si-&gt;resultBegin &gt;= 0 &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     789 </span>                :            :                    si-&gt;resultBegin &lt;= si-&gt;resultEnd &amp;&amp;
+<span class="lineNum">     790 </span>                :            :                    si-&gt;resultEnd &lt;= results-&gt;resultCount);
+<span class="lineNum">     791 </span>                :            : 
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :         return &amp;results-&gt;resultArray[si-&gt;resultBegin];</span>
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     794 </span>                :            : 
+<span class="lineNum">     795 </span>                :            : /*
+<span class="lineNum">     796 </span>                :            :  * Return ptr to last+1 resultArray entry for a given sliceIndex.
+<a name="797"><span class="lineNum">     797 </span>                :            :  */</a>
+<span class="lineNum">     798 </span>                :            : CdbDispatchResult *
+<span class="lineNum">     799 </span>                :            : cdbdisp_resultEnd(CdbDispatchResults *results, int sliceIndex)
+<span class="lineNum">     800 </span>                :            : {
+<span class="lineNum">     801 </span>                :            :         CdbDispatchResults_SliceInfo *si;
+<span class="lineNum">     802 </span>                :            : 
+<span class="lineNum">     803 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!results)</span>
+<span class="lineNum">     804 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     805 </span>                :            : 
+<span class="lineNum">     806 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sliceIndex &lt; 0)</span>
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                 return &amp;results-&gt;resultArray[results-&gt;resultCount];</span>
+<span class="lineNum">     808 </span>                :            : 
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :         si = &amp;results-&gt;sliceMap[sliceIndex];</span>
+<span class="lineNum">     810 </span>                :            : 
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :         return &amp;results-&gt;resultArray[si-&gt;resultEnd];</span>
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="813"><span class="lineNum">     813 </span>                :            : </a>
+<span class="lineNum">     814 </span>                :            : void
+<span class="lineNum">     815 </span>                :            : cdbdisp_returnResults(CdbDispatchResults * primaryResults, CdbPgResults* cdb_pgresults)
+<span class="lineNum">     816 </span>                :            : {
+<span class="lineNum">     817 </span>                :            :         CdbDispatchResult *dispatchResult;
+<span class="lineNum">     818 </span>                :            :         int     nslots;
+<span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 :         int     nresults = 0;</span>
+<span class="lineNum">     820 </span>                :            :         int     i;
+<span class="lineNum">     821 </span>                :            : 
+<span class="lineNum">     822 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!primaryResults || !cdb_pgresults)</span>
+<span class="lineNum">     823 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     824 </span>                :            : 
+<span class="lineNum">     825 </span>                :            :         /*
+<span class="lineNum">     826 </span>                :            :          * Allocate result set ptr array. The caller must PQclear() each PGresult
+<span class="lineNum">     827 </span>                :            :          * and free() the array.
+<span class="lineNum">     828 </span>                :            :          */
+<span class="lineNum">     829 </span>                :<span class="lineNoCov">          0 :         nslots = 0;</span>
+<span class="lineNum">     830 </span>                :            : 
+<span class="lineNum">     831 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; primaryResults-&gt;resultCount; ++i)</span>
+<span class="lineNum">     832 </span>                :<span class="lineNoCov">          0 :                 nslots += cdbdisp_numPGresult(&amp;primaryResults-&gt;resultArray[i]);</span>
+<span class="lineNum">     833 </span>                :            : 
+<span class="lineNum">     834 </span>                :            : 
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :         cdb_pgresults-&gt;pg_results = (struct pg_result **)calloc(nslots, sizeof(struct pg_result*));</span>
+<span class="lineNum">     836 </span>                :            : 
+<span class="lineNum">     837 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!cdb_pgresults-&gt;pg_results)</span>
+<span class="lineNum">     838 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR, (errcode(ERRCODE_OUT_OF_MEMORY),</span>
+<span class="lineNum">     839 </span>                :            :                                                 errmsg
+<span class="lineNum">     840 </span>                :            :                                                 (&quot;cdbdisp_returnResults failed: out of memory&quot;)));
+<span class="lineNum">     841 </span>                :            : 
+<span class="lineNum">     842 </span>                :            :         /*
+<span class="lineNum">     843 </span>                :            :          * Collect results from primary gang.
+<span class="lineNum">     844 </span>                :            :          */
+<span class="lineNum">     845 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; primaryResults-&gt;resultCount; ++i)</span>
+<span class="lineNum">     846 </span>                :            :         {
+<span class="lineNum">     847 </span>                :<span class="lineNoCov">          0 :                 dispatchResult = &amp;primaryResults-&gt;resultArray[i];</span>
+<span class="lineNum">     848 </span>                :            : 
+<span class="lineNum">     849 </span>                :            :                 /*
+<span class="lineNum">     850 </span>                :            :                  * Take ownership of this QE's PGresult object(s).
+<span class="lineNum">     851 </span>                :            :                  */
+<span class="lineNum">     852 </span>                :<span class="lineNoCov">          0 :                 nresults += cdbdisp_snatchPGresults(dispatchResult,</span>
+<span class="lineNum">     853 </span>                :<span class="lineNoCov">          0 :                                                                                         cdb_pgresults-&gt;pg_results + nresults,</span>
+<span class="lineNum">     854 </span>                :<span class="lineNoCov">          0 :                                                                                         nslots - nresults);</span>
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     856 </span>                :            : 
+<span class="lineNum">     857 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(nresults == nslots);</span>
+<span class="lineNum">     858 </span>                :            : 
+<span class="lineNum">     859 </span>                :            :         /* tell the caller how many sets we're returning. */
+<span class="lineNum">     860 </span>                :<span class="lineNoCov">          0 :         cdb_pgresults-&gt;numResults = nresults;</span>
+<span class="lineNum">     861 </span>                :            : 
+<span class="lineNum">     862 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     863 </span>                :            : 
+<span class="lineNum">     864 </span>                :            : /*
+<span class="lineNum">     865 </span>                :            :  * used in the interconnect on the dispatcher to avoid error-cleanup deadlocks.
+<a name="866"><span class="lineNum">     866 </span>                :            :  */</a>
+<span class="lineNum">     867 </span>                :            : bool
+<span class="lineNum">     868 </span>                :            : cdbdisp_checkResultsErrcode(struct CdbDispatchResults *meleeResults)
+<span class="lineNum">     869 </span>                :            : {
+<span class="lineNum">     870 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (meleeResults == NULL)</span>
+<span class="lineNum">     871 </span>                :            :         {
+<span class="lineNum">     872 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     873 </span>                :            :         }
+<span class="lineNum">     874 </span>                :            : 
+<span class="lineNum">     875 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (meleeResults-&gt;errcode)</span>
+<span class="lineNum">     876 </span>                :            :         {
+<span class="lineNum">     877 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     878 </span>                :            :         }
+<span class="lineNum">     879 </span>                :            : 
+<span class="lineNum">     880 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     881 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     882 </span>                :            : 
+<span class="lineNum">     883 </span>                :            : /*
+<span class="lineNum">     884 </span>                :            :  * cdbdisp_makeDispatchResults:
+<span class="lineNum">     885 </span>                :            :  * Allocates a CdbDispatchResults object in the current memory context.
+<span class="lineNum">     886 </span>                :            :  * Will be freed in function cdbdisp_destroyDispatcherState by deleting the
+<span class="lineNum">     887 </span>                :            :  * memory context.
+<a name="888"><span class="lineNum">     888 </span>                :            :  */</a>
+<span class="lineNum">     889 </span>                :            : CdbDispatchResults *
+<span class="lineNum">     890 </span>                :            : cdbdisp_makeDispatchResults(int sliceCapacity,
+<span class="lineNum">     891 </span>                :            :                             bool cancelOnError)
+<span class="lineNum">     892 </span>                :            : {
+<span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :     CdbDispatchResults *results = palloc0(sizeof(*results));</span>
+<span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 :     int resultCapacity = largestGangsize() * sliceCapacity;</span>
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :     int nbytes = resultCapacity * sizeof(results-&gt;resultArray[0]);</span>
+<span class="lineNum">     896 </span>                :            : 
+<span class="lineNum">     897 </span>                :<span class="lineNoCov">          0 :     results-&gt;resultArray = palloc0(nbytes);</span>
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :     results-&gt;resultCapacity = resultCapacity;</span>
+<span class="lineNum">     899 </span>                :<span class="lineNoCov">          0 :     results-&gt;resultCount = 0;</span>
+<span class="lineNum">     900 </span>                :<span class="lineNoCov">          0 :     results-&gt;iFirstError = -1;</span>
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :     results-&gt;errcode = 0;</span>
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :     results-&gt;cancelOnError = cancelOnError;</span>
+<span class="lineNum">     903 </span>                :            : 
+<span class="lineNum">     904 </span>                :<span class="lineNoCov">          0 :     results-&gt;sliceMap = NULL;</span>
+<span class="lineNum">     905 </span>                :<span class="lineNoCov">          0 :     results-&gt;sliceCapacity = sliceCapacity;</span>
+<span class="lineNum">     906 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (sliceCapacity &gt; 0)</span>
+<span class="lineNum">     907 </span>                :            :     {
+<span class="lineNum">     908 </span>                :<span class="lineNoCov">          0 :         nbytes = sliceCapacity * sizeof(results-&gt;sliceMap[0]);</span>
+<span class="lineNum">     909 </span>                :<span class="lineNoCov">          0 :         results-&gt;sliceMap = palloc0(nbytes);</span>
+<span class="lineNum">     910 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     911 </span>                :            : 
+<span class="lineNum">     912 </span>                :<span class="lineNoCov">          0 :     return results;</span>
+<a name="913"><span class="lineNum">     913 </span>                :            : }</a>
+<span class="lineNum">     914 </span>                :            : 
+<span class="lineNum">     915 </span>                :            : void cdbdisp_clearCdbPgResults(CdbPgResults* cdb_pgresults)
+<span class="lineNum">     916 </span>                :            : {
+<span class="lineNum">     917 </span>                :<span class="lineNoCov">          0 :         int i = 0;</span>
+<span class="lineNum">     918 </span>                :            : 
+<span class="lineNum">     919 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!cdb_pgresults)</span>
+<span class="lineNum">     920 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     921 </span>                :            : 
+<span class="lineNum">     922 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; cdb_pgresults-&gt;numResults; i++)</span>
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :                 PQclear(cdb_pgresults-&gt;pg_results[i]);</span>
+<span class="lineNum">     924 </span>                :            : 
+<span class="lineNum">     925 </span>                :<span class="lineNoCov">          0 :         cdb_pgresults-&gt;numResults = 0;</span>
+<span class="lineNum">     926 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     927 </span>                :            : /*
+<span class="lineNum">     928 </span>                :            :  * Remove all of the PGresult ptrs from a CdbDispatchResult object
+<span class="lineNum">     929 </span>                :            :  * and place them into an array provided by the caller. The caller
+<span class="lineNum">     930 </span>                :            :  * becomes responsible for PQclear()ing them. Returns the number of
+<span class="lineNum">     931 </span>                :            :  * PGresult ptrs placed in the array.
+<a name="932"><span class="lineNum">     932 </span>                :            :  */</a>
+<span class="lineNum">     933 </span>                :            : static int
+<span class="lineNum">     934 </span>                :            : cdbdisp_snatchPGresults(CdbDispatchResult *dispatchResult,
+<span class="lineNum">     935 </span>                :            :                                                 struct pg_result **pgresultptrs, int maxresults)
+<span class="lineNum">     936 </span>                :            : {
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 :         PQExpBuffer buf = dispatchResult-&gt;resultbuf;</span>
+<span class="lineNum">     938 </span>                :<span class="lineNoCov">          0 :         PGresult **begp = (PGresult **) buf-&gt;data;</span>
+<span class="lineNum">     939 </span>                :<span class="lineNoCov">          0 :         PGresult **endp = (PGresult **) (buf-&gt;data + buf-&gt;len);</span>
+<span class="lineNum">     940 </span>                :            :         PGresult **p;
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :         int     nresults = 0;</span>
+<span class="lineNum">     942 </span>                :            : 
+<span class="lineNum">     943 </span>                :            :         /*
+<span class="lineNum">     944 </span>                :            :          * Snatch the PGresult objects.
+<span class="lineNum">     945 </span>                :            :          */
+<span class="lineNum">     946 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (p = begp; p &lt; endp; ++p)</span>
+<span class="lineNum">     947 </span>                :            :         {
+<span class="lineNum">     948 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(*p != NULL);</span>
+<span class="lineNum">     949 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(nresults &lt; maxresults);</span>
+<span class="lineNum">     950 </span>                :<span class="lineNoCov">          0 :                 pgresultptrs[nresults++] = *p;</span>
+<span class="lineNum">     951 </span>                :<span class="lineNoCov">          0 :                 *p = NULL;</span>
+<span class="lineNum">     952 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     953 </span>                :            : 
+<span class="lineNum">     954 </span>                :            :         /*
+<span class="lineNum">     955 </span>                :            :          * Empty our PGresult array.
+<span class="lineNum">     956 </span>                :            :          */
+<span class="lineNum">     957 </span>                :<span class="lineNoCov">          0 :         resetPQExpBuffer(buf);</span>
+<span class="lineNum">     958 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;errindex = -1;</span>
+<span class="lineNum">     959 </span>                :<span class="lineNoCov">          0 :         dispatchResult-&gt;okindex = -1;</span>
+<span class="lineNum">     960 </span>                :            : 
+<span class="lineNum">     961 </span>                :<span class="lineNoCov">          0 :         return nresults;</span>
+<span class="lineNum">     962 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

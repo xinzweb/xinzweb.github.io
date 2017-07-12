@@ -1,0 +1,580 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - access/common/indextuple.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">access/common</a> - indextuple.c<span style="font-size: 80%;"> (source / <a href="indextuple.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">143</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">204</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * indextuple.c
+<span class="lineNum">       4 </span>                :            :  *         This file contains index tuple accessor and mutator routines,
+<span class="lineNum">       5 </span>                :            :  *         as well as various tuple utilities.
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/access/common/indextuple.c,v 1.89 2009/08/01 19:59:41 tgl Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;access/itup.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;access/tuptoaster.h&quot;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">      25 </span>                :            :  *                                index_ tuple interface routines
+<span class="lineNum">      26 </span>                :            :  * ----------------------------------------------------------------
+<span class="lineNum">      27 </span>                :            :  */
+<span class="lineNum">      28 </span>                :            : 
+<span class="lineNum">      29 </span>                :            : /* ----------------
+<span class="lineNum">      30 </span>                :            :  *              index_form_tuple
+<span class="lineNum">      31 </span>                :            :  * ----------------
+<a name="32"><span class="lineNum">      32 </span>                :            :  */</a>
+<span class="lineNum">      33 </span>                :            : IndexTuple
+<span class="lineNum">      34 </span>                :            : index_form_tuple(TupleDesc tupleDescriptor,
+<span class="lineNum">      35 </span>                :            :                                  Datum *values,
+<span class="lineNum">      36 </span>                :            :                                  bool *isnull)
+<span class="lineNum">      37 </span>                :            : {
+<span class="lineNum">      38 </span>                :            :         char       *tp;                         /* tuple pointer */
+<span class="lineNum">      39 </span>                :            :         IndexTuple      tuple;                  /* return tuple */
+<span class="lineNum">      40 </span>                :            :         Size            size,
+<span class="lineNum">      41 </span>                :            :                                 data_size,
+<span class="lineNum">      42 </span>                :            :                                 hoff;
+<span class="lineNum">      43 </span>                :            :         int                     i;
+<span class="lineNum">      44 </span>                :<span class="lineNoCov">          0 :         unsigned short infomask = 0;</span>
+<span class="lineNum">      45 </span>                :<span class="lineNoCov">          0 :         bool            hasnull = false;</span>
+<span class="lineNum">      46 </span>                :<span class="lineNoCov">          0 :         uint16          tupmask = 0;</span>
+<span class="lineNum">      47 </span>                :<span class="lineNoCov">          0 :         int                     numberOfAttributes = tupleDescriptor-&gt;natts;</span>
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : #ifdef TOAST_INDEX_HACK
+<span class="lineNum">      50 </span>                :            :         Datum           untoasted_values[INDEX_MAX_KEYS];
+<span class="lineNum">      51 </span>                :            :         bool            untoasted_free[INDEX_MAX_KEYS];
+<span class="lineNum">      52 </span>                :            : #endif
+<span class="lineNum">      53 </span>                :            : 
+<span class="lineNum">      54 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (numberOfAttributes &gt; INDEX_MAX_KEYS)</span>
+<span class="lineNum">      55 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      56 </span>                :            :                                 (errcode(ERRCODE_TOO_MANY_COLUMNS),
+<span class="lineNum">      57 </span>                :            :                                  errmsg(&quot;number of index columns (%d) exceeds limit (%d)&quot;,
+<span class="lineNum">      58 </span>                :            :                                                 numberOfAttributes, INDEX_MAX_KEYS)));
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :            : #ifdef TOAST_INDEX_HACK
+<span class="lineNum">      61 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; numberOfAttributes; i++)</span>
+<span class="lineNum">      62 </span>                :            :         {
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :                 Form_pg_attribute att = tupleDescriptor-&gt;attrs[i];</span>
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :<span class="lineNoCov">          0 :                 untoasted_values[i] = values[i];</span>
+<span class="lineNum">      66 </span>                :<span class="lineNoCov">          0 :                 untoasted_free[i] = false;</span>
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :            :                 /* Do nothing if value is NULL or not of varlena type */
+<span class="lineNum">      69 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (isnull[i] || att-&gt;attlen != -1)</span>
+<span class="lineNum">      70 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            :                 /*
+<span class="lineNum">      73 </span>                :            :                  * If value is stored EXTERNAL, must fetch it so we are not depending
+<span class="lineNum">      74 </span>                :            :                  * on outside storage.  This should be improved someday.
+<span class="lineNum">      75 </span>                :            :                  */
+<span class="lineNum">      76 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (VARATT_IS_EXTERNAL(DatumGetPointer(values[i])))</span>
+<span class="lineNum">      77 </span>                :            :                 {
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :                         untoasted_values[i] =</span>
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :                                 PointerGetDatum(heap_tuple_fetch_attr((struct varlena *)</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :                                                                                                 DatumGetPointer(values[i])));</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :                         untoasted_free[i] = true;</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            :                 /*
+<span class="lineNum">      85 </span>                :            :                  * If value is above size target, and is of a compressible datatype,
+<span class="lineNum">      86 </span>                :            :                  * try to compress it in-line.
+<span class="lineNum">      87 </span>                :            :                  */
+<span class="lineNum">      88 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!VARATT_IS_EXTENDED(untoasted_values[i]) &amp;&amp;</span>
+<span class="lineNum">      89 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         VARSIZE(untoasted_values[i]) &gt; TOAST_INDEX_TARGET &amp;&amp;</span>
+<span class="lineNum">      90 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         (att-&gt;attstorage == 'x' || att-&gt;attstorage == 'm'))</span>
+<span class="lineNum">      91 </span>                :            :                 {
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :                         Datum           cvalue = toast_compress_datum(untoasted_values[i]);</span>
+<span class="lineNum">      93 </span>                :            : 
+<span class="lineNum">      94 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (DatumGetPointer(cvalue) != NULL)</span>
+<span class="lineNum">      95 </span>                :            :                         {
+<span class="lineNum">      96 </span>                :            :                                 /* successful compression */
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (untoasted_free[i])</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                                         pfree(DatumGetPointer(untoasted_values[i]));</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :                                 untoasted_values[i] = cvalue;</span>
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :                                 untoasted_free[i] = true;</span>
+<span class="lineNum">     101 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     104 </span>                :            : #endif
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; numberOfAttributes; i++)</span>
+<span class="lineNum">     107 </span>                :            :         {
+<span class="lineNum">     108 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (isnull[i])</span>
+<span class="lineNum">     109 </span>                :            :                 {
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :                         hasnull = true;</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     112 </span>                :            :                 }
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (hasnull)</span>
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :                 infomask |= INDEX_NULL_MASK;</span>
+<span class="lineNum">     117 </span>                :            : 
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :         hoff = IndexInfoFindDataOffset(infomask);</span>
+<span class="lineNum">     119 </span>                :            : #ifdef TOAST_INDEX_HACK
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :         data_size = heap_compute_data_size(tupleDescriptor,</span>
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :                                                                            untoasted_values, isnull);</span>
+<span class="lineNum">     122 </span>                :            : #else
+<span class="lineNum">     123 </span>                :            :         data_size = heap_compute_data_size(tupleDescriptor,
+<span class="lineNum">     124 </span>                :            :                                                                            values, isnull);
+<span class="lineNum">     125 </span>                :            : #endif
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :         size = hoff + data_size;</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :         size = MAXALIGN(size);          /* be conservative */</span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         tp = (char *) palloc0(size);</span>
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         tuple = (IndexTuple) tp;</span>
+<span class="lineNum">     131 </span>                :            : 
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :         heap_fill_tuple(tupleDescriptor,</span>
+<span class="lineNum">     133 </span>                :            : #ifdef TOAST_INDEX_HACK
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                                         untoasted_values,</span>
+<span class="lineNum">     135 </span>                :            : #else
+<span class="lineNum">     136 </span>                :            :                                         values,
+<span class="lineNum">     137 </span>                :            : #endif
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                                         isnull,</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                                         (char *) tp + hoff,</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                                         data_size,</span>
+<span class="lineNum">     141 </span>                :            :                                         &amp;tupmask,
+<span class="lineNum">     142 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         (hasnull ? (bits8 *) tp + sizeof(IndexTupleData) : NULL));</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :            : #ifdef TOAST_INDEX_HACK
+<span class="lineNum">     145 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; numberOfAttributes; i++)</span>
+<span class="lineNum">     146 </span>                :            :         {
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (untoasted_free[i])</span>
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :                         pfree(DatumGetPointer(untoasted_values[i]));</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     150 </span>                :            : #endif
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :            :         /*
+<span class="lineNum">     153 </span>                :            :          * We do this because heap_fill_tuple wants to initialize a &quot;tupmask&quot;
+<span class="lineNum">     154 </span>                :            :          * which is used for HeapTuples, but we want an indextuple infomask. The
+<span class="lineNum">     155 </span>                :            :          * only relevant info is the &quot;has variable attributes&quot; field. We have
+<span class="lineNum">     156 </span>                :            :          * already set the hasnull bit above.
+<span class="lineNum">     157 </span>                :            :          */
+<span class="lineNum">     158 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (tupmask &amp; HEAP_HASVARWIDTH)</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                 infomask |= INDEX_VAR_MASK;</span>
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :            :         /*
+<span class="lineNum">     162 </span>                :            :          * Here we make sure that the size will fit in the field reserved for it
+<span class="lineNum">     163 </span>                :            :          * in t_info.
+<span class="lineNum">     164 </span>                :            :          */
+<span class="lineNum">     165 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((size &amp; INDEX_SIZE_MASK) != size)</span>
+<span class="lineNum">     166 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     167 </span>                :            :                                 (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+<span class="lineNum">     168 </span>                :            :                                  errmsg(&quot;index row requires %lu bytes, maximum size is %lu&quot;,
+<span class="lineNum">     169 </span>                :            :                                                 (unsigned long) size,
+<span class="lineNum">     170 </span>                :            :                                                 (unsigned long) INDEX_SIZE_MASK)));
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         infomask |= size;</span>
+<span class="lineNum">     173 </span>                :            : 
+<span class="lineNum">     174 </span>                :            :         /*
+<span class="lineNum">     175 </span>                :            :          * initialize metadata
+<span class="lineNum">     176 </span>                :            :          */
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :         tuple-&gt;t_info = infomask;</span>
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         return tuple;</span>
+<span class="lineNum">     179 </span>                :            : }
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :            : /* ----------------
+<span class="lineNum">     182 </span>                :            :  *              nocache_index_getattr
+<span class="lineNum">     183 </span>                :            :  *
+<span class="lineNum">     184 </span>                :            :  *              This gets called from index_getattr() macro, and only in cases
+<span class="lineNum">     185 </span>                :            :  *              where we can't use cacheoffset and the value is not null.
+<span class="lineNum">     186 </span>                :            :  *
+<span class="lineNum">     187 </span>                :            :  *              This caches attribute offsets in the attribute descriptor.
+<span class="lineNum">     188 </span>                :            :  *
+<span class="lineNum">     189 </span>                :            :  *              An alternative way to speed things up would be to cache offsets
+<span class="lineNum">     190 </span>                :            :  *              with the tuple, but that seems more difficult unless you take
+<span class="lineNum">     191 </span>                :            :  *              the storage hit of actually putting those offsets into the
+<span class="lineNum">     192 </span>                :            :  *              tuple you send to disk.  Yuck.
+<span class="lineNum">     193 </span>                :            :  *
+<span class="lineNum">     194 </span>                :            :  *              This scheme will be slightly slower than that, but should
+<span class="lineNum">     195 </span>                :            :  *              perform well for queries which hit large #'s of tuples.  After
+<span class="lineNum">     196 </span>                :            :  *              you cache the offsets once, examining all the other tuples using
+<span class="lineNum">     197 </span>                :            :  *              the same attribute descriptor will go much quicker. -cim 5/4/91
+<span class="lineNum">     198 </span>                :            :  * ----------------
+<a name="199"><span class="lineNum">     199 </span>                :            :  */</a>
+<span class="lineNum">     200 </span>                :            : Datum
+<span class="lineNum">     201 </span>                :            : nocache_index_getattr(IndexTuple tup,
+<span class="lineNum">     202 </span>                :            :                                           int attnum,
+<span class="lineNum">     203 </span>                :            :                                           TupleDesc tupleDesc,
+<span class="lineNum">     204 </span>                :            :                                           bool *isnull)
+<span class="lineNum">     205 </span>                :            : {
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :         Form_pg_attribute *att = tupleDesc-&gt;attrs;</span>
+<span class="lineNum">     207 </span>                :            :         char       *tp;                         /* ptr to data part of tuple */
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         bits8      *bp = NULL;          /* ptr to null bitmap in tuple */</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :         bool            slow = false;   /* do we have to walk attrs? */</span>
+<span class="lineNum">     210 </span>                :            :         int                     data_off;               /* tuple data offset */
+<span class="lineNum">     211 </span>                :            :         int                     off;                    /* current offset within data */
+<span class="lineNum">     212 </span>                :            : 
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         (void) isnull;                          /* not used */</span>
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>                :            :         /* ----------------
+<span class="lineNum">     216 </span>                :            :          *       Three cases:
+<span class="lineNum">     217 </span>                :            :          *
+<span class="lineNum">     218 </span>                :            :          *       1: No nulls and no variable-width attributes.
+<span class="lineNum">     219 </span>                :            :          *       2: Has a null or a var-width AFTER att.
+<span class="lineNum">     220 </span>                :            :          *       3: Has nulls or var-widths BEFORE att.
+<span class="lineNum">     221 </span>                :            :          * ----------------
+<span class="lineNum">     222 </span>                :            :          */
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :            : #ifdef IN_MACRO
+<span class="lineNum">     225 </span>                :            : /* This is handled in the macro */
+<span class="lineNum">     226 </span>                :            :         Assert(PointerIsValid(isnull));
+<span class="lineNum">     227 </span>                :            :         Assert(attnum &gt; 0);
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :            :         *isnull = false;
+<span class="lineNum">     230 </span>                :            : #endif
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         data_off = IndexInfoFindDataOffset(tup-&gt;t_info);</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :         attnum--;</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IndexTupleHasNulls(tup))</span>
+<span class="lineNum">     237 </span>                :            :         {
+<span class="lineNum">     238 </span>                :            : #ifdef IN_MACRO
+<span class="lineNum">     239 </span>                :            : /* This is handled in the macro */
+<span class="lineNum">     240 </span>                :            :                 if (att[attnum]-&gt;attcacheoff &gt;= 0)
+<span class="lineNum">     241 </span>                :            :                 {
+<span class="lineNum">     242 </span>                :            :                         return fetchatt(att[attnum],
+<span class="lineNum">     243 </span>                :            :                                                         (char *) tup + data_off +
+<span class="lineNum">     244 </span>                :            :                                                         att[attnum]-&gt;attcacheoff);
+<span class="lineNum">     245 </span>                :            :                 }
+<span class="lineNum">     246 </span>                :            : #endif
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     248 </span>                :            :         else
+<span class="lineNum">     249 </span>                :            :         {
+<span class="lineNum">     250 </span>                :            :                 /*
+<span class="lineNum">     251 </span>                :            :                  * there's a null somewhere in the tuple
+<span class="lineNum">     252 </span>                :            :                  *
+<span class="lineNum">     253 </span>                :            :                  * check to see if desired att is null
+<span class="lineNum">     254 </span>                :            :                  */
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :            :                 /* XXX &quot;knows&quot; t_bits are just after fixed tuple header! */
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                 bp = (bits8 *) ((char *) tup + sizeof(IndexTupleData));</span>
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :            : #ifdef IN_MACRO
+<span class="lineNum">     260 </span>                :            : /* This is handled in the macro */
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            :                 if (att_isnull(attnum, bp))
+<span class="lineNum">     263 </span>                :            :                 {
+<span class="lineNum">     264 </span>                :            :                         *isnull = true;
+<span class="lineNum">     265 </span>                :            :                         return (Datum) NULL;
+<span class="lineNum">     266 </span>                :            :                 }
+<span class="lineNum">     267 </span>                :            : #endif
+<span class="lineNum">     268 </span>                :            : 
+<span class="lineNum">     269 </span>                :            :                 /*
+<span class="lineNum">     270 </span>                :            :                  * Now check to see if any preceding bits are null...
+<span class="lineNum">     271 </span>                :            :                  */
+<span class="lineNum">     272 </span>                :            :                 {
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :                         int                     byte = attnum &gt;&gt; 3;</span>
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                         int                     finalbit = attnum &amp; 0x07;</span>
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :            :                         /* check for nulls &quot;before&quot; final bit of last byte */
+<span class="lineNum">     277 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ((~bp[byte]) &amp; ((1 &lt;&lt; finalbit) - 1))</span>
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                                 slow = true;</span>
+<span class="lineNum">     279 </span>                :            :                         else
+<span class="lineNum">     280 </span>                :            :                         {
+<span class="lineNum">     281 </span>                :            :                                 /* check for nulls in any &quot;earlier&quot; bytes */
+<span class="lineNum">     282 </span>                :            :                                 int                     i;
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 for (i = 0; i &lt; byte; i++)</span>
+<span class="lineNum">     285 </span>                :            :                                 {
+<span class="lineNum">     286 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (bp[i] != 0xFF)</span>
+<span class="lineNum">     287 </span>                :            :                                         {
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :                                                 slow = true;</span>
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     290 </span>                :            :                                         }
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     292 </span>                :            :                         }
+<span class="lineNum">     293 </span>                :            :                 }
+<span class="lineNum">     294 </span>                :            :         }
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :         tp = (char *) tup + data_off;</span>
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!slow)</span>
+<span class="lineNum">     299 </span>                :            :         {
+<span class="lineNum">     300 </span>                :            :                 /*
+<span class="lineNum">     301 </span>                :            :                  * If we get here, there are no nulls up to and including the target
+<span class="lineNum">     302 </span>                :            :                  * attribute.  If we have a cached offset, we can use it.
+<span class="lineNum">     303 </span>                :            :                  */
+<span class="lineNum">     304 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (att[attnum]-&gt;attcacheoff &gt;= 0)</span>
+<span class="lineNum">     305 </span>                :            :                 {
+<span class="lineNum">     306 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         return fetchatt(att[attnum],</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">     307 </span>                :            :                                                         tp + att[attnum]-&gt;attcacheoff);
+<span class="lineNum">     308 </span>                :            :                 }
+<span class="lineNum">     309 </span>                :            : 
+<span class="lineNum">     310 </span>                :            :                 /*
+<span class="lineNum">     311 </span>                :            :                  * Otherwise, check for non-fixed-length attrs up to and including
+<span class="lineNum">     312 </span>                :            :                  * target.      If there aren't any, it's safe to cheaply initialize the
+<span class="lineNum">     313 </span>                :            :                  * cached offsets for these attrs.
+<span class="lineNum">     314 </span>                :            :                  */
+<span class="lineNum">     315 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IndexTupleHasVarwidths(tup))</span>
+<span class="lineNum">     316 </span>                :            :                 {
+<span class="lineNum">     317 </span>                :            :                         int                     j;
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (j = 0; j &lt;= attnum; j++)</span>
+<span class="lineNum">     320 </span>                :            :                         {
+<span class="lineNum">     321 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (att[j]-&gt;attlen &lt;= 0)</span>
+<span class="lineNum">     322 </span>                :            :                                 {
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :                                         slow = true;</span>
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     325 </span>                :            :                                 }
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!slow)</span>
+<span class="lineNum">     331 </span>                :            :         {
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :                 int                     natts = tupleDesc-&gt;natts;</span>
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :                 int                     j = 1;</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :            :                 /*
+<span class="lineNum">     336 </span>                :            :                  * If we get here, we have a tuple with no nulls or var-widths up to
+<span class="lineNum">     337 </span>                :            :                  * and including the target attribute, so we can use the cached offset
+<span class="lineNum">     338 </span>                :            :                  * ... only we don't have it yet, or we'd not have got here.  Since
+<span class="lineNum">     339 </span>                :            :                  * it's cheap to compute offsets for fixed-width columns, we take the
+<span class="lineNum">     340 </span>                :            :                  * opportunity to initialize the cached offsets for *all* the leading
+<span class="lineNum">     341 </span>                :            :                  * fixed-width columns, in hope of avoiding future visits to this
+<span class="lineNum">     342 </span>                :            :                  * routine.
+<span class="lineNum">     343 </span>                :            :                  */
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                 att[0]-&gt;attcacheoff = 0;</span>
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>                :            :                 /* we might have set some offsets in the slow path previously */
+<span class="lineNum">     347 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (j &lt; natts &amp;&amp; att[j]-&gt;attcacheoff &gt; 0)</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 :                         j++;</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :                 off = att[j - 1]-&gt;attcacheoff + att[j - 1]-&gt;attlen;</span>
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (; j &lt; natts; j++)</span>
+<span class="lineNum">     353 </span>                :            :                 {
+<span class="lineNum">     354 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (att[j]-&gt;attlen &lt;= 0)</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     356 </span>                :            : 
+<span class="lineNum">     357 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         off = att_align_nominal(off, att[j]-&gt;attalign);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :                         att[j]-&gt;attcacheoff = off;</span>
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :                         off += att[j]-&gt;attlen;</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(j &gt; attnum);</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :                 off = att[attnum]-&gt;attcacheoff;</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     368 </span>                :            :         else
+<span class="lineNum">     369 </span>                :            :         {
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :                 bool            usecache = true;</span>
+<span class="lineNum">     371 </span>                :            :                 int                     i;
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :            :                 /*
+<span class="lineNum">     374 </span>                :            :                  * Now we know that we have to walk the tuple CAREFULLY.  But we still
+<span class="lineNum">     375 </span>                :            :                  * might be able to cache some offsets for next time.
+<span class="lineNum">     376 </span>                :            :                  *
+<span class="lineNum">     377 </span>                :            :                  * Note - This loop is a little tricky.  For each non-null attribute,
+<span class="lineNum">     378 </span>                :            :                  * we have to first account for alignment padding before the attr,
+<span class="lineNum">     379 </span>                :            :                  * then advance over the attr based on its length.      Nulls have no
+<span class="lineNum">     380 </span>                :            :                  * storage and no alignment padding either.  We can use/set
+<span class="lineNum">     381 </span>                :            :                  * attcacheoff until we reach either a null or a var-width attribute.
+<span class="lineNum">     382 </span>                :            :                  */
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                 off = 0;</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                 for (i = 0;; i++)               /* loop exit is at &quot;break&quot; */</span>
+<span class="lineNum">     385 </span>                :            :                 {
+<span class="lineNum">     386 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IndexTupleHasNulls(tup) &amp;&amp; att_isnull(i, bp))</span>
+<span class="lineNum">     387 </span>                :            :                         {
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :                                 usecache = false;</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :                                 continue;               /* this cannot be the target att */</span>
+<span class="lineNum">     390 </span>                :            :                         }
+<span class="lineNum">     391 </span>                :            : 
+<span class="lineNum">     392 </span>                :            :                         /* If we know the next offset, we can skip the rest */
+<span class="lineNum">     393 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (usecache &amp;&amp; att[i]-&gt;attcacheoff &gt;= 0)</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :                                 off = att[i]-&gt;attcacheoff;</span>
+<span class="lineNum">     395 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (att[i]-&gt;attlen == -1)</span>
+<span class="lineNum">     396 </span>                :            :                         {
+<span class="lineNum">     397 </span>                :            :                                 /*
+<span class="lineNum">     398 </span>                :            :                                  * We can only cache the offset for a varlena attribute if the
+<span class="lineNum">     399 </span>                :            :                                  * offset is already suitably aligned, so that there would be
+<span class="lineNum">     400 </span>                :            :                                  * no pad bytes in any case: then the offset will be valid for
+<span class="lineNum">     401 </span>                :            :                                  * either an aligned or unaligned value.
+<span class="lineNum">     402 </span>                :            :                                  */
+<span class="lineNum">     403 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (usecache &amp;&amp;</span>
+<span class="lineNum">     404 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         off == att_align_nominal(off, att[i]-&gt;attalign))</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                                         att[i]-&gt;attcacheoff = off;</span>
+<span class="lineNum">     406 </span>                :            :                                 else
+<span class="lineNum">     407 </span>                :            :                                 {
+<span class="lineNum">     408 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         off = att_align_pointer(off, att[i]-&gt;attalign, -1,</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">     409 </span>                :            :                                                                                         tp + off);
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :                                         usecache = false;</span>
+<span class="lineNum">     411 </span>                :            :                                 }
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     413 </span>                :            :                         else
+<span class="lineNum">     414 </span>                :            :                         {
+<span class="lineNum">     415 </span>                :            :                                 /* not varlena, so safe to use att_align_nominal */
+<span class="lineNum">     416 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 off = att_align_nominal(off, att[i]-&gt;attalign);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     417 </span>                :            : 
+<span class="lineNum">     418 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (usecache)</span>
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :                                         att[i]-&gt;attcacheoff = off;</span>
+<span class="lineNum">     420 </span>                :            :                         }
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (i == attnum)</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     424 </span>                :            : 
+<span class="lineNum">     425 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         off = att_addlength_pointer(off, att[i]-&gt;attlen, tp + off);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">     426 </span>                :            : 
+<span class="lineNum">     427 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (usecache &amp;&amp; att[i]-&gt;attlen &lt;= 0)</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                                 usecache = false;</span>
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     430 </span>                :            :         }
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         return fetchatt(att[attnum], tp + off);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     434 </span>                :            : 
+<span class="lineNum">     435 </span>                :            : /*
+<span class="lineNum">     436 </span>                :            :  * Convert an index tuple into Datum/isnull arrays.
+<span class="lineNum">     437 </span>                :            :  *
+<span class="lineNum">     438 </span>                :            :  * The caller must allocate sufficient storage for the output arrays.
+<span class="lineNum">     439 </span>                :            :  * (INDEX_MAX_KEYS entries should be enough.)
+<a name="440"><span class="lineNum">     440 </span>                :            :  */</a>
+<span class="lineNum">     441 </span>                :            : void
+<span class="lineNum">     442 </span>                :            : index_deform_tuple(IndexTuple tup, TupleDesc tupleDescriptor,
+<span class="lineNum">     443 </span>                :            :                                    Datum *values, bool *isnull)
+<span class="lineNum">     444 </span>                :            : {
+<span class="lineNum">     445 </span>                :            :         int                     i;
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :            :         /* Assert to protect callers who allocate fixed-size arrays */
+<span class="lineNum">     448 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(tupleDescriptor-&gt;natts &lt;= INDEX_MAX_KEYS);</span>
+<span class="lineNum">     449 </span>                :            : 
+<span class="lineNum">     450 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; tupleDescriptor-&gt;natts; i++)</span>
+<span class="lineNum">     451 </span>                :            :         {
+<span class="lineNum">     452 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 values[i] = index_getattr(tup, i + 1, tupleDescriptor, &amp;isnull[i]);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 16 was not executed"> # </span><span class="branchNoExec" title="Branch 17 was not executed"> # </span>][<span class="branchNoExec" title="Branch 18 was not executed"> # </span><span class="branchNoExec" title="Branch 19 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 20 was not executed"> # </span><span class="branchNoExec" title="Branch 21 was not executed"> # </span>][<span class="branchNoExec" title="Branch 22 was not executed"> # </span><span class="branchNoExec" title="Branch 23 was not executed"> # </span>]
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            : /*
+<span class="lineNum">     457 </span>                :            :  * Create a palloc'd copy of an index tuple.
+<a name="458"><span class="lineNum">     458 </span>                :            :  */</a>
+<span class="lineNum">     459 </span>                :            : IndexTuple
+<span class="lineNum">     460 </span>                :            : CopyIndexTuple(IndexTuple source)
+<span class="lineNum">     461 </span>                :            : {
+<span class="lineNum">     462 </span>                :            :         IndexTuple      result;
+<span class="lineNum">     463 </span>                :            :         Size            size;
+<span class="lineNum">     464 </span>                :            : 
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 :         size = IndexTupleSize(source);</span>
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 :         result = (IndexTuple) palloc(size);</span>
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :         memcpy(result, source, size);</span>
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     469 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

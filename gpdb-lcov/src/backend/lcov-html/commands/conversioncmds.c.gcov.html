@@ -1,0 +1,463 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - commands/conversioncmds.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">commands</a> - conversioncmds.c<span style="font-size: 80%;"> (source / <a href="conversioncmds.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">116</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">54</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * conversioncmds.c
+<span class="lineNum">       4 </span>                :            :  *        conversion creation command support code
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/commands/conversioncmds.c,v 1.32.2.1 2009/02/27 16:35:31 heikki Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;catalog/dependency.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;catalog/indexing.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;catalog/oid_dispatch.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;catalog/pg_conversion.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;commands/alter.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;commands/conversioncmds.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;mb/pg_wchar.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;parser/parse_func.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;utils/acl.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      32 </span>                :            : 
+<span class="lineNum">      33 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : static void AlterConversionOwner_internal(Relation rel, Oid conversionOid,
+<span class="lineNum">      37 </span>                :            :                                                           Oid newOwnerId);
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>                :            : /*
+<span class="lineNum">      40 </span>                :            :  * CREATE CONVERSION
+<a name="41"><span class="lineNum">      41 </span>                :            :  */</a>
+<span class="lineNum">      42 </span>                :            : void
+<span class="lineNum">      43 </span>                :            : CreateConversionCommand(CreateConversionStmt *stmt)
+<span class="lineNum">      44 </span>                :            : {
+<span class="lineNum">      45 </span>                :            :         Oid                     namespaceId;
+<span class="lineNum">      46 </span>                :            :         char       *conversion_name;
+<span class="lineNum">      47 </span>                :            :         AclResult       aclresult;
+<span class="lineNum">      48 </span>                :            :         int                     from_encoding;
+<span class="lineNum">      49 </span>                :            :         int                     to_encoding;
+<span class="lineNum">      50 </span>                :            :         Oid                     funcoid;
+<span class="lineNum">      51 </span>                :<span class="lineNoCov">          0 :         const char *from_encoding_name = stmt-&gt;for_encoding_name;</span>
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :         const char *to_encoding_name = stmt-&gt;to_encoding_name;</span>
+<span class="lineNum">      53 </span>                :<span class="lineNoCov">          0 :         List       *func_name = stmt-&gt;func_name;</span>
+<span class="lineNum">      54 </span>                :            :         static Oid      funcargs[] = {INT4OID, INT4OID, CSTRINGOID, INTERNALOID, INT4OID};
+<span class="lineNum">      55 </span>                :            :         char            result[1];
+<span class="lineNum">      56 </span>                :            : 
+<span class="lineNum">      57 </span>                :            :         /* Convert list of names to a name and namespace */
+<span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :         namespaceId = QualifiedNameGetCreationNamespace(stmt-&gt;conversion_name,</span>
+<span class="lineNum">      59 </span>                :            :                                                                                                         &amp;conversion_name);
+<span class="lineNum">      60 </span>                :            : 
+<span class="lineNum">      61 </span>                :            :         /* Check we have creation rights in target namespace */
+<span class="lineNum">      62 </span>                :<span class="lineNoCov">          0 :         aclresult = pg_namespace_aclcheck(namespaceId, GetUserId(), ACL_CREATE);</span>
+<span class="lineNum">      63 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(aclresult, ACL_KIND_NAMESPACE,</span>
+<span class="lineNum">      65 </span>                :<span class="lineNoCov">          0 :                                            get_namespace_name(namespaceId));</span>
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            :         /* Check the encoding names */
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :         from_encoding = pg_char_to_encoding(from_encoding_name);</span>
+<span class="lineNum">      69 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (from_encoding &lt; 0)</span>
+<span class="lineNum">      70 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      71 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">      72 </span>                :            :                                  errmsg(&quot;source encoding \&quot;%s\&quot; does not exist&quot;,
+<span class="lineNum">      73 </span>                :            :                                                 from_encoding_name)));
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :         to_encoding = pg_char_to_encoding(to_encoding_name);</span>
+<span class="lineNum">      76 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (to_encoding &lt; 0)</span>
+<span class="lineNum">      77 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      78 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">      79 </span>                :            :                                  errmsg(&quot;destination encoding \&quot;%s\&quot; does not exist&quot;,
+<span class="lineNum">      80 </span>                :            :                                                 to_encoding_name)));
+<span class="lineNum">      81 </span>                :            : 
+<span class="lineNum">      82 </span>                :            :         /*
+<span class="lineNum">      83 </span>                :            :          * Check the existence of the conversion function. Function name could be
+<span class="lineNum">      84 </span>                :            :          * a qualified name.
+<span class="lineNum">      85 </span>                :            :          */
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :         funcoid = LookupFuncName(func_name, sizeof(funcargs) / sizeof(Oid),</span>
+<span class="lineNum">      87 </span>                :            :                                                          funcargs, false);
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            :         /* Check it returns VOID, else it's probably the wrong function */
+<span class="lineNum">      90 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (get_func_rettype(funcoid) != VOIDOID)</span>
+<span class="lineNum">      91 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      92 </span>                :            :                                 (errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
+<span class="lineNum">      93 </span>                :            :                                  errmsg(&quot;encoding conversion function %s must return type \&quot;void\&quot;&quot;,
+<span class="lineNum">      94 </span>                :            :                                                 NameListToString(func_name))));
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>                :            :         /* Check we have EXECUTE rights for the function */
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         aclresult = pg_proc_aclcheck(funcoid, GetUserId(), ACL_EXECUTE);</span>
+<span class="lineNum">      98 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(aclresult, ACL_KIND_PROC,</span>
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :                                            NameListToString(func_name));</span>
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :            :         /*
+<span class="lineNum">     103 </span>                :            :          * Check that the conversion function is suitable for the requested
+<span class="lineNum">     104 </span>                :            :          * source and target encodings. We do that by calling the function with
+<span class="lineNum">     105 </span>                :            :          * an empty string; the conversion function should throw an error if it
+<span class="lineNum">     106 </span>                :            :          * can't perform the requested conversion.
+<span class="lineNum">     107 </span>                :            :          */
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :         OidFunctionCall5(funcoid,</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                                          Int32GetDatum(from_encoding),</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :                                          Int32GetDatum(to_encoding),</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                                          CStringGetDatum(&quot;&quot;),</span>
+<span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 :                                          CStringGetDatum(result),</span>
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :                                          Int32GetDatum(0));</span>
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            :         /*
+<span class="lineNum">     116 </span>                :            :          * All seem ok, go ahead (possible failure would be a duplicate conversion
+<span class="lineNum">     117 </span>                :            :          * name)
+<span class="lineNum">     118 </span>                :            :          */
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :         ConversionCreate(conversion_name, namespaceId, GetUserId(),</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                                          from_encoding, to_encoding, funcoid, stmt-&gt;def);</span>
+<span class="lineNum">     121 </span>                :            :                                          
+<span class="lineNum">     122 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     123 </span>                :            :         {
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchUtilityStatement((Node *) stmt,</span>
+<span class="lineNum">     125 </span>                :            :                                                                         DF_CANCEL_ON_ERROR|
+<span class="lineNum">     126 </span>                :            :                                                                         DF_WITH_SNAPSHOT|
+<span class="lineNum">     127 </span>                :            :                                                                         DF_NEED_TWO_PHASE,
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                                                                         GetAssignedOidsForDispatch(),</span>
+<span class="lineNum">     129 </span>                :            :                                                                         NULL);
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :            : /*
+<span class="lineNum">     134 </span>                :            :  * DROP CONVERSION
+<a name="135"><span class="lineNum">     135 </span>                :            :  */</a>
+<span class="lineNum">     136 </span>                :            : void
+<span class="lineNum">     137 </span>                :            : DropConversionCommand(List *name, DropBehavior behavior, bool missing_ok)
+<span class="lineNum">     138 </span>                :            : {
+<span class="lineNum">     139 </span>                :            :         Oid                     conversionOid;
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :         conversionOid = get_conversion_oid(name, missing_ok);</span>
+<span class="lineNum">     142 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(conversionOid))</span>
+<span class="lineNum">     143 </span>                :            :         {
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!missing_ok)</span>
+<span class="lineNum">     145 </span>                :            :                 {
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     147 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     148 </span>                :            :                                          errmsg(&quot;conversion \&quot;%s\&quot; does not exist&quot;,
+<span class="lineNum">     149 </span>                :            :                                                         NameListToString(name))));
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     151 </span>                :            :                 else
+<span class="lineNum">     152 </span>                :            :                 {
+<span class="lineNum">     153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (Gp_role != GP_ROLE_EXECUTE)</span>
+<span class="lineNum">     154 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(NOTICE,</span>
+<span class="lineNum">     155 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     156 </span>                :            :                                          errmsg(&quot;conversion \&quot;%s\&quot; does not exist, skipping&quot;,
+<span class="lineNum">     157 </span>                :            :                                                         NameListToString(name))));
+<span class="lineNum">     158 </span>                :            :                 }
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     161 </span>                :            :         }
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         ConversionDrop(conversionOid, behavior);</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :            : /*
+<span class="lineNum">     167 </span>                :            :  * Rename conversion
+<a name="168"><span class="lineNum">     168 </span>                :            :  */</a>
+<span class="lineNum">     169 </span>                :            : void
+<span class="lineNum">     170 </span>                :            : RenameConversion(List *name, const char *newname)
+<span class="lineNum">     171 </span>                :            : {
+<span class="lineNum">     172 </span>                :            :         Oid                     conversionOid;
+<span class="lineNum">     173 </span>                :            :         Oid                     namespaceOid;
+<span class="lineNum">     174 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     175 </span>                :            :         Relation        rel;
+<span class="lineNum">     176 </span>                :            :         AclResult       aclresult;
+<span class="lineNum">     177 </span>                :            : 
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ConversionRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :         conversionOid = get_conversion_oid(name, false);</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCacheCopy(CONVOID,</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                                                          ObjectIdGetDatum(conversionOid),</span>
+<span class="lineNum">     184 </span>                :            :                                                          0, 0, 0);
+<span class="lineNum">     185 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup)) /* should not happen */</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for conversion %u&quot;, conversionOid);</span>
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :         namespaceOid = ((Form_pg_conversion) GETSTRUCT(tup))-&gt;connamespace;</span>
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>                :            :         /* make sure the new name doesn't exist */
+<span class="lineNum">     191 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (SearchSysCacheExists(CONNAMENSP,</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                                                          CStringGetDatum(newname),</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                                                          ObjectIdGetDatum(namespaceOid),</span>
+<span class="lineNum">     194 </span>                :            :                                                          0, 0))
+<span class="lineNum">     195 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     196 </span>                :            :                                 (errcode(ERRCODE_DUPLICATE_OBJECT),
+<span class="lineNum">     197 </span>                :            :                                  errmsg(&quot;conversion \&quot;%s\&quot; already exists in schema \&quot;%s\&quot;&quot;,
+<span class="lineNum">     198 </span>                :            :                                                 newname, get_namespace_name(namespaceOid))));
+<span class="lineNum">     199 </span>                :            : 
+<span class="lineNum">     200 </span>                :            :         /* must be owner */
+<span class="lineNum">     201 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!pg_conversion_ownercheck(conversionOid, GetUserId()))</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CONVERSION,</span>
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                                            NameListToString(name));</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :            :         /* must have CREATE privilege on namespace */
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :         aclresult = pg_namespace_aclcheck(namespaceOid, GetUserId(), ACL_CREATE);</span>
+<span class="lineNum">     207 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(aclresult, ACL_KIND_NAMESPACE,</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                                            get_namespace_name(namespaceOid));</span>
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>                :            :         /* rename */
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :         namestrcpy(&amp;(((Form_pg_conversion) GETSTRUCT(tup))-&gt;conname), newname);</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         simple_heap_update(rel, &amp;tup-&gt;t_self, tup);</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, tup);</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tup);</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :            : /*
+<span class="lineNum">     221 </span>                :            :  * Change conversion owner, by name
+<a name="222"><span class="lineNum">     222 </span>                :            :  */</a>
+<span class="lineNum">     223 </span>                :            : void
+<span class="lineNum">     224 </span>                :            : AlterConversionOwner(List *name, Oid newOwnerId)
+<span class="lineNum">     225 </span>                :            : {
+<span class="lineNum">     226 </span>                :            :         Oid                     conversionOid;
+<span class="lineNum">     227 </span>                :            :         Relation        rel;
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ConversionRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :         conversionOid = get_conversion_oid(name, false);</span>
+<span class="lineNum">     232 </span>                :            : 
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :         AlterConversionOwner_internal(rel, conversionOid, newOwnerId);</span>
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     237 </span>                :            : 
+<span class="lineNum">     238 </span>                :            : /*
+<span class="lineNum">     239 </span>                :            :  * Change conversion owner, by oid
+<a name="240"><span class="lineNum">     240 </span>                :            :  */</a>
+<span class="lineNum">     241 </span>                :            : void
+<span class="lineNum">     242 </span>                :            : AlterConversionOwner_oid(Oid conversionOid, Oid newOwnerId)
+<span class="lineNum">     243 </span>                :            : {
+<span class="lineNum">     244 </span>                :            :         Relation        rel;
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ConversionRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :         AlterConversionOwner_internal(rel, conversionOid, newOwnerId);</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     252 </span>                :            : 
+<span class="lineNum">     253 </span>                :            : /*
+<span class="lineNum">     254 </span>                :            :  * AlterConversionOwner_internal
+<span class="lineNum">     255 </span>                :            :  *
+<span class="lineNum">     256 </span>                :            :  * Internal routine for changing the owner.  rel must be pg_conversion, already
+<span class="lineNum">     257 </span>                :            :  * open and suitably locked; it will not be closed.
+<a name="258"><span class="lineNum">     258 </span>                :            :  */</a>
+<span class="lineNum">     259 </span>                :            : static void
+<span class="lineNum">     260 </span>                :            : AlterConversionOwner_internal(Relation rel, Oid conversionOid, Oid newOwnerId)
+<span class="lineNum">     261 </span>                :            : {
+<span class="lineNum">     262 </span>                :            :         Form_pg_conversion convForm;
+<span class="lineNum">     263 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(RelationGetRelid(rel) == ConversionRelationId);</span>
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCacheCopy(CONVOID,</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                                                          ObjectIdGetDatum(conversionOid),</span>
+<span class="lineNum">     269 </span>                :            :                                                          0, 0, 0);
+<span class="lineNum">     270 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup)) /* should not happen */</span>
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for conversion %u&quot;, conversionOid);</span>
+<span class="lineNum">     272 </span>                :            : 
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         convForm = (Form_pg_conversion) GETSTRUCT(tup);</span>
+<span class="lineNum">     274 </span>                :            : 
+<span class="lineNum">     275 </span>                :            :         /*
+<span class="lineNum">     276 </span>                :            :          * If the new owner is the same as the existing owner, consider the
+<span class="lineNum">     277 </span>                :            :          * command to have succeeded.  This is for dump restoration purposes.
+<span class="lineNum">     278 </span>                :            :          */
+<span class="lineNum">     279 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (convForm-&gt;conowner == newOwnerId)</span>
+<span class="lineNum">     280 </span>                :            :         {
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                 heap_freetuple(tup);</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     283 </span>                :            :         }
+<span class="lineNum">     284 </span>                :            : 
+<span class="lineNum">     285 </span>                :            :         AclResult       aclresult;
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            :         /* Superusers can always do it */
+<span class="lineNum">     288 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!superuser())</span>
+<span class="lineNum">     289 </span>                :            :         {
+<span class="lineNum">     290 </span>                :            :                 /* Otherwise, must be owner of the existing object */
+<span class="lineNum">     291 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!pg_conversion_ownercheck(HeapTupleGetOid(tup), GetUserId()))</span>
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :                                 aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CONVERSION,</span>
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                                                            NameStr(convForm-&gt;conname));</span>
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>                :            :                 /* Must be able to become new owner */
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :                 check_is_member_of_role(GetUserId(), newOwnerId);</span>
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :            :                 /* New owner must have CREATE privilege on namespace */
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                 aclresult = pg_namespace_aclcheck(convForm-&gt;connamespace,</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :                                                                                   newOwnerId,</span>
+<span class="lineNum">     301 </span>                :            :                                                                                   ACL_CREATE);
+<span class="lineNum">     302 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :                         aclcheck_error(aclresult, ACL_KIND_NAMESPACE,</span>
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                                                    get_namespace_name(convForm-&gt;connamespace));</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     306 </span>                :            : 
+<span class="lineNum">     307 </span>                :            :         /*
+<span class="lineNum">     308 </span>                :            :          * Modify the owner --- okay to scribble on tup because it's a copy
+<span class="lineNum">     309 </span>                :            :          */
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :         convForm-&gt;conowner = newOwnerId;</span>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :         simple_heap_update(rel, &amp;tup-&gt;t_self, tup);</span>
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, tup);</span>
+<span class="lineNum">     315 </span>                :            : 
+<span class="lineNum">     316 </span>                :            :         /* Update owner dependency reference */
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :         changeDependencyOnOwner(ConversionRelationId, conversionOid,</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                                                                 newOwnerId);</span>
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tup);</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :            : /*
+<span class="lineNum">     324 </span>                :            :  * Execute ALTER CONVERSION SET SCHEMA
+<a name="325"><span class="lineNum">     325 </span>                :            :  */</a>
+<span class="lineNum">     326 </span>                :            : void
+<span class="lineNum">     327 </span>                :            : AlterConversionNamespace(List *name, const char *newschema)
+<span class="lineNum">     328 </span>                :            : {
+<span class="lineNum">     329 </span>                :            :         Oid                     convOid,
+<span class="lineNum">     330 </span>                :            :                                 nspOid;
+<span class="lineNum">     331 </span>                :            :         Relation        rel;
+<span class="lineNum">     332 </span>                :            : 
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ConversionRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :         convOid = get_conversion_oid(name, false);</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>                :            :         /* get schema OID */
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         nspOid = LookupCreationNamespace(newschema);</span>
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :         AlterObjectNamespace(rel, CONVOID, CONNAMENSP,</span>
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                                                  convOid, nspOid,</span>
+<span class="lineNum">     342 </span>                :            :                                                  Anum_pg_conversion_conname,
+<span class="lineNum">     343 </span>                :            :                                                  Anum_pg_conversion_connamespace,
+<span class="lineNum">     344 </span>                :            :                                                  Anum_pg_conversion_conowner,
+<span class="lineNum">     345 </span>                :            :                                                  ACL_KIND_CONVERSION);
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :            : /*
+<span class="lineNum">     351 </span>                :            :  * Change conversion schema, by oid
+<a name="352"><span class="lineNum">     352 </span>                :            :  */</a>
+<span class="lineNum">     353 </span>                :            : Oid
+<span class="lineNum">     354 </span>                :            : AlterConversionNamespace_oid(Oid convOid, Oid newNspOid)
+<span class="lineNum">     355 </span>                :            : {
+<span class="lineNum">     356 </span>                :            :         Oid                     oldNspOid;
+<span class="lineNum">     357 </span>                :            :         Relation        rel;
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ConversionRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :         oldNspOid = AlterObjectNamespace(rel, CONVOID, CONNAMENSP,</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :                                                                          convOid, newNspOid,</span>
+<span class="lineNum">     363 </span>                :            :                                                                          Anum_pg_conversion_conname,
+<span class="lineNum">     364 </span>                :            :                                                                          Anum_pg_conversion_connamespace,
+<span class="lineNum">     365 </span>                :            :                                                                          Anum_pg_conversion_conowner,
+<span class="lineNum">     366 </span>                :            :                                                                          ACL_KIND_CONVERSION);
+<span class="lineNum">     367 </span>                :            : 
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     369 </span>                :            : 
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :         return oldNspOid;</span>
+<span class="lineNum">     371 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

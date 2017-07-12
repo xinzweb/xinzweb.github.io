@@ -1,0 +1,911 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - optimizer/util/var.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">optimizer/util</a> - var.c<span style="font-size: 80%;"> (source / <a href="var.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">257</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">28</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">154</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * var.c
+<span class="lineNum">       4 </span>                :            :  *        Var node manipulation routines
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2006-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/optimizer/util/var.c,v 1.73.2.1 2010/07/08 00:14:16 tgl Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;access/htup.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;optimizer/prep.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;optimizer/var.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;parser/parsetree.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;rewrite/rewriteManip.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;access/sysattr.h&quot;
+<span class="lineNum">      25 </span>                :            : 
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : typedef struct
+<span class="lineNum">      28 </span>                :            : {
+<span class="lineNum">      29 </span>                :            :         Relids          varnos;
+<span class="lineNum">      30 </span>                :            : } pull_varnos_context;
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :            : typedef struct
+<span class="lineNum">      33 </span>                :            : {
+<span class="lineNum">      34 </span>                :            :         int                     var_location;
+<span class="lineNum">      35 </span>                :            :         int                     sublevels_up;
+<span class="lineNum">      36 </span>                :            : } locate_var_of_level_context;
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : typedef struct
+<span class="lineNum">      39 </span>                :            : {
+<span class="lineNum">      40 </span>                :            :         Index           varno;
+<span class="lineNum">      41 </span>                :            :         int                     varattno;
+<span class="lineNum">      42 </span>                :            : } contain_var_reference_context;
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : typedef struct
+<span class="lineNum">      45 </span>                :            : {
+<span class="lineNum">      46 </span>                :            :         int                     min_varlevel;
+<span class="lineNum">      47 </span>                :            : } find_minimum_var_level_context;
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : typedef struct
+<span class="lineNum">      50 </span>                :            : {
+<span class="lineNum">      51 </span>                :            :         List       *varlist;
+<span class="lineNum">      52 </span>                :            :         bool            includeUpperVars;
+<span class="lineNum">      53 </span>                :            : } pull_var_clause_context;
+<span class="lineNum">      54 </span>                :            : 
+<span class="lineNum">      55 </span>                :            : typedef struct
+<span class="lineNum">      56 </span>                :            : {
+<span class="lineNum">      57 </span>                :            :         PlannerInfo *root;
+<span class="lineNum">      58 </span>                :            :         int                     sublevels_up;
+<span class="lineNum">      59 </span>                :            :         bool            possible_sublink;               /* could aliases include a SubLink? */
+<span class="lineNum">      60 </span>                :            :         bool            inserted_sublink;               /* have we inserted a SubLink? */
+<span class="lineNum">      61 </span>                :            : } flatten_join_alias_vars_context;
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : static bool pull_varattnos_walker(Node *node, Bitmapset **varattnos);
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : static bool contain_var_clause_walker(Node *node, void *context);
+<span class="lineNum">      66 </span>                :            : static bool contain_vars_of_level_walker(Node *node, int *sublevels_up);
+<span class="lineNum">      67 </span>                :            : static bool locate_var_of_level_walker(Node *node,
+<span class="lineNum">      68 </span>                :            :                                                    locate_var_of_level_context *context);
+<span class="lineNum">      69 </span>                :            : static bool pull_var_clause_walker(Node *node,
+<span class="lineNum">      70 </span>                :            :                                            pull_var_clause_context *context);
+<span class="lineNum">      71 </span>                :            : static Node *flatten_join_alias_vars_mutator(Node *node,
+<span class="lineNum">      72 </span>                :            :                                                                 flatten_join_alias_vars_context *context);
+<span class="lineNum">      73 </span>                :            : static Relids alias_relid_set(PlannerInfo *root, Relids relids);
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : /*
+<span class="lineNum">      77 </span>                :            :  * cdb_walk_vars
+<span class="lineNum">      78 </span>                :            :  *        Invoke callback function on each Var and/or Aggref node in an expression.
+<span class="lineNum">      79 </span>                :            :  *    If a callback returns true, no further nodes are visited, and true is
+<span class="lineNum">      80 </span>                :            :  *    returned.  Otherwise after visiting all nodes, false is returned.
+<span class="lineNum">      81 </span>                :            :  *
+<span class="lineNum">      82 </span>                :            :  * Will recurse into sublinks.  Also, may be invoked directly on a Query.
+<span class="lineNum">      83 </span>                :            :  */
+<span class="lineNum">      84 </span>                :            : typedef struct Cdb_walk_vars_context
+<span class="lineNum">      85 </span>                :            : {
+<span class="lineNum">      86 </span>                :            :     Cdb_walk_vars_callback_Var          callback_var;
+<span class="lineNum">      87 </span>                :            :     Cdb_walk_vars_callback_Aggref       callback_aggref;
+<span class="lineNum">      88 </span>                :            :     Cdb_walk_vars_callback_CurrentOf    callback_currentof;
+<span class="lineNum">      89 </span>                :            :     void                                   *context;
+<span class="lineNum">      90 </span>                :            :     int                                 sublevelsup;
+<span class="lineNum">      91 </span>                :            : } Cdb_walk_vars_context;
+<a name="92"><span class="lineNum">      92 </span>                :            : </a>
+<span class="lineNum">      93 </span>                :            : static bool
+<span class="lineNum">      94 </span>                :            : cdb_walk_vars_walker(Node *node, void *wvwcontext)
+<span class="lineNum">      95 </span>                :            : {
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :     Cdb_walk_vars_context  *ctx = (Cdb_walk_vars_context *)wvwcontext;</span>
+<span class="lineNum">      97 </span>                :            : 
+<span class="lineNum">      98 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (IsA(node, Var) &amp;&amp;</span>
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :         ctx-&gt;callback_var != NULL)</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                 return ctx-&gt;callback_var((Var *)node, ctx-&gt;context, ctx-&gt;sublevelsup);</span>
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (IsA(node, Aggref) &amp;&amp;</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         ctx-&gt;callback_aggref != NULL)</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :         return ctx-&gt;callback_aggref((Aggref *)node, ctx-&gt;context, ctx-&gt;sublevelsup);</span>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (IsA(node, CurrentOfExpr) &amp;&amp;</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :         ctx-&gt;callback_currentof != NULL)</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :         return ctx-&gt;callback_currentof((CurrentOfExpr *)node, ctx-&gt;context, ctx-&gt;sublevelsup);</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (IsA(node, Query))</span>
+<span class="lineNum">     114 </span>                :            :         {
+<span class="lineNum">     115 </span>                :            :                 bool    b;
+<span class="lineNum">     116 </span>                :            : 
+<span class="lineNum">     117 </span>                :            :                 /* Recurse into subselects */
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                 ctx-&gt;sublevelsup++;</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                 b = query_tree_walker((Query *)node, cdb_walk_vars_walker, ctx, 0);</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                 ctx-&gt;sublevelsup--;</span>
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :                 return b;</span>
+<span class="lineNum">     122 </span>                :            :         }
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node, cdb_walk_vars_walker, ctx);</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 : }                               /* cdb_walk_vars_walker */</span>
+<a name="125"><span class="lineNum">     125 </span>                :            : </a>
+<span class="lineNum">     126 </span>                :            : bool
+<span class="lineNum">     127 </span>                :            : cdb_walk_vars(Node                         *node,
+<span class="lineNum">     128 </span>                :            :               Cdb_walk_vars_callback_Var    callback_var,
+<span class="lineNum">     129 </span>                :            :               Cdb_walk_vars_callback_Aggref callback_aggref,
+<span class="lineNum">     130 </span>                :            :               Cdb_walk_vars_callback_CurrentOf callback_currentof,
+<span class="lineNum">     131 </span>                :            :               void                         *context,
+<span class="lineNum">     132 </span>                :            :               int                           levelsup)
+<span class="lineNum">     133 </span>                :            : {
+<span class="lineNum">     134 </span>                :            :         Cdb_walk_vars_context   ctx;
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :     ctx.callback_var = callback_var;</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :     ctx.callback_aggref = callback_aggref;</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :     ctx.callback_currentof = callback_currentof;</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :     ctx.context = context;</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :     ctx.sublevelsup = levelsup;</span>
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :            :         /*
+<span class="lineNum">     143 </span>                :            :          * Must be prepared to start with a Query or a bare expression tree; if
+<span class="lineNum">     144 </span>                :            :          * it's a Query, we don't want to increment levelsdown.
+<span class="lineNum">     145 </span>                :            :          */
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         return query_or_expression_tree_walker(node, cdb_walk_vars_walker, &amp;ctx, 0);</span>
+<span class="lineNum">     147 </span>                :            : }                               /* cdb_walk_vars */
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :            : /*
+<span class="lineNum">     151 </span>                :            :  * pull_varnos
+<span class="lineNum">     152 </span>                :            :  *              Create a set of all the distinct varnos present in a parsetree.
+<span class="lineNum">     153 </span>                :            :  *              Only varnos that reference level-zero rtable entries are considered.
+<span class="lineNum">     154 </span>                :            :  *
+<span class="lineNum">     155 </span>                :            :  * NOTE: this is used on not-yet-planned expressions.  It may therefore find
+<span class="lineNum">     156 </span>                :            :  * bare SubLinks, and if so it needs to recurse into them to look for uplevel
+<span class="lineNum">     157 </span>                :            :  * references to the desired rtable level!      But when we find a completed
+<span class="lineNum">     158 </span>                :            :  * SubPlan, we only need to look at the parameters passed to the subplan.
+<a name="159"><span class="lineNum">     159 </span>                :            :  */</a>
+<span class="lineNum">     160 </span>                :            : static bool
+<span class="lineNum">     161 </span>                :            : pull_varnos_cbVar(Var *var, void *context, int sublevelsup)
+<span class="lineNum">     162 </span>                :            : {
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :     pull_varnos_context *ctx = (pull_varnos_context *)context;</span>
+<span class="lineNum">     164 </span>                :            : 
+<span class="lineNum">     165 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((int)var-&gt;varlevelsup == sublevelsup)</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                 ctx-&gt;varnos = bms_add_member(ctx-&gt;varnos, var-&gt;varno);</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     168 </span>                :            : }
+<a name="169"><span class="lineNum">     169 </span>                :            : </a>
+<span class="lineNum">     170 </span>                :            : static bool
+<span class="lineNum">     171 </span>                :            : pull_varnos_cbCurrentOf(CurrentOfExpr *expr, void *context, int sublevelsup)
+<span class="lineNum">     172 </span>                :            : {
+<span class="lineNum">     173 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(sublevelsup == 0);</span>
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :         pull_varnos_context *ctx = (pull_varnos_context *)context;</span>
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         ctx-&gt;varnos = bms_add_member(ctx-&gt;varnos, expr-&gt;cvarno);</span>
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     177 </span>                :            : }
+<a name="178"><span class="lineNum">     178 </span>                :            : </a>
+<span class="lineNum">     179 </span>                :            : static inline Relids
+<span class="lineNum">     180 </span>                :            : pull_varnos_of_level(Node *node, int levelsup)      /*CDB*/
+<span class="lineNum">     181 </span>                :            : {
+<span class="lineNum">     182 </span>                :            :         pull_varnos_context context;
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         context.varnos = NULL;</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :     cdb_walk_vars(node, pull_varnos_cbVar, NULL, pull_varnos_cbCurrentOf, &amp;context, levelsup);</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         return context.varnos;</span>
+<span class="lineNum">     187 </span>                :            : }                               /* pull_varnos_of_level */
+<a name="188"><span class="lineNum">     188 </span>                :            : </a>
+<span class="lineNum">     189 </span>                :            : Relids
+<span class="lineNum">     190 </span>                :            : pull_varnos(Node *node)
+<span class="lineNum">     191 </span>                :            : {
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         return pull_varnos_of_level(node, 0);</span>
+<span class="lineNum">     193 </span>                :            : }
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>                :            : /*
+<span class="lineNum">     196 </span>                :            :  * pull_varattnos
+<span class="lineNum">     197 </span>                :            :  *              Find all the distinct attribute numbers present in an expression tree,
+<span class="lineNum">     198 </span>                :            :  *              and add them to the initial contents of *varattnos.
+<span class="lineNum">     199 </span>                :            :  *              Only Vars that reference RTE 1 of rtable level zero are considered.
+<span class="lineNum">     200 </span>                :            :  *
+<span class="lineNum">     201 </span>                :            :  * Attribute numbers are offset by FirstLowInvalidHeapAttributeNumber so that
+<span class="lineNum">     202 </span>                :            :  * we can include system attributes (e.g., OID) in the bitmap representation.
+<span class="lineNum">     203 </span>                :            :  *
+<span class="lineNum">     204 </span>                :            :  * Currently, this does not support subqueries nor expressions containing
+<span class="lineNum">     205 </span>                :            :  * references to multiple tables; not needed since it's only applied to
+<span class="lineNum">     206 </span>                :            :  * index expressions and predicates.
+<a name="207"><span class="lineNum">     207 </span>                :            :  */</a>
+<span class="lineNum">     208 </span>                :            : void
+<span class="lineNum">     209 </span>                :            : pull_varattnos(Node *node, Bitmapset **varattnos)
+<span class="lineNum">     210 </span>                :            : {
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         (void) pull_varattnos_walker(node, varattnos);</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="213"><span class="lineNum">     213 </span>                :            : </a>
+<span class="lineNum">     214 </span>                :            : static bool
+<span class="lineNum">     215 </span>                :            : pull_varattnos_walker(Node *node, Bitmapset **varattnos)
+<span class="lineNum">     216 </span>                :            : {
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     219 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Var))</span>
+<span class="lineNum">     220 </span>                :            :         {
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                 Var                *var = (Var *) node;</span>
+<span class="lineNum">     222 </span>                :            : 
+<span class="lineNum">     223 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(var-&gt;varno == 1);</span>
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :                 *varattnos = bms_add_member(*varattnos,</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :                                                  var-&gt;varattno - FirstLowInvalidHeapAttributeNumber);</span>
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     227 </span>                :            :         }
+<span class="lineNum">     228 </span>                :            :         /* Should not find a subquery or subplan */
+<span class="lineNum">     229 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!IsA(node, Query));</span>
+<span class="lineNum">     230 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!is_subplan(node));</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node, pull_varattnos_walker,</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :                                                                   (void *) varattnos);</span>
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :            : 
+<span class="lineNum">     237 </span>                :            : /*
+<span class="lineNum">     238 </span>                :            :  *              contain_var_reference
+<span class="lineNum">     239 </span>                :            :  *
+<span class="lineNum">     240 </span>                :            :  *              Detect whether a parsetree contains any references to a specified
+<span class="lineNum">     241 </span>                :            :  *              attribute of a specified rtable entry.
+<span class="lineNum">     242 </span>                :            :  *
+<span class="lineNum">     243 </span>                :            :  * NOTE: this is used on not-yet-planned expressions.  It may therefore find
+<span class="lineNum">     244 </span>                :            :  * bare SubLinks, and if so it needs to recurse into them to look for uplevel
+<span class="lineNum">     245 </span>                :            :  * references to the desired rtable entry!      But when we find a completed
+<span class="lineNum">     246 </span>                :            :  * SubPlan, we only need to look at the parameters passed to the subplan.
+<a name="247"><span class="lineNum">     247 </span>                :            :  */</a>
+<span class="lineNum">     248 </span>                :            : static bool
+<span class="lineNum">     249 </span>                :            : contain_var_reference_cbVar(Var    *var,
+<span class="lineNum">     250 </span>                :            :                                                         void   *context,
+<span class="lineNum">     251 </span>                :            :                             int     sublevelsup)
+<span class="lineNum">     252 </span>                :            : {
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :     contain_var_reference_context *ctx = (contain_var_reference_context *)context;</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (var-&gt;varno == ctx-&gt;varno &amp;&amp;</span>
+<span class="lineNum">     256 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 var-&gt;varattno == ctx-&gt;varattno &amp;&amp;</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                 (int)var-&gt;varlevelsup == sublevelsup)</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="261"><span class="lineNum">     261 </span>                :            : </a>
+<span class="lineNum">     262 </span>                :            : static bool
+<span class="lineNum">     263 </span>                :            : contain_var_reference(Node *node, int varno, int varattno, int levelsup)
+<span class="lineNum">     264 </span>                :            : {
+<span class="lineNum">     265 </span>                :            :         contain_var_reference_context context;
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :         context.varno = varno;</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :         context.varattno = varattno;</span>
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :         return cdb_walk_vars(node, contain_var_reference_cbVar, NULL, NULL, &amp;context, levelsup);</span>
+<span class="lineNum">     271 </span>                :            : }
+<a name="272"><span class="lineNum">     272 </span>                :            : </a>
+<span class="lineNum">     273 </span>                :            : bool
+<span class="lineNum">     274 </span>                :            : contain_ctid_var_reference(Scan *scan)
+<span class="lineNum">     275 </span>                :            : {
+<span class="lineNum">     276 </span>                :            :         /* Check if targetlist contains a var node referencing the ctid column */
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :         bool want_ctid_in_targetlist =</span>
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                         contain_var_reference((Node *) scan-&gt;plan.targetlist,</span>
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                         scan-&gt;scanrelid,</span>
+<span class="lineNum">     280 </span>                :            :                         SelfItemPointerAttributeNumber,
+<span class="lineNum">     281 </span>                :            :                         0);
+<span class="lineNum">     282 </span>                :            :         /* Check if qual contains a var node referencing the ctid column */
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         bool want_ctid_in_qual =</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                         contain_var_reference((Node *) scan-&gt;plan.qual,</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                         scan-&gt;scanrelid,</span>
+<span class="lineNum">     286 </span>                :            :                         SelfItemPointerAttributeNumber,
+<span class="lineNum">     287 </span>                :            :                         0);
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         return want_ctid_in_targetlist || want_ctid_in_qual;</span>
+<span class="lineNum">     290 </span>                :            : }
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            : /*
+<span class="lineNum">     293 </span>                :            :  * contain_var_clause
+<span class="lineNum">     294 </span>                :            :  *        Recursively scan a clause to discover whether it contains any Var nodes
+<span class="lineNum">     295 </span>                :            :  *        (of the current query level).
+<span class="lineNum">     296 </span>                :            :  *
+<span class="lineNum">     297 </span>                :            :  *        Returns true if any varnode found.
+<span class="lineNum">     298 </span>                :            :  *
+<span class="lineNum">     299 </span>                :            :  * Does not examine subqueries, therefore must only be used after reduction
+<span class="lineNum">     300 </span>                :            :  * of sublinks to subplans!
+<a name="301"><span class="lineNum">     301 </span>                :            :  */</a>
+<span class="lineNum">     302 </span>                :            : bool
+<span class="lineNum">     303 </span>                :            : contain_var_clause(Node *node)
+<span class="lineNum">     304 </span>                :            : {
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         return contain_var_clause_walker(node, NULL);</span>
+<span class="lineNum">     306 </span>                :            : }
+<a name="307"><span class="lineNum">     307 </span>                :            : </a>
+<span class="lineNum">     308 </span>                :            : static bool
+<span class="lineNum">     309 </span>                :            : contain_var_clause_walker(Node *node, void *context)
+<span class="lineNum">     310 </span>                :            : {
+<span class="lineNum">     311 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     313 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Var))</span>
+<span class="lineNum">     314 </span>                :            :         {
+<span class="lineNum">     315 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (((Var *) node)-&gt;varlevelsup == 0)</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :                         return true;            /* abort the tree traversal and return true */</span>
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     318 </span>                :            :         }
+<span class="lineNum">     319 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, CurrentOfExpr))</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node, contain_var_clause_walker, context);</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     323 </span>                :            : 
+<span class="lineNum">     324 </span>                :            : /*
+<span class="lineNum">     325 </span>                :            :  * contain_vars_of_level
+<span class="lineNum">     326 </span>                :            :  *        Recursively scan a clause to discover whether it contains any Var nodes
+<span class="lineNum">     327 </span>                :            :  *        of the specified query level.
+<span class="lineNum">     328 </span>                :            :  *
+<span class="lineNum">     329 </span>                :            :  *        Returns true if any such Var found.
+<span class="lineNum">     330 </span>                :            :  *
+<span class="lineNum">     331 </span>                :            :  * Will recurse into sublinks.  Also, may be invoked directly on a Query.
+<a name="332"><span class="lineNum">     332 </span>                :            :  */</a>
+<span class="lineNum">     333 </span>                :            : bool
+<span class="lineNum">     334 </span>                :            : contain_vars_of_level(Node *node, int levelsup)
+<span class="lineNum">     335 </span>                :            : {
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         int                     sublevels_up = levelsup;</span>
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         return query_or_expression_tree_walker(node,</span>
+<span class="lineNum">     339 </span>                :            :                                                                                    contain_vars_of_level_walker,
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :                                                                                    (void *) &amp;sublevels_up,</span>
+<span class="lineNum">     341 </span>                :            :                                                                                    0);
+<span class="lineNum">     342 </span>                :            : }
+<a name="343"><span class="lineNum">     343 </span>                :            : </a>
+<span class="lineNum">     344 </span>                :            : static bool
+<span class="lineNum">     345 </span>                :            : contain_vars_of_level_walker(Node *node, int *sublevels_up)
+<span class="lineNum">     346 </span>                :            : {
+<span class="lineNum">     347 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     349 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Var))</span>
+<span class="lineNum">     350 </span>                :            :         {
+<span class="lineNum">     351 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (((Var *) node)-&gt;varlevelsup == *sublevels_up)</span>
+<span class="lineNum">     352 </span>                :<span class="lineNoCov">          0 :                         return true;            /* abort tree traversal and return true */</span>
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     354 </span>                :            :         }
+<span class="lineNum">     355 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, CurrentOfExpr))</span>
+<span class="lineNum">     356 </span>                :            :         {
+<span class="lineNum">     357 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*sublevels_up == 0)</span>
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     360 </span>                :            :         }
+<span class="lineNum">     361 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Query))</span>
+<span class="lineNum">     362 </span>                :            :         {
+<span class="lineNum">     363 </span>                :            :                 /* Recurse into subselects */
+<span class="lineNum">     364 </span>                :            :                 bool            result;
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :                 (*sublevels_up)++;</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                 result = query_tree_walker((Query *) node,</span>
+<span class="lineNum">     368 </span>                :            :                                                                    contain_vars_of_level_walker,
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :                                                                    (void *) sublevels_up,</span>
+<span class="lineNum">     370 </span>                :            :                                                                    0);
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 (*sublevels_up)--;</span>
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :                 return result;</span>
+<span class="lineNum">     373 </span>                :            :         }
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node,</span>
+<span class="lineNum">     375 </span>                :            :                                                                   contain_vars_of_level_walker,
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :                                                                   (void *) sublevels_up);</span>
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     378 </span>                :            : 
+<span class="lineNum">     379 </span>                :            : /*
+<span class="lineNum">     380 </span>                :            :  * locate_var_of_level
+<span class="lineNum">     381 </span>                :            :  *        Find the parse location of any Var of the specified query level.
+<span class="lineNum">     382 </span>                :            :  *
+<span class="lineNum">     383 </span>                :            :  * Returns -1 if no such Var is in the querytree, or if they all have
+<span class="lineNum">     384 </span>                :            :  * unknown parse location.  (The former case is probably caller error,
+<span class="lineNum">     385 </span>                :            :  * but we don't bother to distinguish it from the latter case.)
+<span class="lineNum">     386 </span>                :            :  *
+<span class="lineNum">     387 </span>                :            :  * Will recurse into sublinks.  Also, may be invoked directly on a Query.
+<span class="lineNum">     388 </span>                :            :  *
+<span class="lineNum">     389 </span>                :            :  * Note: it might seem appropriate to merge this functionality into
+<span class="lineNum">     390 </span>                :            :  * contain_vars_of_level, but that would complicate that function's API.
+<span class="lineNum">     391 </span>                :            :  * Currently, the only uses of this function are for error reporting,
+<span class="lineNum">     392 </span>                :            :  * and so shaving cycles probably isn't very important.
+<a name="393"><span class="lineNum">     393 </span>                :            :  */</a>
+<span class="lineNum">     394 </span>                :            : int
+<span class="lineNum">     395 </span>                :            : locate_var_of_level(Node *node, int levelsup)
+<span class="lineNum">     396 </span>                :            : {
+<span class="lineNum">     397 </span>                :            :         locate_var_of_level_context context;
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         context.var_location = -1;      /* in case we find nothing */</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         context.sublevels_up = levelsup;</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :         (void) query_or_expression_tree_walker(node,</span>
+<span class="lineNum">     403 </span>                :            :                                                                                    locate_var_of_level_walker,
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                                                                                    (void *) &amp;context,</span>
+<span class="lineNum">     405 </span>                :            :                                                                                    0);
+<span class="lineNum">     406 </span>                :            : 
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :         return context.var_location;</span>
+<span class="lineNum">     408 </span>                :            : }
+<a name="409"><span class="lineNum">     409 </span>                :            : </a>
+<span class="lineNum">     410 </span>                :            : static bool
+<span class="lineNum">     411 </span>                :            : locate_var_of_level_walker(Node *node,
+<span class="lineNum">     412 </span>                :            :                                                    locate_var_of_level_context *context)
+<span class="lineNum">     413 </span>                :            : {
+<span class="lineNum">     414 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     416 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Var))</span>
+<span class="lineNum">     417 </span>                :            :         {
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                 Var                *var = (Var *) node;</span>
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (var-&gt;varlevelsup == context-&gt;sublevels_up &amp;&amp;</span>
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :                         var-&gt;location &gt;= 0)</span>
+<span class="lineNum">     422 </span>                :            :                 {
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                         context-&gt;var_location = var-&gt;location;</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                         return true;            /* abort tree traversal and return true */</span>
+<span class="lineNum">     425 </span>                :            :                 }
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     427 </span>                :            :         }
+<span class="lineNum">     428 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, CurrentOfExpr))</span>
+<span class="lineNum">     429 </span>                :            :         {
+<span class="lineNum">     430 </span>                :            :                 /* since CurrentOfExpr doesn't carry location, nothing we can do */
+<span class="lineNum">     431 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     432 </span>                :            :         }
+<span class="lineNum">     433 </span>                :            :         /* No extra code needed for PlaceHolderVar; just look in contained expr */
+<span class="lineNum">     434 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Query))</span>
+<span class="lineNum">     435 </span>                :            :         {
+<span class="lineNum">     436 </span>                :            :                 /* Recurse into subselects */
+<span class="lineNum">     437 </span>                :            :                 bool            result;
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :                 context-&gt;sublevels_up++;</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                 result = query_tree_walker((Query *) node,</span>
+<span class="lineNum">     441 </span>                :            :                                                                    locate_var_of_level_walker,
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                                                                    (void *) context,</span>
+<span class="lineNum">     443 </span>                :            :                                                                    0);
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                 context-&gt;sublevels_up--;</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :                 return result;</span>
+<span class="lineNum">     446 </span>                :            :         }
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node,</span>
+<span class="lineNum">     448 </span>                :            :                                                                   locate_var_of_level_walker,
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :                                                                   (void *) context);</span>
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     451 </span>                :            : 
+<span class="lineNum">     452 </span>                :            : /*
+<span class="lineNum">     453 </span>                :            :  * contain_vars_of_level_or_above
+<span class="lineNum">     454 </span>                :            :  *        Recursively scan a clause to discover whether it contains any Var or
+<span class="lineNum">     455 </span>                :            :  *    Aggref nodes of the specified query level or above.  For example,
+<span class="lineNum">     456 </span>                :            :  *    pass 1 to detect all nonlocal Vars.
+<span class="lineNum">     457 </span>                :            :  *
+<span class="lineNum">     458 </span>                :            :  *        Returns true if any such Var found.
+<span class="lineNum">     459 </span>                :            :  *
+<span class="lineNum">     460 </span>                :            :  * Will recurse into sublinks.  Also, may be invoked directly on a Query.
+<a name="461"><span class="lineNum">     461 </span>                :            :  */</a>
+<span class="lineNum">     462 </span>                :            : static bool
+<span class="lineNum">     463 </span>                :            : contain_vars_of_level_or_above_cbVar(Var *var, void *unused, int sublevelsup)
+<span class="lineNum">     464 </span>                :            : {
+<span class="lineNum">     465 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((int)var-&gt;varlevelsup &gt;= sublevelsup)</span>
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 :                 return true;                /* abort tree traversal and return true */</span>
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :     return false;</span>
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="469"><span class="lineNum">     469 </span>                :            : </a>
+<span class="lineNum">     470 </span>                :            : static bool
+<span class="lineNum">     471 </span>                :            : contain_vars_of_level_or_above_cbAggref(Aggref *aggref, void *unused, int sublevelsup)
+<span class="lineNum">     472 </span>                :            : {
+<span class="lineNum">     473 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((int)aggref-&gt;agglevelsup &gt;= sublevelsup)</span>
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     475 </span>                :            : 
+<span class="lineNum">     476 </span>                :            :     /* visit aggregate's args */
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :         return cdb_walk_vars((Node *)aggref-&gt;args,</span>
+<span class="lineNum">     478 </span>                :            :                          contain_vars_of_level_or_above_cbVar,
+<span class="lineNum">     479 </span>                :            :                          contain_vars_of_level_or_above_cbAggref,
+<span class="lineNum">     480 </span>                :            :                          NULL,
+<span class="lineNum">     481 </span>                :            :                          NULL,
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :                          sublevelsup);</span>
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="484"><span class="lineNum">     484 </span>                :            : </a>
+<span class="lineNum">     485 </span>                :            : bool
+<span class="lineNum">     486 </span>                :            : contain_vars_of_level_or_above(Node *node, int levelsup)
+<span class="lineNum">     487 </span>                :            : {
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :         return cdb_walk_vars(node,</span>
+<span class="lineNum">     489 </span>                :            :                          contain_vars_of_level_or_above_cbVar,
+<span class="lineNum">     490 </span>                :            :                          contain_vars_of_level_or_above_cbAggref,
+<span class="lineNum">     491 </span>                :            :                          NULL,
+<span class="lineNum">     492 </span>                :            :                          NULL,
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :                          levelsup);</span>
+<span class="lineNum">     494 </span>                :            : }
+<span class="lineNum">     495 </span>                :            : 
+<span class="lineNum">     496 </span>                :            : 
+<span class="lineNum">     497 </span>                :            : /*
+<span class="lineNum">     498 </span>                :            :  * find_minimum_var_level
+<span class="lineNum">     499 </span>                :            :  *        Recursively scan a clause to find the lowest variable level it
+<span class="lineNum">     500 </span>                :            :  *        contains --- for example, zero is returned if there are any local
+<span class="lineNum">     501 </span>                :            :  *        variables, one if there are no local variables but there are
+<span class="lineNum">     502 </span>                :            :  *        one-level-up outer references, etc.  Subqueries are scanned to see
+<span class="lineNum">     503 </span>                :            :  *        if they possess relevant outer references.  (But any local variables
+<span class="lineNum">     504 </span>                :            :  *        within subqueries are not relevant.)
+<span class="lineNum">     505 </span>                :            :  *
+<span class="lineNum">     506 </span>                :            :  *        -1 is returned if the clause has no variables at all.
+<span class="lineNum">     507 </span>                :            :  *
+<span class="lineNum">     508 </span>                :            :  * Will recurse into sublinks.  Also, may be invoked directly on a Query.
+<a name="509"><span class="lineNum">     509 </span>                :            :  */</a>
+<span class="lineNum">     510 </span>                :            : static bool
+<span class="lineNum">     511 </span>                :            : find_minimum_var_level_cbVar(Var   *var,
+<span class="lineNum">     512 </span>                :            :                                                          void  *context,
+<span class="lineNum">     513 </span>                :            :                              int    sublevelsup)
+<span class="lineNum">     514 </span>                :            : {
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :     find_minimum_var_level_context *ctx = (find_minimum_var_level_context *)context;</span>
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :     int                 varlevelsup = var-&gt;varlevelsup;</span>
+<span class="lineNum">     517 </span>                :            : 
+<span class="lineNum">     518 </span>                :            :         /* convert levelsup to frame of reference of original query */
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         varlevelsup -= sublevelsup;</span>
+<span class="lineNum">     520 </span>                :            :         /* ignore local vars of subqueries */
+<span class="lineNum">     521 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (varlevelsup &gt;= 0)</span>
+<span class="lineNum">     522 </span>                :            :         {
+<span class="lineNum">     523 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ctx-&gt;min_varlevel &lt; 0 ||</span>
+<span class="lineNum">     524 </span>                :<span class="lineNoCov">          0 :                         ctx-&gt;min_varlevel &gt; varlevelsup)</span>
+<span class="lineNum">     525 </span>                :            :                 {
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :                         ctx-&gt;min_varlevel = varlevelsup;</span>
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :            :                         /*
+<span class="lineNum">     529 </span>                :            :                          * As soon as we find a local variable, we can abort the tree
+<span class="lineNum">     530 </span>                :            :                          * traversal, since min_varlevel is then certainly 0.
+<span class="lineNum">     531 </span>                :            :                          */
+<span class="lineNum">     532 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (varlevelsup == 0)</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :                                 return true;</span>
+<span class="lineNum">     534 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :     return false;</span>
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="538"><span class="lineNum">     538 </span>                :            : </a>
+<span class="lineNum">     539 </span>                :            : static bool
+<span class="lineNum">     540 </span>                :            : find_minimum_var_level_cbAggref(Aggref *aggref,
+<span class="lineNum">     541 </span>                :            :                                                         void   *context,
+<span class="lineNum">     542 </span>                :            :                                 int     sublevelsup)
+<span class="lineNum">     543 </span>                :            : {
+<span class="lineNum">     544 </span>                :            :         /*
+<span class="lineNum">     545 </span>                :            :          * An Aggref must be treated like a Var of its level.  Normally we'd get
+<span class="lineNum">     546 </span>                :            :          * the same result from looking at the Vars in the aggregate's argument,
+<span class="lineNum">     547 </span>                :            :          * but this fails in the case of a Var-less aggregate call (COUNT(*)).
+<span class="lineNum">     548 </span>                :            :          */
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :     find_minimum_var_level_context *ctx = (find_minimum_var_level_context *)context;</span>
+<span class="lineNum">     550 </span>                :<span class="lineNoCov">          0 :     int                 agglevelsup = aggref-&gt;agglevelsup;</span>
+<span class="lineNum">     551 </span>                :            : 
+<span class="lineNum">     552 </span>                :            :         /* convert levelsup to frame of reference of original query */
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :         agglevelsup -= sublevelsup;</span>
+<span class="lineNum">     554 </span>                :            :         /* ignore local aggs of subqueries */
+<span class="lineNum">     555 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (agglevelsup &gt;= 0)</span>
+<span class="lineNum">     556 </span>                :            :         {
+<span class="lineNum">     557 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ctx-&gt;min_varlevel &lt; 0 ||</span>
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                         ctx-&gt;min_varlevel &gt; agglevelsup)</span>
+<span class="lineNum">     559 </span>                :            :                 {
+<span class="lineNum">     560 </span>                :<span class="lineNoCov">          0 :                         ctx-&gt;min_varlevel = agglevelsup;</span>
+<span class="lineNum">     561 </span>                :            : 
+<span class="lineNum">     562 </span>                :            :                         /*
+<span class="lineNum">     563 </span>                :            :                          * As soon as we find a local aggregate, we can abort the tree
+<span class="lineNum">     564 </span>                :            :                          * traversal, since min_varlevel is then certainly 0.
+<span class="lineNum">     565 </span>                :            :                          */
+<span class="lineNum">     566 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (agglevelsup == 0)</span>
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                                 return true;</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>                :            :     /* visit aggregate's args */
+<span class="lineNum">     572 </span>                :<span class="lineNoCov">          0 :         return cdb_walk_vars((Node *)aggref-&gt;args,</span>
+<span class="lineNum">     573 </span>                :            :                          find_minimum_var_level_cbVar,
+<span class="lineNum">     574 </span>                :            :                          find_minimum_var_level_cbAggref,
+<span class="lineNum">     575 </span>                :            :                          NULL,
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :                          ctx,</span>
+<span class="lineNum">     577 </span>                :<span class="lineNoCov">          0 :                          sublevelsup);</span>
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="579"><span class="lineNum">     579 </span>                :            : </a>
+<span class="lineNum">     580 </span>                :            : int
+<span class="lineNum">     581 </span>                :            : find_minimum_var_level(Node *node)
+<span class="lineNum">     582 </span>                :            : {
+<span class="lineNum">     583 </span>                :            :         find_minimum_var_level_context context;
+<span class="lineNum">     584 </span>                :            : 
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :         context.min_varlevel = -1;      /* signifies nothing found yet */</span>
+<span class="lineNum">     586 </span>                :            : 
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :         cdb_walk_vars(node,</span>
+<span class="lineNum">     588 </span>                :            :                   find_minimum_var_level_cbVar,
+<span class="lineNum">     589 </span>                :            :                   find_minimum_var_level_cbAggref,
+<span class="lineNum">     590 </span>                :            :                   NULL,
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                   &amp;context,</span>
+<span class="lineNum">     592 </span>                :            :                   0);
+<span class="lineNum">     593 </span>                :            : 
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         return context.min_varlevel;</span>
+<span class="lineNum">     595 </span>                :            : }
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>                :            : 
+<span class="lineNum">     598 </span>                :            : /*
+<span class="lineNum">     599 </span>                :            :  * pull_var_clause
+<span class="lineNum">     600 </span>                :            :  *        Recursively pulls all var nodes from an expression clause.
+<span class="lineNum">     601 </span>                :            :  *
+<span class="lineNum">     602 </span>                :            :  *        Upper-level vars (with varlevelsup &gt; 0) are included only
+<span class="lineNum">     603 </span>                :            :  *        if includeUpperVars is true.  Most callers probably want
+<span class="lineNum">     604 </span>                :            :  *        to ignore upper-level vars.
+<span class="lineNum">     605 </span>                :            :  *
+<span class="lineNum">     606 </span>                :            :  *        Returns list of varnodes found.  Note the varnodes themselves are not
+<span class="lineNum">     607 </span>                :            :  *        copied, only referenced.
+<span class="lineNum">     608 </span>                :            :  *
+<span class="lineNum">     609 </span>                :            :  * Does not examine subqueries, therefore must only be used after reduction
+<span class="lineNum">     610 </span>                :            :  * of sublinks to subplans!
+<a name="611"><span class="lineNum">     611 </span>                :            :  */</a>
+<span class="lineNum">     612 </span>                :            : List *
+<span class="lineNum">     613 </span>                :            : pull_var_clause(Node *node, bool includeUpperVars)
+<span class="lineNum">     614 </span>                :            : {
+<span class="lineNum">     615 </span>                :            :         pull_var_clause_context context;
+<span class="lineNum">     616 </span>                :            : 
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :         context.varlist = NIL;</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :         context.includeUpperVars = includeUpperVars;</span>
+<span class="lineNum">     619 </span>                :            : 
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 :         pull_var_clause_walker(node, &amp;context);</span>
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :         return context.varlist;</span>
+<span class="lineNum">     622 </span>                :            : }
+<a name="623"><span class="lineNum">     623 </span>                :            : </a>
+<span class="lineNum">     624 </span>                :            : static bool
+<span class="lineNum">     625 </span>                :            : pull_var_clause_walker(Node *node, pull_var_clause_context *context)
+<span class="lineNum">     626 </span>                :            : {
+<span class="lineNum">     627 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     629 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Var))</span>
+<span class="lineNum">     630 </span>                :            :         {
+<span class="lineNum">     631 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (((Var *) node)-&gt;varlevelsup == 0 || context-&gt;includeUpperVars)</span>
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :                         context-&gt;varlist = lappend(context-&gt;varlist, node);</span>
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     634 </span>                :            :         }
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node, pull_var_clause_walker,</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                                                                   (void *) context);</span>
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     638 </span>                :            : 
+<span class="lineNum">     639 </span>                :            : 
+<span class="lineNum">     640 </span>                :            : /*
+<span class="lineNum">     641 </span>                :            :  * flatten_join_alias_vars
+<span class="lineNum">     642 </span>                :            :  *        Replace Vars that reference JOIN outputs with references to the original
+<span class="lineNum">     643 </span>                :            :  *        relation variables instead.  This allows quals involving such vars to be
+<span class="lineNum">     644 </span>                :            :  *        pushed down.  Whole-row Vars that reference JOIN relations are expanded
+<span class="lineNum">     645 </span>                :            :  *        into RowExpr constructs that name the individual output Vars.  This
+<span class="lineNum">     646 </span>                :            :  *        is necessary since we will not scan the JOIN as a base relation, which
+<span class="lineNum">     647 </span>                :            :  *        is the only way that the executor can directly handle whole-row Vars.
+<span class="lineNum">     648 </span>                :            :  *
+<span class="lineNum">     649 </span>                :            :  * If a JOIN contains sub-selects that have been flattened, its join alias
+<span class="lineNum">     650 </span>                :            :  * entries might now be arbitrary expressions, not just Vars.  This affects
+<span class="lineNum">     651 </span>                :            :  * this function in one important way: we might find ourselves inserting
+<span class="lineNum">     652 </span>                :            :  * SubLink expressions into subqueries, and we must make sure that their
+<span class="lineNum">     653 </span>                :            :  * Query.hasSubLinks fields get set to TRUE if so.  If there are any
+<span class="lineNum">     654 </span>                :            :  * SubLinks in the join alias lists, the outer Query should already have
+<span class="lineNum">     655 </span>                :            :  * hasSubLinks = TRUE, so this is only relevant to un-flattened subqueries.
+<span class="lineNum">     656 </span>                :            :  *
+<span class="lineNum">     657 </span>                :            :  * NOTE: this is used on not-yet-planned expressions.  We do not expect it
+<span class="lineNum">     658 </span>                :            :  * to be applied directly to a Query node.
+<a name="659"><span class="lineNum">     659 </span>                :            :  */</a>
+<span class="lineNum">     660 </span>                :            : Node *
+<span class="lineNum">     661 </span>                :            : flatten_join_alias_vars(PlannerInfo *root, Node *node)
+<span class="lineNum">     662 </span>                :            : {
+<span class="lineNum">     663 </span>                :            :         flatten_join_alias_vars_context context;
+<span class="lineNum">     664 </span>                :            : 
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :         context.root = root;</span>
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :         context.sublevels_up = 0;</span>
+<span class="lineNum">     667 </span>                :            :         /* flag whether join aliases could possibly contain SubLinks */
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 :         context.possible_sublink = root-&gt;parse-&gt;hasSubLinks;</span>
+<span class="lineNum">     669 </span>                :            :         /* if hasSubLinks is already true, no need to work hard */
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :         context.inserted_sublink = root-&gt;parse-&gt;hasSubLinks;</span>
+<span class="lineNum">     671 </span>                :            : 
+<span class="lineNum">     672 </span>                :<span class="lineNoCov">          0 :         return flatten_join_alias_vars_mutator(node, &amp;context);</span>
+<span class="lineNum">     673 </span>                :            : }
+<a name="674"><span class="lineNum">     674 </span>                :            : </a>
+<span class="lineNum">     675 </span>                :            : static Node *
+<span class="lineNum">     676 </span>                :            : flatten_join_alias_vars_mutator(Node *node,
+<span class="lineNum">     677 </span>                :            :                                                                 flatten_join_alias_vars_context *context)
+<span class="lineNum">     678 </span>                :            : {
+<span class="lineNum">     679 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     681 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Var))</span>
+<span class="lineNum">     682 </span>                :            :         {
+<span class="lineNum">     683 </span>                :<span class="lineNoCov">          0 :                 Var                *var = (Var *) node;</span>
+<span class="lineNum">     684 </span>                :            :                 RangeTblEntry *rte;
+<span class="lineNum">     685 </span>                :            :                 Node       *newvar;
+<span class="lineNum">     686 </span>                :            : 
+<span class="lineNum">     687 </span>                :            :                 /* No change unless Var belongs to a JOIN of the target level */
+<span class="lineNum">     688 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((int)var-&gt;varlevelsup != context-&gt;sublevels_up)</span>
+<span class="lineNum">     689 </span>                :<span class="lineNoCov">          0 :                         return node;            /* no need to copy, really */</span>
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :                 rte = rt_fetch(var-&gt;varno, context-&gt;root-&gt;parse-&gt;rtable);</span>
+<span class="lineNum">     691 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rte-&gt;rtekind != RTE_JOIN)</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :                         return node;</span>
+<span class="lineNum">     693 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (var-&gt;varattno == InvalidAttrNumber)</span>
+<span class="lineNum">     694 </span>                :            :                 {
+<span class="lineNum">     695 </span>                :            :                         /* Must expand whole-row reference */
+<span class="lineNum">     696 </span>                :            :                         RowExpr    *rowexpr;
+<span class="lineNum">     697 </span>                :<span class="lineNoCov">          0 :                         List       *fields = NIL;</span>
+<span class="lineNum">     698 </span>                :            :                         AttrNumber      attnum;
+<span class="lineNum">     699 </span>                :            :                         ListCell   *l;
+<span class="lineNum">     700 </span>                :            : 
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :                         attnum = 0;</span>
+<span class="lineNum">     702 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(l, rte-&gt;joinaliasvars)</span>
+<span class="lineNum">     703 </span>                :            :                         {
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                                 newvar = (Node *) lfirst(l);</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                                 attnum++;</span>
+<span class="lineNum">     706 </span>                :            :                                 /* Ignore dropped columns */
+<span class="lineNum">     707 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (IsA(newvar, Const))</span>
+<span class="lineNum">     708 </span>                :<span class="lineNoCov">          0 :                                         continue;</span>
+<span class="lineNum">     709 </span>                :            : 
+<span class="lineNum">     710 </span>                :            :                                 /*
+<span class="lineNum">     711 </span>                :            :                                  * If we are expanding an alias carried down from an upper
+<span class="lineNum">     712 </span>                :            :                                  * query, must adjust its varlevelsup fields.
+<span class="lineNum">     713 </span>                :            :                                  */
+<span class="lineNum">     714 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (context-&gt;sublevels_up != 0)</span>
+<span class="lineNum">     715 </span>                :            :                                 {
+<span class="lineNum">     716 </span>                :<span class="lineNoCov">          0 :                                         newvar = copyObject(newvar);</span>
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                                         IncrementVarSublevelsUp(newvar, context-&gt;sublevels_up, 0);</span>
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     719 </span>                :            :                                 /* Recurse in case join input is itself a join */
+<span class="lineNum">     720 </span>                :            :                                 /* (also takes care of setting inserted_sublink if needed) */
+<span class="lineNum">     721 </span>                :<span class="lineNoCov">          0 :                                 newvar = flatten_join_alias_vars_mutator(newvar, context);</span>
+<span class="lineNum">     722 </span>                :<span class="lineNoCov">          0 :                                 fields = lappend(fields, newvar);</span>
+<span class="lineNum">     723 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     724 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         rowexpr = makeNode(RowExpr);</span>
+<span class="lineNum">     725 </span>                :<span class="lineNoCov">          0 :                         rowexpr-&gt;args = fields;</span>
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :                         rowexpr-&gt;row_typeid = var-&gt;vartype;</span>
+<span class="lineNum">     727 </span>                :<span class="lineNoCov">          0 :                         rowexpr-&gt;row_format = COERCE_IMPLICIT_CAST;</span>
+<span class="lineNum">     728 </span>                :            : 
+<span class="lineNum">     729 </span>                :<span class="lineNoCov">          0 :                         return (Node *) rowexpr;</span>
+<span class="lineNum">     730 </span>                :            :                 }
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>                :            :                 /* Expand join alias reference */
+<span class="lineNum">     733 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(var-&gt;varattno &gt; 0);</span>
+<span class="lineNum">     734 </span>                :<span class="lineNoCov">          0 :                 newvar = (Node *) list_nth(rte-&gt;joinaliasvars, var-&gt;varattno - 1);</span>
+<span class="lineNum">     735 </span>                :            : 
+<span class="lineNum">     736 </span>                :            :                 /*
+<span class="lineNum">     737 </span>                :            :                  * If we are expanding an alias carried down from an upper query, must
+<span class="lineNum">     738 </span>                :            :                  * adjust its varlevelsup fields.
+<span class="lineNum">     739 </span>                :            :                  */
+<span class="lineNum">     740 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (context-&gt;sublevels_up != 0)</span>
+<span class="lineNum">     741 </span>                :            :                 {
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :                         newvar = copyObject(newvar);</span>
+<span class="lineNum">     743 </span>                :<span class="lineNoCov">          0 :                         IncrementVarSublevelsUp(newvar, context-&gt;sublevels_up, 0);</span>
+<span class="lineNum">     744 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     745 </span>                :            : 
+<span class="lineNum">     746 </span>                :            :                 /* Recurse in case join input is itself a join */
+<span class="lineNum">     747 </span>                :<span class="lineNoCov">          0 :                 newvar = flatten_join_alias_vars_mutator(newvar, context);</span>
+<span class="lineNum">     748 </span>                :            : 
+<span class="lineNum">     749 </span>                :            :                 /* Detect if we are adding a sublink to query */
+<span class="lineNum">     750 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (context-&gt;possible_sublink &amp;&amp; !context-&gt;inserted_sublink)</span>
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :                         context-&gt;inserted_sublink = checkExprHasSubLink(newvar);</span>
+<span class="lineNum">     752 </span>                :            : 
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :                 return newvar;</span>
+<span class="lineNum">     754 </span>                :            :         }
+<span class="lineNum">     755 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, InClauseInfo))</span>
+<span class="lineNum">     756 </span>                :            :         {
+<span class="lineNum">     757 </span>                :            :                 /* Copy the InClauseInfo node with correct mutation of subnodes */
+<span class="lineNum">     758 </span>                :            :                 InClauseInfo *ininfo;
+<span class="lineNum">     759 </span>                :            : 
+<span class="lineNum">     760 </span>                :<span class="lineNoCov">          0 :                 ininfo = (InClauseInfo *) expression_tree_mutator(node,</span>
+<span class="lineNum">     761 </span>                :            :                                                                                          flatten_join_alias_vars_mutator,
+<span class="lineNum">     762 </span>                :<span class="lineNoCov">          0 :                                                                                                                   (void *) context);</span>
+<span class="lineNum">     763 </span>                :            :                 /* now fix InClauseInfo's relid sets */
+<span class="lineNum">     764 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (context-&gt;sublevels_up == 0)</span>
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :                         ininfo-&gt;righthand = alias_relid_set(context-&gt;root,</span>
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :                                                                                                 ininfo-&gt;righthand);</span>
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :                 return (Node *) ininfo;</span>
+<span class="lineNum">     768 </span>                :            :         }
+<span class="lineNum">     769 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Query))</span>
+<span class="lineNum">     770 </span>                :            :         {
+<span class="lineNum">     771 </span>                :            :                 /* Recurse into RTE subquery or not-yet-planned sublink subquery */
+<span class="lineNum">     772 </span>                :            :                 Query      *newnode;
+<span class="lineNum">     773 </span>                :            :                 bool            save_inserted_sublink;
+<span class="lineNum">     774 </span>                :            : 
+<span class="lineNum">     775 </span>                :<span class="lineNoCov">          0 :                 context-&gt;sublevels_up++;</span>
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :                 save_inserted_sublink = context-&gt;inserted_sublink;</span>
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 :                 context-&gt;inserted_sublink = ((Query *) node)-&gt;hasSubLinks;</span>
+<span class="lineNum">     778 </span>                :<span class="lineNoCov">          0 :                 newnode = query_tree_mutator((Query *) node,</span>
+<span class="lineNum">     779 </span>                :            :                                                                          flatten_join_alias_vars_mutator,
+<span class="lineNum">     780 </span>                :<span class="lineNoCov">          0 :                                                                          (void *) context,</span>
+<span class="lineNum">     781 </span>                :            :                                                                          QTW_IGNORE_JOINALIASES);
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :                 newnode-&gt;hasSubLinks |= context-&gt;inserted_sublink;</span>
+<span class="lineNum">     783 </span>                :<span class="lineNoCov">          0 :                 context-&gt;inserted_sublink = save_inserted_sublink;</span>
+<span class="lineNum">     784 </span>                :<span class="lineNoCov">          0 :                 context-&gt;sublevels_up--;</span>
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :                 return (Node *) newnode;</span>
+<span class="lineNum">     786 </span>                :            :         }
+<span class="lineNum">     787 </span>                :            :         /* Already-planned tree not supported */
+<span class="lineNum">     788 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!is_subplan(node));</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     789 </span>                :            : 
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :         return expression_tree_mutator(node, flatten_join_alias_vars_mutator,</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                                                                    (void *) context);</span>
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     793 </span>                :            : 
+<span class="lineNum">     794 </span>                :            : /*
+<span class="lineNum">     795 </span>                :            :  * alias_relid_set: in a set of RT indexes, replace joins by their
+<span class="lineNum">     796 </span>                :            :  * underlying base relids
+<a name="797"><span class="lineNum">     797 </span>                :            :  */</a>
+<span class="lineNum">     798 </span>                :            : static Relids
+<span class="lineNum">     799 </span>                :            : alias_relid_set(PlannerInfo *root, Relids relids)
+<span class="lineNum">     800 </span>                :            : {
+<span class="lineNum">     801 </span>                :<span class="lineNoCov">          0 :         Relids          result = NULL;</span>
+<span class="lineNum">     802 </span>                :            :         Relids          tmprelids;
+<span class="lineNum">     803 </span>                :            :         int                     rtindex;
+<span class="lineNum">     804 </span>                :            : 
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 :         tmprelids = bms_copy(relids);</span>
+<span class="lineNum">     806 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((rtindex = bms_first_member(tmprelids)) &gt;= 0)</span>
+<span class="lineNum">     807 </span>                :            :         {
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                 RangeTblEntry *rte = rt_fetch(rtindex, root-&gt;parse-&gt;rtable);</span>
+<span class="lineNum">     809 </span>                :            : 
+<span class="lineNum">     810 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rte-&gt;rtekind == RTE_JOIN)</span>
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :                         result = bms_join(result, get_relids_for_join(root, rtindex));</span>
+<span class="lineNum">     812 </span>                :            :                 else
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :                         result = bms_add_member(result, rtindex);</span>
+<span class="lineNum">     814 </span>                :            :         }
+<span class="lineNum">     815 </span>                :<span class="lineNoCov">          0 :         bms_free(tmprelids);</span>
+<span class="lineNum">     816 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     817 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

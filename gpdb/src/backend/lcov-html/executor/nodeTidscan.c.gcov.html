@@ -1,0 +1,718 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/nodeTidscan.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - nodeTidscan.c<span style="font-size: 80%;"> (source / <a href="nodeTidscan.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">210</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">180</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nodeTidscan.c
+<span class="lineNum">       4 </span>                :            :  *        Routines to support direct tid scans of relations
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/executor/nodeTidscan.c,v 1.58.2.1 2008/04/30 23:28:37 tgl Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : /*
+<span class="lineNum">      16 </span>                :            :  * INTERFACE ROUTINES
+<span class="lineNum">      17 </span>                :            :  *
+<span class="lineNum">      18 </span>                :            :  *              ExecTidScan                     scans a relation using tids
+<span class="lineNum">      19 </span>                :            :  *              ExecInitTidScan         creates and initializes state info.
+<span class="lineNum">      20 </span>                :            :  *              ExecTidReScan           rescans the tid relation.
+<span class="lineNum">      21 </span>                :            :  *              ExecEndTidScan          releases all storage.
+<span class="lineNum">      22 </span>                :            :  *              ExecTidMarkPos          marks scan position.
+<span class="lineNum">      23 </span>                :            :  *              ExecTidRestrPos         restores scan position.
+<span class="lineNum">      24 </span>                :            :  */
+<span class="lineNum">      25 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;executor/execdebug.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;executor/nodeTidscan.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;utils/array.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;parser/parsetree.h&quot;
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : 
+<span class="lineNum">      37 </span>                :            : #define IsCTIDVar(node)  \
+<span class="lineNum">      38 </span>                :            :         ((node) != NULL &amp;&amp; \
+<span class="lineNum">      39 </span>                :            :          IsA((node), Var) &amp;&amp; \
+<span class="lineNum">      40 </span>                :            :          ((Var *) (node))-&gt;varattno == SelfItemPointerAttributeNumber &amp;&amp; \
+<span class="lineNum">      41 </span>                :            :          ((Var *) (node))-&gt;varlevelsup == 0)
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>                :            : static void TidListCreate(TidScanState *tidstate);
+<span class="lineNum">      44 </span>                :            : static int      itemptr_comparator(const void *a, const void *b);
+<span class="lineNum">      45 </span>                :            : static TupleTableSlot *TidNext(TidScanState *node);
+<span class="lineNum">      46 </span>                :            : 
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : /*
+<span class="lineNum">      49 </span>                :            :  * Compute the list of TIDs to be visited, by evaluating the expressions
+<span class="lineNum">      50 </span>                :            :  * for them.
+<span class="lineNum">      51 </span>                :            :  *
+<span class="lineNum">      52 </span>                :            :  * (The result is actually an array, not a list.)
+<a name="53"><span class="lineNum">      53 </span>                :            :  */</a>
+<span class="lineNum">      54 </span>                :            : static void
+<span class="lineNum">      55 </span>                :            : TidListCreate(TidScanState *tidstate)
+<span class="lineNum">      56 </span>                :            : {
+<span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :         List       *evalList = tidstate-&gt;tss_tidquals;</span>
+<span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :         ExprContext *econtext = tidstate-&gt;ss.ps.ps_ExprContext;</span>
+<span class="lineNum">      59 </span>                :            :         BlockNumber nblocks;
+<span class="lineNum">      60 </span>                :            :         ItemPointerData *tidList;
+<span class="lineNum">      61 </span>                :            :         int                     numAllocTids;
+<span class="lineNum">      62 </span>                :            :         int                     numTids;
+<span class="lineNum">      63 </span>                :            :         ListCell   *l;
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            :         /*
+<span class="lineNum">      66 </span>                :            :          * We silently discard any TIDs that are out of range at the time of
+<span class="lineNum">      67 </span>                :            :          * scan start.  (Since we hold at least AccessShareLock on the table,
+<span class="lineNum">      68 </span>                :            :          * it won't be possible for someone to truncate away the blocks we
+<span class="lineNum">      69 </span>                :            :          * intend to visit.)
+<span class="lineNum">      70 </span>                :            :          */
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :         nblocks = RelationGetNumberOfBlocks(tidstate-&gt;ss.ss_currentRelation);</span>
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            :         /*
+<span class="lineNum">      74 </span>                :            :          * We initialize the array with enough slots for the case that all quals
+<span class="lineNum">      75 </span>                :            :          * are simple OpExprs or CurrentOfExprs.  If there are any
+<span class="lineNum">      76 </span>                :            :          * ScalarArrayOpExprs, we may have to enlarge the array.
+<span class="lineNum">      77 </span>                :            :          */
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :         numAllocTids = list_length(evalList);</span>
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :         tidList = (ItemPointerData *)</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :                 palloc(numAllocTids * sizeof(ItemPointerData));</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :         numTids = 0;</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_isCurrentOf = false;</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, evalList)</span>
+<span class="lineNum">      85 </span>                :            :         {
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                 ExprState  *exstate = (ExprState *) lfirst(l);</span>
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :                 Expr       *expr = exstate-&gt;expr;</span>
+<span class="lineNum">      88 </span>                :            :                 ItemPointer itemptr;
+<span class="lineNum">      89 </span>                :            :                 bool            isNull;
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (is_opclause(expr))</span>
+<span class="lineNum">      92 </span>                :            :                 {
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :                         FuncExprState *fexstate = (FuncExprState *) exstate;</span>
+<span class="lineNum">      94 </span>                :            :                         Node       *arg1;
+<span class="lineNum">      95 </span>                :            :                         Node       *arg2;
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :                         arg1 = get_leftop(expr);</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                         arg2 = get_rightop(expr);</span>
+<span class="lineNum">      99 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsCTIDVar(arg1))</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :                                 exstate = (ExprState *) lsecond(fexstate-&gt;args);</span>
+<span class="lineNum">     101 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (IsCTIDVar(arg2))</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                                 exstate = (ExprState *) linitial(fexstate-&gt;args);</span>
+<span class="lineNum">     103 </span>                :            :                         else
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                                 elog(ERROR, &quot;could not identify CTID variable&quot;);</span>
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :                         itemptr = (ItemPointer)</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :                                 DatumGetPointer(ExecEvalExprSwitchContext(exstate,</span>
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :                                                                                                                   econtext,</span>
+<span class="lineNum">     109 </span>                :            :                                                                                                                   &amp;isNull,
+<span class="lineNum">     110 </span>                :            :                                                                                                                   NULL));
+<span class="lineNum">     111 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!isNull &amp;&amp;</span>
+<span class="lineNum">     112 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ItemPointerIsValid(itemptr) &amp;&amp;</span>
+<span class="lineNum">     113 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ItemPointerGetBlockNumber(itemptr) &lt; nblocks)</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     114 </span>                :            :                         {
+<span class="lineNum">     115 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (numTids &gt;= numAllocTids)</span>
+<span class="lineNum">     116 </span>                :            :                                 {
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                                         numAllocTids *= 2;</span>
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                                         tidList = (ItemPointerData *)</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                                                 repalloc(tidList,</span>
+<span class="lineNum">     120 </span>                :            :                                                                  numAllocTids * sizeof(ItemPointerData));
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :                                 tidList[numTids++] = *itemptr;</span>
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     125 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (expr &amp;&amp; IsA(expr, ScalarArrayOpExpr))</span>
+<span class="lineNum">     126 </span>                :            :                 {
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :                         ScalarArrayOpExprState *saexstate = (ScalarArrayOpExprState *) exstate;</span>
+<span class="lineNum">     128 </span>                :            :                         Datum           arraydatum;
+<span class="lineNum">     129 </span>                :            :                         ArrayType  *itemarray;
+<span class="lineNum">     130 </span>                :            :                         Datum      *ipdatums;
+<span class="lineNum">     131 </span>                :            :                         bool       *ipnulls;
+<span class="lineNum">     132 </span>                :            :                         int                     ndatums;
+<span class="lineNum">     133 </span>                :            :                         int                     i;
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                         exstate = (ExprState *) lsecond(saexstate-&gt;fxprstate.args);</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                         arraydatum = ExecEvalExprSwitchContext(exstate,</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :                                                                                                    econtext,</span>
+<span class="lineNum">     138 </span>                :            :                                                                                                    &amp;isNull,
+<span class="lineNum">     139 </span>                :            :                                                                                                    NULL);
+<span class="lineNum">     140 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (isNull)</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                                 continue;</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :                         itemarray = DatumGetArrayTypeP(arraydatum);</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                         deconstruct_array(itemarray,</span>
+<span class="lineNum">     144 </span>                :            :                                                           TIDOID, SizeOfIptrData, false, 's',
+<span class="lineNum">     145 </span>                :            :                                                           &amp;ipdatums, &amp;ipnulls, &amp;ndatums);
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (numTids + ndatums &gt; numAllocTids)</span>
+<span class="lineNum">     147 </span>                :            :                         {
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :                                 numAllocTids = numTids + ndatums;</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                                 tidList = (ItemPointerData *)</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :                                         repalloc(tidList,</span>
+<span class="lineNum">     151 </span>                :            :                                                          numAllocTids * sizeof(ItemPointerData));
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (i = 0; i &lt; ndatums; i++)</span>
+<span class="lineNum">     154 </span>                :            :                         {
+<span class="lineNum">     155 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!ipnulls[i])</span>
+<span class="lineNum">     156 </span>                :            :                                 {
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                                         itemptr = (ItemPointer) DatumGetPointer(ipdatums[i]);</span>
+<span class="lineNum">     158 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (ItemPointerIsValid(itemptr) &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     159 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ItemPointerGetBlockNumber(itemptr) &lt; nblocks)</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                                                 tidList[numTids++] = *itemptr;</span>
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                         pfree(ipdatums);</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                         pfree(ipnulls);</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     166 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (expr &amp;&amp; IsA(expr, CurrentOfExpr))</span>
+<span class="lineNum">     167 </span>                :            :                 {
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                         CurrentOfExpr *cexpr = (CurrentOfExpr *) expr;</span>
+<span class="lineNum">     169 </span>                :            :                         ItemPointerData cursor_tid;
+<span class="lineNum">     170 </span>                :            : 
+<span class="lineNum">     171 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (execCurrentOf(cexpr, econtext,</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :                                                    RelationGetRelid(tidstate-&gt;ss.ss_currentRelation),</span>
+<span class="lineNum">     173 </span>                :            :                                                           &amp;cursor_tid))
+<span class="lineNum">     174 </span>                :            :                         {
+<span class="lineNum">     175 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(ItemPointerIsValid(&amp;cursor_tid));</span>
+<span class="lineNum">     176 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (numTids &gt;= numAllocTids)</span>
+<span class="lineNum">     177 </span>                :            :                                 {
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :                                         numAllocTids *= 2;</span>
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :                                         tidList = (ItemPointerData *)</span>
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :                                                 repalloc(tidList,</span>
+<span class="lineNum">     181 </span>                :            :                                                                  numAllocTids * sizeof(ItemPointerData));
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                                 tidList[numTids++] = cursor_tid;</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                                 tidstate-&gt;tss_isCurrentOf = true;</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     187 </span>                :            :                 else
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;could not identify CTID expression&quot;);</span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     190 </span>                :            : 
+<span class="lineNum">     191 </span>                :            :         /*
+<span class="lineNum">     192 </span>                :            :          * Sort the array of TIDs into order, and eliminate duplicates.
+<span class="lineNum">     193 </span>                :            :          * Eliminating duplicates is necessary since we want OR semantics across
+<span class="lineNum">     194 </span>                :            :          * the list.  Sorting makes it easier to detect duplicates, and as a bonus
+<span class="lineNum">     195 </span>                :            :          * ensures that we will visit the heap in the most efficient way.
+<span class="lineNum">     196 </span>                :            :          */
+<span class="lineNum">     197 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (numTids &gt; 1)</span>
+<span class="lineNum">     198 </span>                :            :         {
+<span class="lineNum">     199 </span>                :            :                 int                     lastTid;
+<span class="lineNum">     200 </span>                :            :                 int                     i;
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>                :            :                 /* CurrentOfExpr could never appear OR'd with something else */
+<span class="lineNum">     203 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!tidstate-&gt;tss_isCurrentOf);</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                 qsort((void *) tidList, numTids, sizeof(ItemPointerData),</span>
+<span class="lineNum">     206 </span>                :            :                           itemptr_comparator);
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 lastTid = 0;</span>
+<span class="lineNum">     208 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = 1; i &lt; numTids; i++)</span>
+<span class="lineNum">     209 </span>                :            :                 {
+<span class="lineNum">     210 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!ItemPointerEquals(&amp;tidList[lastTid], &amp;tidList[i]))</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                                 tidList[++lastTid] = tidList[i];</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                 numTids = lastTid + 1;</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_TidList = tidList;</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_NumTids = numTids;</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_TidPtr = -1;</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :            : /*
+<span class="lineNum">     222 </span>                :            :  * qsort comparator for ItemPointerData items
+<a name="223"><span class="lineNum">     223 </span>                :            :  */</a>
+<span class="lineNum">     224 </span>                :            : static int
+<span class="lineNum">     225 </span>                :            : itemptr_comparator(const void *a, const void *b)
+<span class="lineNum">     226 </span>                :            : {
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :         const ItemPointerData *ipa = (const ItemPointerData *) a;</span>
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :         const ItemPointerData *ipb = (const ItemPointerData *) b;</span>
+<span class="lineNum">     229 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         BlockNumber ba = ItemPointerGetBlockNumber(ipa);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     230 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         BlockNumber bb = ItemPointerGetBlockNumber(ipb);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     231 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         OffsetNumber oa = ItemPointerGetOffsetNumber(ipa);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     232 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         OffsetNumber ob = ItemPointerGetOffsetNumber(ipb);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ba &lt; bb)</span>
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     236 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ba &gt; bb)</span>
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     238 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (oa &lt; ob)</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     240 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (oa &gt; ob)</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     246 </span>                :            :  *              TidNext
+<span class="lineNum">     247 </span>                :            :  *
+<span class="lineNum">     248 </span>                :            :  *              Retrieve a tuple from the TidScan node's currentRelation
+<span class="lineNum">     249 </span>                :            :  *              using the tids in the TidScanState information.
+<span class="lineNum">     250 </span>                :            :  *
+<span class="lineNum">     251 </span>                :            :  * ----------------------------------------------------------------
+<a name="252"><span class="lineNum">     252 </span>                :            :  */</a>
+<span class="lineNum">     253 </span>                :            : static TupleTableSlot *
+<span class="lineNum">     254 </span>                :            : TidNext(TidScanState *node)
+<span class="lineNum">     255 </span>                :            : {
+<span class="lineNum">     256 </span>                :            :         EState     *estate;
+<span class="lineNum">     257 </span>                :            :         ScanDirection direction;
+<span class="lineNum">     258 </span>                :            :         Snapshot        snapshot;
+<span class="lineNum">     259 </span>                :            :         Relation        heapRelation;
+<span class="lineNum">     260 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     261 </span>                :            :         TupleTableSlot *slot;
+<span class="lineNum">     262 </span>                :            :         Index           scanrelid;
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :         Buffer          buffer = InvalidBuffer;</span>
+<span class="lineNum">     264 </span>                :            :         ItemPointerData *tidList;
+<span class="lineNum">     265 </span>                :            :         int                     numTids;
+<span class="lineNum">     266 </span>                :            :         bool            bBackward;
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :            :         /*
+<span class="lineNum">     269 </span>                :            :          * extract necessary information from tid scan node
+<span class="lineNum">     270 </span>                :            :          */
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :         estate = node-&gt;ss.ps.state;</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :         direction = estate-&gt;es_direction;</span>
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         snapshot = estate-&gt;es_snapshot;</span>
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :         heapRelation = node-&gt;ss.ss_currentRelation;</span>
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :         slot = node-&gt;ss.ss_ScanTupleSlot;</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :         scanrelid = ((TidScan *) node-&gt;ss.ps.plan)-&gt;scan.scanrelid;</span>
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>                :            :         /*
+<span class="lineNum">     279 </span>                :            :          * Check if we are evaluating PlanQual for tuple of this relation.
+<span class="lineNum">     280 </span>                :            :          * Additional checking is not good, but no other way for now. We could
+<span class="lineNum">     281 </span>                :            :          * introduce new nodes for this case and handle TidScan --&gt; NewNode
+<span class="lineNum">     282 </span>                :            :          * switching in Init/ReScan plan...
+<span class="lineNum">     283 </span>                :            :          */
+<span class="lineNum">     284 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (estate-&gt;es_evTuple != NULL &amp;&amp;</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                 estate-&gt;es_evTuple[scanrelid - 1] != NULL)</span>
+<span class="lineNum">     286 </span>                :            :         {
+<span class="lineNum">     287 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (estate-&gt;es_evTupleNull[scanrelid - 1])</span>
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :                         return ExecClearTuple(slot);</span>
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :            :                 /*
+<span class="lineNum">     291 </span>                :            :                  * XXX shouldn't we check here to make sure tuple matches TID list? In
+<span class="lineNum">     292 </span>                :            :                  * runtime-key case this is not certain, is it?  However, in the WHERE
+<span class="lineNum">     293 </span>                :            :                  * CURRENT OF case it might not match anyway ...
+<span class="lineNum">     294 </span>                :            :                  */
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :                 ExecStoreGenericTuple(estate-&gt;es_evTuple[scanrelid - 1], slot, false);</span>
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :            :                 /* Flag for the next call that no more tuples */
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                 estate-&gt;es_evTupleNull[scanrelid - 1] = true;</span>
+<span class="lineNum">     300 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!TupIsNull(slot))</span>
+<span class="lineNum">     301 </span>                :            :                 {
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :                         Gpmon_Incr_Rows_Out(GpmonPktFromTidScanState(node));</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :                         CheckSendPlanStateGpmonPkt(&amp;node-&gt;ss.ps);</span>
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :                 return slot;</span>
+<span class="lineNum">     306 </span>                :            :         }
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :            :         /*
+<span class="lineNum">     309 </span>                :            :          * First time through, compute the list of TIDs to be visited
+<span class="lineNum">     310 </span>                :            :          */
+<span class="lineNum">     311 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;tss_TidList == NULL)</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                 TidListCreate(node);</span>
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         tidList = node-&gt;tss_TidList;</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :         numTids = node-&gt;tss_NumTids;</span>
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :         tuple = &amp;(node-&gt;tss_htup);</span>
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>                :            :         /*
+<span class="lineNum">     320 </span>                :            :          * Initialize or advance scan position, depending on direction.
+<span class="lineNum">     321 </span>                :            :          */
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :         bBackward = ScanDirectionIsBackward(direction);</span>
+<span class="lineNum">     323 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (bBackward)</span>
+<span class="lineNum">     324 </span>                :            :         {
+<span class="lineNum">     325 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;tss_TidPtr &lt; 0)</span>
+<span class="lineNum">     326 </span>                :            :                 {
+<span class="lineNum">     327 </span>                :            :                         /* initialize for backward scan */
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                         node-&gt;tss_TidPtr = numTids - 1;</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     330 </span>                :            :                 else
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :                         node-&gt;tss_TidPtr--;</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     333 </span>                :            :         else
+<span class="lineNum">     334 </span>                :            :         {
+<span class="lineNum">     335 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;tss_TidPtr &lt; 0)</span>
+<span class="lineNum">     336 </span>                :            :                 {
+<span class="lineNum">     337 </span>                :            :                         /* initialize for forward scan */
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :                         node-&gt;tss_TidPtr = 0;</span>
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     340 </span>                :            :                 else
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                         node-&gt;tss_TidPtr++;</span>
+<span class="lineNum">     342 </span>                :            :         }
+<span class="lineNum">     343 </span>                :            : 
+<span class="lineNum">     344 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (node-&gt;tss_TidPtr &gt;= 0 &amp;&amp; node-&gt;tss_TidPtr &lt; numTids)</span>
+<span class="lineNum">     345 </span>                :            :         {
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                 tuple-&gt;t_self = tidList[node-&gt;tss_TidPtr];</span>
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>                :            :                 /*
+<span class="lineNum">     349 </span>                :            :                  * For WHERE CURRENT OF, the tuple retrieved from the cursor might
+<span class="lineNum">     350 </span>                :            :                  * since have been updated; if so, we should fetch the version that is
+<span class="lineNum">     351 </span>                :            :                  * current according to our snapshot.
+<span class="lineNum">     352 </span>                :            :                  */
+<span class="lineNum">     353 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;tss_isCurrentOf)</span>
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :                         heap_get_latest_tid(heapRelation, snapshot, &amp;tuple-&gt;t_self);</span>
+<span class="lineNum">     355 </span>                :            : 
+<span class="lineNum">     356 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (heap_fetch(heapRelation, snapshot, tuple, &amp;buffer, false, NULL))</span>
+<span class="lineNum">     357 </span>                :            :                 {
+<span class="lineNum">     358 </span>                :            :                         /*
+<span class="lineNum">     359 </span>                :            :                          * store the scanned tuple in the scan tuple slot of the scan
+<span class="lineNum">     360 </span>                :            :                          * state.  Eventually we will only do this and not return a tuple.
+<span class="lineNum">     361 </span>                :            :                          * Note: we pass 'false' because tuples returned by amgetnext are
+<span class="lineNum">     362 </span>                :            :                          * pointers onto disk pages and were not created with palloc() and
+<span class="lineNum">     363 </span>                :            :                          * so should not be pfree()'d.
+<span class="lineNum">     364 </span>                :            :                          */
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :                         ExecStoreHeapTuple(tuple,               /* tuple to store */</span>
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :                                                    slot,        /* slot to store in */</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                                                    buffer,              /* buffer associated with tuple  */</span>
+<span class="lineNum">     368 </span>                :            :                                                    false);              /* don't pfree */
+<span class="lineNum">     369 </span>                :            : 
+<span class="lineNum">     370 </span>                :            :                         /*
+<span class="lineNum">     371 </span>                :            :                          * At this point we have an extra pin on the buffer, because
+<span class="lineNum">     372 </span>                :            :                          * ExecStoreTuple incremented the pin count. Drop our local pin.
+<span class="lineNum">     373 </span>                :            :                          */
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :                         ReleaseBuffer(buffer);</span>
+<span class="lineNum">     375 </span>                :            : 
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :                         return slot;</span>
+<span class="lineNum">     377 </span>                :            :                 }
+<span class="lineNum">     378 </span>                :            :                 /* Bad TID or failed snapshot qual; try next */
+<span class="lineNum">     379 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bBackward)</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :                         node-&gt;tss_TidPtr--;</span>
+<span class="lineNum">     381 </span>                :            :                 else
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :                         node-&gt;tss_TidPtr++;</span>
+<span class="lineNum">     383 </span>                :            :         }
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :            :         /*
+<span class="lineNum">     386 </span>                :            :          * if we get here it means the tid scan failed so we are at the end of the
+<span class="lineNum">     387 </span>                :            :          * scan..
+<span class="lineNum">     388 </span>                :            :          */
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :         return ExecClearTuple(slot);</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     391 </span>                :            : 
+<span class="lineNum">     392 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     393 </span>                :            :  *              ExecTidScan(node)
+<span class="lineNum">     394 </span>                :            :  *
+<span class="lineNum">     395 </span>                :            :  *              Scans the relation using tids and returns
+<span class="lineNum">     396 </span>                :            :  *                 the next qualifying tuple in the direction specified.
+<span class="lineNum">     397 </span>                :            :  *              It calls ExecScan() and passes it the access methods which returns
+<span class="lineNum">     398 </span>                :            :  *              the next tuple using the tids.
+<span class="lineNum">     399 </span>                :            :  *
+<span class="lineNum">     400 </span>                :            :  *              Conditions:
+<span class="lineNum">     401 </span>                :            :  *                -- the &quot;cursor&quot; maintained by the AMI is positioned at the tuple
+<span class="lineNum">     402 </span>                :            :  *                       returned previously.
+<span class="lineNum">     403 </span>                :            :  *
+<span class="lineNum">     404 </span>                :            :  *              Initial States:
+<span class="lineNum">     405 </span>                :            :  *                -- the relation indicated is opened for scanning so that the
+<span class="lineNum">     406 </span>                :            :  *                       &quot;cursor&quot; is positioned before the first qualifying tuple.
+<span class="lineNum">     407 </span>                :            :  *                -- tidPtr is -1.
+<span class="lineNum">     408 </span>                :            :  * ----------------------------------------------------------------
+<a name="409"><span class="lineNum">     409 </span>                :            :  */</a>
+<span class="lineNum">     410 </span>                :            : TupleTableSlot *
+<span class="lineNum">     411 </span>                :            : ExecTidScan(TidScanState *node)
+<span class="lineNum">     412 </span>                :            : {
+<span class="lineNum">     413 </span>                :            :         /*
+<span class="lineNum">     414 </span>                :            :          * use TidNext as access method
+<span class="lineNum">     415 </span>                :            :          */
+<span class="lineNum">     416 </span>                :<span class="lineNoCov">          0 :         return ExecScan(&amp;node-&gt;ss, (ExecScanAccessMtd) TidNext);</span>
+<span class="lineNum">     417 </span>                :            : }
+<span class="lineNum">     418 </span>                :            : 
+<span class="lineNum">     419 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     420 </span>                :            :  *              ExecTidReScan(node)
+<span class="lineNum">     421 </span>                :            :  * ----------------------------------------------------------------
+<a name="422"><span class="lineNum">     422 </span>                :            :  */</a>
+<span class="lineNum">     423 </span>                :            : void
+<span class="lineNum">     424 </span>                :            : ExecTidReScan(TidScanState *node, ExprContext *exprCtxt)
+<span class="lineNum">     425 </span>                :            : {
+<span class="lineNum">     426 </span>                :            :         EState     *estate;
+<span class="lineNum">     427 </span>                :            :         Index           scanrelid;
+<span class="lineNum">     428 </span>                :            : 
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         estate = node-&gt;ss.ps.state;</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 :         scanrelid = ((TidScan *) node-&gt;ss.ps.plan)-&gt;scan.scanrelid;</span>
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>                :            :         /*node-&gt;ss.ps.ps_TupFromTlist = false;*/
+<span class="lineNum">     433 </span>                :            : 
+<span class="lineNum">     434 </span>                :            :         /* If we are being passed an outer tuple, save it for runtime key calc */
+<span class="lineNum">     435 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (exprCtxt != NULL)</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                 node-&gt;ss.ps.ps_ExprContext-&gt;ecxt_outertuple =</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :                         exprCtxt-&gt;ecxt_outertuple;</span>
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>                :            :         /* If this is re-scanning of PlanQual ... */
+<span class="lineNum">     440 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (estate-&gt;es_evTuple != NULL &amp;&amp;</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                 estate-&gt;es_evTuple[scanrelid - 1] != NULL)</span>
+<span class="lineNum">     442 </span>                :            :         {
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :                 estate-&gt;es_evTupleNull[scanrelid - 1] = false;</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     445 </span>                :            :         }
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;tss_TidList)</span>
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 :                 pfree(node-&gt;tss_TidList);</span>
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :         node-&gt;tss_TidList = NULL;</span>
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 :         node-&gt;tss_NumTids = 0;</span>
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :         node-&gt;tss_TidPtr = -1;</span>
+<span class="lineNum">     452 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     453 </span>                :            : 
+<span class="lineNum">     454 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     455 </span>                :            :  *              ExecEndTidScan
+<span class="lineNum">     456 </span>                :            :  *
+<span class="lineNum">     457 </span>                :            :  *              Releases any storage allocated through C routines.
+<span class="lineNum">     458 </span>                :            :  *              Returns nothing.
+<span class="lineNum">     459 </span>                :            :  * ----------------------------------------------------------------
+<a name="460"><span class="lineNum">     460 </span>                :            :  */</a>
+<span class="lineNum">     461 </span>                :            : void
+<span class="lineNum">     462 </span>                :            : ExecEndTidScan(TidScanState *node)
+<span class="lineNum">     463 </span>                :            : {
+<span class="lineNum">     464 </span>                :            :         /*
+<span class="lineNum">     465 </span>                :            :          * Free the exprcontext
+<span class="lineNum">     466 </span>                :            :          */
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :         ExecFreeExprContext(&amp;node-&gt;ss.ps);</span>
+<span class="lineNum">     468 </span>                :            : 
+<span class="lineNum">     469 </span>                :            :         /*
+<span class="lineNum">     470 </span>                :            :          * clear out tuple table slots
+<span class="lineNum">     471 </span>                :            :          */
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :         ExecClearTuple(node-&gt;ss.ps.ps_ResultTupleSlot);</span>
+<span class="lineNum">     473 </span>                :<span class="lineNoCov">          0 :         ExecClearTuple(node-&gt;ss.ss_ScanTupleSlot);</span>
+<span class="lineNum">     474 </span>                :            : 
+<span class="lineNum">     475 </span>                :            :         /*
+<span class="lineNum">     476 </span>                :            :          * close the heap relation.
+<span class="lineNum">     477 </span>                :            :          */
+<span class="lineNum">     478 </span>                :<span class="lineNoCov">          0 :         ExecCloseScanRelation(node-&gt;ss.ss_currentRelation);</span>
+<span class="lineNum">     479 </span>                :            : 
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :         EndPlanStateGpmonPkt(&amp;node-&gt;ss.ps);</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     482 </span>                :            : 
+<span class="lineNum">     483 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     484 </span>                :            :  *              ExecTidMarkPos
+<span class="lineNum">     485 </span>                :            :  *
+<span class="lineNum">     486 </span>                :            :  *              Marks scan position by marking the current tid.
+<span class="lineNum">     487 </span>                :            :  *              Returns nothing.
+<span class="lineNum">     488 </span>                :            :  * ----------------------------------------------------------------
+<a name="489"><span class="lineNum">     489 </span>                :            :  */</a>
+<span class="lineNum">     490 </span>                :            : void
+<span class="lineNum">     491 </span>                :            : ExecTidMarkPos(TidScanState *node)
+<span class="lineNum">     492 </span>                :            : {
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :         node-&gt;tss_MarkTidPtr = node-&gt;tss_TidPtr;</span>
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     495 </span>                :            : 
+<span class="lineNum">     496 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     497 </span>                :            :  *              ExecTidRestrPos
+<span class="lineNum">     498 </span>                :            :  *
+<span class="lineNum">     499 </span>                :            :  *              Restores scan position by restoring the current tid.
+<span class="lineNum">     500 </span>                :            :  *              Returns nothing.
+<span class="lineNum">     501 </span>                :            :  *
+<span class="lineNum">     502 </span>                :            :  *              XXX Assumes previously marked scan position belongs to current tid
+<span class="lineNum">     503 </span>                :            :  * ----------------------------------------------------------------
+<a name="504"><span class="lineNum">     504 </span>                :            :  */</a>
+<span class="lineNum">     505 </span>                :            : void
+<span class="lineNum">     506 </span>                :            : ExecTidRestrPos(TidScanState *node)
+<span class="lineNum">     507 </span>                :            : {
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :         node-&gt;tss_TidPtr = node-&gt;tss_MarkTidPtr;</span>
+<span class="lineNum">     509 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     510 </span>                :            : 
+<span class="lineNum">     511 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     512 </span>                :            :  *              ExecInitTidScan
+<span class="lineNum">     513 </span>                :            :  *
+<span class="lineNum">     514 </span>                :            :  *              Initializes the tid scan's state information, creates
+<span class="lineNum">     515 </span>                :            :  *              scan keys, and opens the base and tid relations.
+<span class="lineNum">     516 </span>                :            :  *
+<span class="lineNum">     517 </span>                :            :  *              Parameters:
+<span class="lineNum">     518 </span>                :            :  *                node: TidNode node produced by the planner.
+<span class="lineNum">     519 </span>                :            :  *                estate: the execution state initialized in InitPlan.
+<span class="lineNum">     520 </span>                :            :  * ----------------------------------------------------------------
+<a name="521"><span class="lineNum">     521 </span>                :            :  */</a>
+<span class="lineNum">     522 </span>                :            : TidScanState *
+<span class="lineNum">     523 </span>                :            : ExecInitTidScan(TidScan *node, EState *estate, int eflags)
+<span class="lineNum">     524 </span>                :            : {
+<span class="lineNum">     525 </span>                :            :         TidScanState *tidstate;
+<span class="lineNum">     526 </span>                :            :         Relation        currentRelation;
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :            :         /*
+<span class="lineNum">     529 </span>                :            :          * create state structure
+<span class="lineNum">     530 </span>                :            :          */
+<span class="lineNum">     531 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         tidstate = makeNode(TidScanState);</span>
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;ss.ps.plan = (Plan *) node;</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;ss.ps.state = estate;</span>
+<span class="lineNum">     534 </span>                :            : 
+<span class="lineNum">     535 </span>                :            :         /*
+<span class="lineNum">     536 </span>                :            :          * Miscellaneous initialization
+<span class="lineNum">     537 </span>                :            :          *
+<span class="lineNum">     538 </span>                :            :          * create expression context for node
+<span class="lineNum">     539 </span>                :            :          */
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :         ExecAssignExprContext(estate, &amp;tidstate-&gt;ss.ps);</span>
+<span class="lineNum">     541 </span>                :            : 
+<span class="lineNum">     542 </span>                :            :         /*tidstate-&gt;ss.ps.ps_TupFromTlist = false;*/
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            :         /*
+<span class="lineNum">     545 </span>                :            :          * initialize child expressions
+<span class="lineNum">     546 </span>                :            :          */
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;ss.ps.targetlist = (List *)</span>
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;scan.plan.targetlist,</span>
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) tidstate);</span>
+<span class="lineNum">     550 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;ss.ps.qual = (List *)</span>
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;scan.plan.qual,</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) tidstate);</span>
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_tidquals = (List *)</span>
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;tidquals,</span>
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) tidstate);</span>
+<span class="lineNum">     557 </span>                :            : 
+<span class="lineNum">     558 </span>                :            : #define TIDSCAN_NSLOTS 2
+<span class="lineNum">     559 </span>                :            : 
+<span class="lineNum">     560 </span>                :            :         /*
+<span class="lineNum">     561 </span>                :            :          * tuple table initialization
+<span class="lineNum">     562 </span>                :            :          */
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :         ExecInitResultTupleSlot(estate, &amp;tidstate-&gt;ss.ps);</span>
+<span class="lineNum">     564 </span>                :<span class="lineNoCov">          0 :         ExecInitScanTupleSlot(estate, &amp;tidstate-&gt;ss);</span>
+<span class="lineNum">     565 </span>                :            : 
+<span class="lineNum">     566 </span>                :            :         /*
+<span class="lineNum">     567 </span>                :            :          * mark tid list as not computed yet
+<span class="lineNum">     568 </span>                :            :          */
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_TidList = NULL;</span>
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_NumTids = 0;</span>
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;tss_TidPtr = -1;</span>
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :            :         /*
+<span class="lineNum">     574 </span>                :            :          * open the base relation and acquire appropriate lock on it.
+<span class="lineNum">     575 </span>                :            :          */
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :         currentRelation = ExecOpenScanRelation(estate, node-&gt;scan.scanrelid);</span>
+<span class="lineNum">     577 </span>                :            : 
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         tidstate-&gt;ss.ss_currentRelation = currentRelation;</span>
+<span class="lineNum">     579 </span>                :            : 
+<span class="lineNum">     580 </span>                :            :         /*
+<span class="lineNum">     581 </span>                :            :          * get the scan type from the relation descriptor.
+<span class="lineNum">     582 </span>                :            :          */
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :         ExecAssignScanType(&amp;tidstate-&gt;ss, RelationGetDescr(currentRelation));</span>
+<span class="lineNum">     584 </span>                :            : 
+<span class="lineNum">     585 </span>                :            :         /*
+<span class="lineNum">     586 </span>                :            :          * Initialize result tuple type and projection info.
+<span class="lineNum">     587 </span>                :            :          */
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :         ExecAssignResultTypeFromTL(&amp;tidstate-&gt;ss.ps);</span>
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :         ExecAssignScanProjectionInfo(&amp;tidstate-&gt;ss);</span>
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :         initGpmonPktForTidScan((Plan *)node, &amp;tidstate-&gt;ss.ps.gpmon_pkt, estate);</span>
+<span class="lineNum">     592 </span>                :            : 
+<span class="lineNum">     593 </span>                :            :         /*
+<span class="lineNum">     594 </span>                :            :          * all done.
+<span class="lineNum">     595 </span>                :            :          */
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :         return tidstate;</span>
+<span class="lineNum">     597 </span>                :            : }
+<a name="598"><span class="lineNum">     598 </span>                :            : </a>
+<span class="lineNum">     599 </span>                :            : int
+<span class="lineNum">     600 </span>                :            : ExecCountSlotsTidScan(TidScan *node)
+<span class="lineNum">     601 </span>                :            : {
+<span class="lineNum">     602 </span>                :<span class="lineNoCov">          0 :         return ExecCountSlotsNode(outerPlan((Plan *) node)) +</span>
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                 ExecCountSlotsNode(innerPlan((Plan *) node)) + TIDSCAN_NSLOTS;</span>
+<span class="lineNum">     604 </span>                :            : }
+<a name="605"><span class="lineNum">     605 </span>                :            : </a>
+<span class="lineNum">     606 </span>                :            : void
+<span class="lineNum">     607 </span>                :            : initGpmonPktForTidScan(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *estate)
+<span class="lineNum">     608 </span>                :            : {
+<span class="lineNum">     609 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(planNode != NULL &amp;&amp; gpmon_pkt != NULL &amp;&amp; IsA(planNode, TidScan));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     610 </span>                :            :         
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :         InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);</span>
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

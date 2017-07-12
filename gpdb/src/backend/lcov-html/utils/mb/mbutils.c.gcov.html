@@ -1,0 +1,1256 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mb/mbutils.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/mb</a> - mbutils.c<span style="font-size: 80%;"> (source / <a href="mbutils.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntry">321</td>
+            <td class="headerCovTableEntryLo">2.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">39</td>
+            <td class="headerCovTableEntryLo">5.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntry">260</td>
+            <td class="headerCovTableEntryLo">2.3 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*</a>
+<span class="lineNum">       2 </span>                :            :  * This file contains public functions for conversion between
+<span class="lineNum">       3 </span>                :            :  * client encoding and server (database) encoding.
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Tatsuo Ishii
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * $PostgreSQL: pgsql/src/backend/utils/mb/mbutils.c,v 1.69.2.1 2008/05/27 12:24:46 mha Exp $
+<span class="lineNum">       8 </span>                :            :  */
+<span class="lineNum">       9 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      10 </span>                :            : 
+<span class="lineNum">      11 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      12 </span>                :            : #include &quot;catalog/namespace.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;mb/pg_wchar.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;utils/pg_locale.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : /*
+<span class="lineNum">      20 </span>                :            :  * When converting strings between different encodings, we assume that space
+<span class="lineNum">      21 </span>                :            :  * for converted result is 4-to-1 growth in the worst case. The rate for
+<span class="lineNum">      22 </span>                :            :  * currently supported encoding pairs are within 3 (SJIS JIS X0201 half width
+<span class="lineNum">      23 </span>                :            :  * kanna -&gt; UTF8 is the worst case).  So &quot;4&quot; should be enough for the moment.
+<span class="lineNum">      24 </span>                :            :  *
+<span class="lineNum">      25 </span>                :            :  * Note that this is not the same as the maximum character width in any
+<span class="lineNum">      26 </span>                :            :  * particular encoding.
+<span class="lineNum">      27 </span>                :            :  */
+<span class="lineNum">      28 </span>                :            : #define MAX_CONVERSION_GROWTH  4
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : /*
+<span class="lineNum">      31 </span>                :            :  * We handle for actual FE and BE encoding setting encoding-identificator
+<span class="lineNum">      32 </span>                :            :  * and encoding-name too. It prevent searching and conversion from encoding
+<span class="lineNum">      33 </span>                :            :  * to encoding name in getdatabaseencoding() and other routines.
+<span class="lineNum">      34 </span>                :            :  */
+<span class="lineNum">      35 </span>                :            : static pg_enc2name *ClientEncoding = &amp;pg_enc2name_tbl[PG_SQL_ASCII];
+<span class="lineNum">      36 </span>                :            : static pg_enc2name *DatabaseEncoding = &amp;pg_enc2name_tbl[PG_SQL_ASCII];
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : /*
+<span class="lineNum">      39 </span>                :            :  * Caches for conversion function info. These values are allocated in
+<span class="lineNum">      40 </span>                :            :  * MbProcContext. That context is a child of TopMemoryContext,
+<span class="lineNum">      41 </span>                :            :  * which allows these values to survive across transactions. See
+<span class="lineNum">      42 </span>                :            :  * SetClientEncoding() for more details.
+<span class="lineNum">      43 </span>                :            :  */
+<span class="lineNum">      44 </span>                :            : static MemoryContext MbProcContext = NULL;
+<span class="lineNum">      45 </span>                :            : static FmgrInfo *ToServerConvProc = NULL;
+<span class="lineNum">      46 </span>                :            : static FmgrInfo *ToClientConvProc = NULL;
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : /*
+<span class="lineNum">      49 </span>                :            :  * During backend startup we can't set client encoding because we (a)
+<span class="lineNum">      50 </span>                :            :  * can't look up the conversion functions, and (b) may not know the database
+<span class="lineNum">      51 </span>                :            :  * encoding yet either.  So SetClientEncoding() just accepts anything and
+<span class="lineNum">      52 </span>                :            :  * remembers it for InitializeClientEncoding() to apply later.
+<span class="lineNum">      53 </span>                :            :  */
+<span class="lineNum">      54 </span>                :            : static bool backend_startup_complete = false;
+<span class="lineNum">      55 </span>                :            : static int      pending_client_encoding = PG_SQL_ASCII;
+<span class="lineNum">      56 </span>                :            : 
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            : /* Internal functions */
+<span class="lineNum">      59 </span>                :            : static char *
+<span class="lineNum">      60 </span>                :            : perform_default_encoding_conversion(const char *src, int len, bool is_client_to_server, 
+<span class="lineNum">      61 </span>                :            :                                                                         int custom_client_encoding, 
+<span class="lineNum">      62 </span>                :            :                                                                         FmgrInfo *custom_encoding_proc);
+<span class="lineNum">      63 </span>                :            : static int      cliplen(const char *str, int len, int limit);
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : /*
+<span class="lineNum">      67 </span>                :            :  * Set the client encoding and save fmgrinfo for the conversion
+<span class="lineNum">      68 </span>                :            :  * function if necessary.  Returns 0 if okay, -1 if not (bad encoding
+<span class="lineNum">      69 </span>                :            :  * or can't support conversion)
+<a name="70"><span class="lineNum">      70 </span>                :            :  */</a>
+<span class="lineNum">      71 </span>                :            : int
+<span class="lineNum">      72 </span>                :            : SetClientEncoding(int encoding, bool doit)
+<span class="lineNum">      73 </span>                :            : {
+<span class="lineNum">      74 </span>                :            :         int                     current_server_encoding;
+<span class="lineNum">      75 </span>                :            :         Oid                     to_server_proc,
+<span class="lineNum">      76 </span>                :            :                                 to_client_proc;
+<span class="lineNum">      77 </span>                :            :         FmgrInfo   *to_server;
+<span class="lineNum">      78 </span>                :            :         FmgrInfo   *to_client;
+<span class="lineNum">      79 </span>                :            :         MemoryContext oldcontext;
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>[<span class="branchCov" title="Branch 0 was taken 24 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 24 times"> + </span>]:<span class="lineCov">         24 :         if (!PG_VALID_FE_ENCODING(encoding))</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            :         /* Can't do anything during startup, per notes above */
+<span class="lineNum">      85 </span>        [<span class="branchCov" title="Branch 0 was taken 24 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         24 :         if (!backend_startup_complete)</span>
+<span class="lineNum">      86 </span>                :            :         {
+<span class="lineNum">      87 </span>        [<span class="branchCov" title="Branch 0 was taken 24 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">         24 :                 if (doit)</span>
+<span class="lineNum">      88 </span>                :<span class="lineCov">         24 :                         pending_client_encoding = encoding;</span>
+<span class="lineNum">      89 </span>                :<span class="lineCov">         24 :                 return 0;</span>
+<span class="lineNum">      90 </span>                :            :         }
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         current_server_encoding = GetDatabaseEncoding();</span>
+<span class="lineNum">      93 </span>                :            : 
+<span class="lineNum">      94 </span>                :            :         /*
+<span class="lineNum">      95 </span>                :            :          * Check for cases that require no conversion function.
+<span class="lineNum">      96 </span>                :            :          */
+<span class="lineNum">      97 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (current_server_encoding == encoding ||</span>
+<span class="lineNum">      98 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 current_server_encoding == PG_SQL_ASCII ||</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :                 encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     100 </span>                :            :         {
+<span class="lineNum">     101 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (doit)</span>
+<span class="lineNum">     102 </span>                :            :                 {
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                         ClientEncoding = &amp;pg_enc2name_tbl[encoding];</span>
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                         ToServerConvProc = NULL;</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                         ToClientConvProc = NULL;</span>
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (MbProcContext)</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :                                 MemoryContextReset(MbProcContext);</span>
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     110 </span>                :            :         }
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            :         /*
+<span class="lineNum">     113 </span>                :            :          * If we're not inside a transaction then we can't do catalog lookups, so
+<span class="lineNum">     114 </span>                :            :          * fail.  After backend startup, this could only happen if we are
+<span class="lineNum">     115 </span>                :            :          * re-reading postgresql.conf due to SIGHUP --- so basically this just
+<span class="lineNum">     116 </span>                :            :          * constrains the ability to change client_encoding on the fly from
+<span class="lineNum">     117 </span>                :            :          * postgresql.conf.  Which would probably be a stupid thing to do anyway.
+<span class="lineNum">     118 </span>                :            :          */
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsTransactionState())</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     121 </span>                :            : 
+<span class="lineNum">     122 </span>                :            :         /*
+<span class="lineNum">     123 </span>                :            :          * Look up the conversion functions.
+<span class="lineNum">     124 </span>                :            :          */
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :         to_server_proc = FindDefaultConversionProc(encoding,</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                                                                                            current_server_encoding);</span>
+<span class="lineNum">     127 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(to_server_proc))</span>
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         to_client_proc = FindDefaultConversionProc(current_server_encoding,</span>
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                                                                                            encoding);</span>
+<span class="lineNum">     131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(to_client_proc))</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     133 </span>                :            : 
+<span class="lineNum">     134 </span>                :            :         /*
+<span class="lineNum">     135 </span>                :            :          * Done if not wanting to actually apply setting.
+<span class="lineNum">     136 </span>                :            :          */
+<span class="lineNum">     137 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!doit)</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     139 </span>                :            : 
+<span class="lineNum">     140 </span>                :            :         /* Before loading the new fmgr info, remove the old info, if any */
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :         ToServerConvProc = NULL;</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         ToClientConvProc = NULL;</span>
+<span class="lineNum">     143 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MbProcContext != NULL)</span>
+<span class="lineNum">     144 </span>                :            :         {
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                 MemoryContextReset(MbProcContext);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     147 </span>                :            :         else
+<span class="lineNum">     148 </span>                :            :         {
+<span class="lineNum">     149 </span>                :            :                 /*
+<span class="lineNum">     150 </span>                :            :                  * This is the first time through, so create the context. Make it a
+<span class="lineNum">     151 </span>                :            :                  * child of TopMemoryContext so that these values survive across
+<span class="lineNum">     152 </span>                :            :                  * transactions.
+<span class="lineNum">     153 </span>                :            :                  */
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                 MbProcContext = AllocSetContextCreate(TopMemoryContext,</span>
+<span class="lineNum">     155 </span>                :            :                                                                                           &quot;MbProcContext&quot;,
+<span class="lineNum">     156 </span>                :            :                                                                                           ALLOCSET_SMALL_MINSIZE,
+<span class="lineNum">     157 </span>                :            :                                                                                           ALLOCSET_SMALL_INITSIZE,
+<span class="lineNum">     158 </span>                :            :                                                                                           ALLOCSET_SMALL_MAXSIZE);
+<span class="lineNum">     159 </span>                :            :         }
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :            :         /* Load the fmgr info into MbProcContext */
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :         oldcontext = MemoryContextSwitchTo(MbProcContext);</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         to_server = palloc(sizeof(FmgrInfo));</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         to_client = palloc(sizeof(FmgrInfo));</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :         fmgr_info(to_server_proc, to_server);</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         fmgr_info(to_client_proc, to_client);</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     168 </span>                :            : 
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :         ClientEncoding = &amp;pg_enc2name_tbl[encoding];</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         ToServerConvProc = to_server;</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :         ToClientConvProc = to_client;</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     174 </span>                :<span class="lineCov">         24 : }</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :            : /*
+<span class="lineNum">     177 </span>                :            :  * Initialize client encoding if necessary.
+<span class="lineNum">     178 </span>                :            :  *              called from InitPostgres() once during backend startup.
+<a name="179"><span class="lineNum">     179 </span>                :            :  */</a>
+<span class="lineNum">     180 </span>                :            : void
+<span class="lineNum">     181 </span>                :            : InitializeClientEncoding(void)
+<span class="lineNum">     182 </span>                :            : {
+<span class="lineNum">     183 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!backend_startup_complete);</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         backend_startup_complete = true;</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (SetClientEncoding(pending_client_encoding, true) &lt; 0)</span>
+<span class="lineNum">     187 </span>                :            :         {
+<span class="lineNum">     188 </span>                :            :                 /*
+<span class="lineNum">     189 </span>                :            :                  * Oops, the requested conversion is not available. We couldn't fail
+<span class="lineNum">     190 </span>                :            :                  * before, but we can now.
+<span class="lineNum">     191 </span>                :            :                  */
+<span class="lineNum">     192 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     193 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     194 </span>                :            :                                  errmsg(&quot;conversion between %s and %s is not supported&quot;,
+<span class="lineNum">     195 </span>                :            :                                                 pg_enc2name_tbl[pending_client_encoding].name,
+<span class="lineNum">     196 </span>                :            :                                                 GetDatabaseEncodingName())));
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     199 </span>                :            : 
+<span class="lineNum">     200 </span>                :            : /*
+<span class="lineNum">     201 </span>                :            :  * returns the current client encoding
+<a name="202"><span class="lineNum">     202 </span>                :            :  */</a>
+<span class="lineNum">     203 </span>                :            : int
+<span class="lineNum">     204 </span>                :            : pg_get_client_encoding(void)
+<span class="lineNum">     205 </span>                :            : {
+<span class="lineNum">     206 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         return ClientEncoding-&gt;encoding;</span>
+<span class="lineNum">     208 </span>                :            : }
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :            : /*
+<span class="lineNum">     211 </span>                :            :  * returns the current client encoding name
+<a name="212"><span class="lineNum">     212 </span>                :            :  */</a>
+<span class="lineNum">     213 </span>                :            : const char *
+<span class="lineNum">     214 </span>                :            : pg_get_client_encoding_name(void)
+<span class="lineNum">     215 </span>                :            : {
+<span class="lineNum">     216 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :         return ClientEncoding-&gt;name;</span>
+<span class="lineNum">     218 </span>                :            : }
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :            : /*
+<span class="lineNum">     221 </span>                :            :  * Apply encoding conversion on src and return it. The encoding
+<span class="lineNum">     222 </span>                :            :  * conversion function is chosen from the pg_conversion system catalog
+<span class="lineNum">     223 </span>                :            :  * marked as &quot;default&quot;. If it is not found in the schema search path,
+<span class="lineNum">     224 </span>                :            :  * it's taken from pg_catalog schema. If it even is not in the schema,
+<span class="lineNum">     225 </span>                :            :  * warn and return src.
+<span class="lineNum">     226 </span>                :            :  *
+<span class="lineNum">     227 </span>                :            :  * If conversion occurs, a palloc'd null-terminated string is returned.
+<span class="lineNum">     228 </span>                :            :  * In the case of no conversion, src is returned.
+<span class="lineNum">     229 </span>                :            :  *
+<span class="lineNum">     230 </span>                :            :  * CAUTION: although the presence of a length argument means that callers
+<span class="lineNum">     231 </span>                :            :  * can pass non-null-terminated strings, care is required because the same
+<span class="lineNum">     232 </span>                :            :  * string will be passed back if no conversion occurs.  Such callers *must*
+<span class="lineNum">     233 </span>                :            :  * check whether result == src and handle that case differently.
+<span class="lineNum">     234 </span>                :            :  *
+<span class="lineNum">     235 </span>                :            :  * Note: we try to avoid raising error, since that could get us into
+<span class="lineNum">     236 </span>                :            :  * infinite recursion when this function is invoked during error message
+<span class="lineNum">     237 </span>                :            :  * sending.  It should be OK to raise error for overlength strings though,
+<span class="lineNum">     238 </span>                :            :  * since the recursion will come with a shorter message.
+<a name="239"><span class="lineNum">     239 </span>                :            :  */</a>
+<span class="lineNum">     240 </span>                :            : unsigned char *
+<span class="lineNum">     241 </span>                :            : pg_do_encoding_conversion(unsigned char *src, int len,
+<span class="lineNum">     242 </span>                :            :                                                   int src_encoding, int dest_encoding)
+<span class="lineNum">     243 </span>                :            : {
+<span class="lineNum">     244 </span>                :            :         unsigned char *result;
+<span class="lineNum">     245 </span>                :            :         Oid                     proc;
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsTransactionState())</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                 return src;</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (src_encoding == dest_encoding)</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                 return src;</span>
+<span class="lineNum">     252 </span>                :            : 
+<span class="lineNum">     253 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (src_encoding == PG_SQL_ASCII || dest_encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :                 return src;</span>
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &lt;= 0)</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                 return src;</span>
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :         proc = FindDefaultConversionProc(src_encoding, dest_encoding);</span>
+<span class="lineNum">     260 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(proc))</span>
+<span class="lineNum">     261 </span>                :            :         {
+<span class="lineNum">     262 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(LOG,</span>
+<span class="lineNum">     263 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_FUNCTION),
+<span class="lineNum">     264 </span>                :            :                                  errmsg(&quot;default conversion function for encoding \&quot;%s\&quot; to \&quot;%s\&quot; does not exist&quot;,
+<span class="lineNum">     265 </span>                :            :                                                 pg_encoding_to_char(src_encoding),
+<span class="lineNum">     266 </span>                :            :                                                 pg_encoding_to_char(dest_encoding))));
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                 return src;</span>
+<span class="lineNum">     268 </span>                :            :         }
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :         /*
+<span class="lineNum">     271 </span>                :            :          * XXX we should avoid throwing errors in OidFunctionCall. Otherwise we
+<span class="lineNum">     272 </span>                :            :          * are going into infinite loop!  So we have to make sure that the
+<span class="lineNum">     273 </span>                :            :          * function exists before calling OidFunctionCall.
+<span class="lineNum">     274 </span>                :            :          */
+<span class="lineNum">     275 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!SearchSysCacheExists(PROCOID,</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :                                                           ObjectIdGetDatum(proc),</span>
+<span class="lineNum">     277 </span>                :            :                                                           0, 0, 0))
+<span class="lineNum">     278 </span>                :            :         {
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;cache lookup failed for function %u&quot;, proc);</span>
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :                 return src;</span>
+<span class="lineNum">     281 </span>                :            :         }
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>                :            :         /*
+<span class="lineNum">     284 </span>                :            :          * Allocate space for conversion result, being wary of integer overflow
+<span class="lineNum">     285 </span>                :            :          */
+<span class="lineNum">     286 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((Size) len &gt;= (MaxAllocSize / (Size) MAX_CONVERSION_GROWTH))</span>
+<span class="lineNum">     287 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     288 </span>                :            :                                 (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+<span class="lineNum">     289 </span>                :            :                                  errmsg(&quot;out of memory&quot;),
+<span class="lineNum">     290 </span>                :            :                  errdetail(&quot;String of %d bytes is too long for encoding conversion.&quot;,
+<span class="lineNum">     291 </span>                :            :                                    len)));
+<span class="lineNum">     292 </span>                :            : 
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :         result = palloc(len * MAX_CONVERSION_GROWTH + 1);</span>
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         OidFunctionCall5(proc,</span>
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :                                          Int32GetDatum(src_encoding),</span>
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                                          Int32GetDatum(dest_encoding),</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                                          CStringGetDatum((char *)src),</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                                          CStringGetDatum((char *)result),</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :                                          Int32GetDatum(len));</span>
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     303 </span>                :            : 
+<span class="lineNum">     304 </span>                :            : /*
+<span class="lineNum">     305 </span>                :            :  * Convert string using encoding_name. The source
+<span class="lineNum">     306 </span>                :            :  * encoding is the DB encoding.
+<span class="lineNum">     307 </span>                :            :  *
+<a name="308"><span class="lineNum">     308 </span>                :            :  * BYTEA convert_to(TEXT string, NAME encoding_name) */</a>
+<span class="lineNum">     309 </span>                :            : Datum
+<span class="lineNum">     310 </span>                :            : pg_convert_to(PG_FUNCTION_ARGS)
+<span class="lineNum">     311 </span>                :            : {
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :         Datum           string = PG_GETARG_DATUM(0);</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :         Datum           dest_encoding_name = PG_GETARG_DATUM(1);</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         Datum           src_encoding_name = DirectFunctionCall1(namein,</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                                                                         CStringGetDatum(DatabaseEncoding-&gt;name));</span>
+<span class="lineNum">     316 </span>                :            :         Datum           result;
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :            :         /*
+<span class="lineNum">     319 </span>                :            :          * pg_convert expects a bytea as its first argument. We're passing it a
+<span class="lineNum">     320 </span>                :            :          * text argument here, relying on the fact that they are both in fact
+<span class="lineNum">     321 </span>                :            :          * varlena types, and thus structurally identical.
+<span class="lineNum">     322 </span>                :            :          */
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :         result = DirectFunctionCall3(pg_convert, string,</span>
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                                                                  src_encoding_name, dest_encoding_name);</span>
+<span class="lineNum">     325 </span>                :            : 
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(result);</span>
+<span class="lineNum">     327 </span>                :            : }
+<span class="lineNum">     328 </span>                :            : 
+<span class="lineNum">     329 </span>                :            : /*
+<span class="lineNum">     330 </span>                :            :  * Convert string using encoding_name. The destination
+<span class="lineNum">     331 </span>                :            :  * encoding is the DB encoding.
+<span class="lineNum">     332 </span>                :            :  *
+<a name="333"><span class="lineNum">     333 </span>                :            :  * TEXT convert_from(BYTEA string, NAME encoding_name) */</a>
+<span class="lineNum">     334 </span>                :            : Datum
+<span class="lineNum">     335 </span>                :            : pg_convert_from(PG_FUNCTION_ARGS)
+<span class="lineNum">     336 </span>                :            : {
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :         Datum           string = PG_GETARG_DATUM(0);</span>
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         Datum           src_encoding_name = PG_GETARG_DATUM(1);</span>
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :         Datum           dest_encoding_name = DirectFunctionCall1(namein,</span>
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :                                                                         CStringGetDatum(DatabaseEncoding-&gt;name));</span>
+<span class="lineNum">     341 </span>                :            :         Datum           result;
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :         result = DirectFunctionCall3(pg_convert, string,</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                                                                  src_encoding_name, dest_encoding_name);</span>
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>                :            :         /*
+<span class="lineNum">     347 </span>                :            :          * pg_convert returns a bytea, which we in turn return as text, relying on
+<span class="lineNum">     348 </span>                :            :          * the fact that they are both in fact varlena types, and thus
+<span class="lineNum">     349 </span>                :            :          * structurally identical. Although not all bytea values are valid text,
+<span class="lineNum">     350 </span>                :            :          * in this case it will be because we've told pg_convert to return one
+<span class="lineNum">     351 </span>                :            :          * that is valid as text in the current database encoding.
+<span class="lineNum">     352 </span>                :            :          */
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(result);</span>
+<span class="lineNum">     354 </span>                :            : }
+<span class="lineNum">     355 </span>                :            : 
+<span class="lineNum">     356 </span>                :            : /*
+<span class="lineNum">     357 </span>                :            :  * Convert string using encoding_names.
+<span class="lineNum">     358 </span>                :            :  *
+<span class="lineNum">     359 </span>                :            :  * BYTEA convert(BYTEA string, NAME src_encoding_name, NAME dest_encoding_name)
+<a name="360"><span class="lineNum">     360 </span>                :            :  */</a>
+<span class="lineNum">     361 </span>                :            : Datum
+<span class="lineNum">     362 </span>                :            : pg_convert(PG_FUNCTION_ARGS)
+<span class="lineNum">     363 </span>                :            : {
+<span class="lineNum">     364 </span>                :<span class="lineNoCov">          0 :         bytea      *string = PG_GETARG_BYTEA_P(0);</span>
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         char       *src_encoding_name = NameStr(*PG_GETARG_NAME(1));</span>
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :         int                     src_encoding = pg_char_to_encoding(src_encoding_name);</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         char       *dest_encoding_name = NameStr(*PG_GETARG_NAME(2));</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         int                     dest_encoding = pg_char_to_encoding(dest_encoding_name);</span>
+<span class="lineNum">     369 </span>                :            :         unsigned char *result;
+<span class="lineNum">     370 </span>                :            :         bytea      *retval;
+<span class="lineNum">     371 </span>                :            :         unsigned char *str;
+<span class="lineNum">     372 </span>                :            :         int                     len;
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (src_encoding &lt; 0)</span>
+<span class="lineNum">     375 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     376 </span>                :            :                                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+<span class="lineNum">     377 </span>                :            :                                  errmsg(&quot;invalid source encoding name \&quot;%s\&quot;&quot;,
+<span class="lineNum">     378 </span>                :            :                                                 src_encoding_name)));
+<span class="lineNum">     379 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dest_encoding &lt; 0)</span>
+<span class="lineNum">     380 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     381 </span>                :            :                                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+<span class="lineNum">     382 </span>                :            :                                  errmsg(&quot;invalid destination encoding name \&quot;%s\&quot;&quot;,
+<span class="lineNum">     383 </span>                :            :                                                 dest_encoding_name)));
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :            :         /* make sure that source string is valid and null terminated */
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :         len = VARSIZE(string) - VARHDRSZ;</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         pg_verify_mbstr(src_encoding, VARDATA(string), len, false);</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :         str = palloc(len + 1);</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :         memcpy(str, VARDATA(string), len);</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :         *(str + len) = '\0';</span>
+<span class="lineNum">     391 </span>                :            : 
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :         result = pg_do_encoding_conversion(str, len, src_encoding, dest_encoding);</span>
+<span class="lineNum">     393 </span>                :            : 
+<span class="lineNum">     394 </span>                :            :         /*
+<span class="lineNum">     395 </span>                :            :          * build bytea data type structure.
+<span class="lineNum">     396 </span>                :            :          */
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :         len = strlen((char *) result) + VARHDRSZ;</span>
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :         retval = palloc(len);</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         SET_VARSIZE(retval, len);</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         memcpy(VARDATA(retval), result, len - VARHDRSZ);</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result != str)</span>
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                 pfree(result);</span>
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :         pfree(str);</span>
+<span class="lineNum">     405 </span>                :            : 
+<span class="lineNum">     406 </span>                :            :         /* free memory if allocated by the toaster */
+<span class="lineNum">     407 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_FREE_IF_COPY(string, 0);</span>
+<span class="lineNum">     408 </span>                :            : 
+<span class="lineNum">     409 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BYTEA_P(retval);</span>
+<span class="lineNum">     410 </span>                :            : }
+<span class="lineNum">     411 </span>                :            : 
+<span class="lineNum">     412 </span>                :            : /*
+<span class="lineNum">     413 </span>                :            :  * get the length of the string considered as text in the specified
+<span class="lineNum">     414 </span>                :            :  * encoding. Raises an error if the data is not valid in that
+<span class="lineNum">     415 </span>                :            :  * encoding.
+<span class="lineNum">     416 </span>                :            :  *
+<span class="lineNum">     417 </span>                :            :  * INT4 length (BYTEA string, NAME src_encoding_name)
+<a name="418"><span class="lineNum">     418 </span>                :            :  */</a>
+<span class="lineNum">     419 </span>                :            : Datum
+<span class="lineNum">     420 </span>                :            : length_in_encoding(PG_FUNCTION_ARGS)
+<span class="lineNum">     421 </span>                :            : {
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         bytea      *string = PG_GETARG_BYTEA_P(0);</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :         char       *src_encoding_name = NameStr(*PG_GETARG_NAME(1));</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :         int                     src_encoding = pg_char_to_encoding(src_encoding_name);</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :         int                     len = VARSIZE(string) - VARHDRSZ;</span>
+<span class="lineNum">     426 </span>                :            :         int                     retval;
+<span class="lineNum">     427 </span>                :            : 
+<span class="lineNum">     428 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (src_encoding &lt; 0)</span>
+<span class="lineNum">     429 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     430 </span>                :            :                                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+<span class="lineNum">     431 </span>                :            :                                  errmsg(&quot;invalid encoding name \&quot;%s\&quot;&quot;,
+<span class="lineNum">     432 </span>                :            :                                                 src_encoding_name)));
+<span class="lineNum">     433 </span>                :            : 
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :         retval = pg_verify_mbstr_len(src_encoding, VARDATA(string), len, false);</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(retval);</span>
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :            : }
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>                :            : /*
+<span class="lineNum">     440 </span>                :            :  * convert client encoding to server encoding.
+<a name="441"><span class="lineNum">     441 </span>                :            :  */</a>
+<span class="lineNum">     442 </span>                :            : char *
+<span class="lineNum">     443 </span>                :            : pg_client_to_server(const char *s, int len)
+<span class="lineNum">     444 </span>                :            : {
+<span class="lineNum">     445 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         return pg_any_to_server(s, len, ClientEncoding-&gt;encoding);</span>
+<span class="lineNum">     448 </span>                :            : }
+<span class="lineNum">     449 </span>                :            : 
+<span class="lineNum">     450 </span>                :            : /*
+<span class="lineNum">     451 </span>                :            :  * convert any encoding to server encoding.
+<a name="452"><span class="lineNum">     452 </span>                :            :  */</a>
+<span class="lineNum">     453 </span>                :            : char *
+<span class="lineNum">     454 </span>                :            : pg_any_to_server(const char *s, int len, int encoding)
+<span class="lineNum">     455 </span>                :            : {
+<span class="lineNum">     456 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">     457 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     458 </span>                :            : 
+<span class="lineNum">     459 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &lt;= 0)</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     461 </span>                :            : 
+<span class="lineNum">     462 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (encoding == DatabaseEncoding-&gt;encoding ||</span>
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :                 encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     464 </span>                :            :         {
+<span class="lineNum">     465 </span>                :            :                 /*
+<span class="lineNum">     466 </span>                :            :                  * No conversion is needed, but we must still validate the data.
+<span class="lineNum">     467 </span>                :            :                  */
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :                 (void) pg_verify_mbstr(DatabaseEncoding-&gt;encoding, s, len, false);</span>
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     470 </span>                :            :         }
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (DatabaseEncoding-&gt;encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     473 </span>                :            :         {
+<span class="lineNum">     474 </span>                :            :                 /*
+<span class="lineNum">     475 </span>                :            :                  * No conversion is possible, but we must still validate the data,
+<span class="lineNum">     476 </span>                :            :                  * because the client-side code might have done string escaping using
+<span class="lineNum">     477 </span>                :            :                  * the selected client_encoding.  If the client encoding is ASCII-safe
+<span class="lineNum">     478 </span>                :            :                  * then we just do a straight validation under that encoding.  For an
+<span class="lineNum">     479 </span>                :            :                  * ASCII-unsafe encoding we have a problem: we dare not pass such data
+<span class="lineNum">     480 </span>                :            :                  * to the parser but we have no way to convert it.      We compromise by
+<span class="lineNum">     481 </span>                :            :                  * rejecting the data if it contains any non-ASCII characters.
+<span class="lineNum">     482 </span>                :            :                  */
+<span class="lineNum">     483 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (PG_VALID_BE_ENCODING(encoding))</span>
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                         (void) pg_verify_mbstr(encoding, s, len, false);</span>
+<span class="lineNum">     485 </span>                :            :                 else
+<span class="lineNum">     486 </span>                :            :                 {
+<span class="lineNum">     487 </span>                :            :                         int                     i;
+<span class="lineNum">     488 </span>                :            : 
+<span class="lineNum">     489 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (i = 0; i &lt; len; i++)</span>
+<span class="lineNum">     490 </span>                :            :                         {
+<span class="lineNum">     491 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (s[i] == '\0' || IS_HIGHBIT_SET(s[i]))</span>
+<span class="lineNum">     492 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     493 </span>                :            :                                                         (errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
+<span class="lineNum">     494 </span>                :            :                                          errmsg(&quot;invalid byte value for encoding \&quot;%s\&quot;: 0x%02x&quot;,
+<span class="lineNum">     495 </span>                :            :                                                         pg_enc2name_tbl[PG_SQL_ASCII].name,
+<span class="lineNum">     496 </span>                :            :                                                         (unsigned char) s[i])));
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     498 </span>                :            :                 }
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     500 </span>                :            :         }
+<span class="lineNum">     501 </span>                :            : 
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :         return perform_default_encoding_conversion(s, len, true, -1, NULL);</span>
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     504 </span>                :            : 
+<span class="lineNum">     505 </span>                :            : /*
+<span class="lineNum">     506 </span>                :            :  * convert server encoding to client encoding.
+<a name="507"><span class="lineNum">     507 </span>                :            :  */</a>
+<span class="lineNum">     508 </span>                :            : char *
+<span class="lineNum">     509 </span>                :            : pg_server_to_client(const char *s, int len)
+<span class="lineNum">     510 </span>                :            : {
+<span class="lineNum">     511 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     512 </span>                :            : 
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         return pg_any_to_server(s, len, ClientEncoding-&gt;encoding);</span>
+<span class="lineNum">     514 </span>                :            : }
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>                :            : /*
+<span class="lineNum">     517 </span>                :            :  * convert server encoding to any encoding.
+<a name="518"><span class="lineNum">     518 </span>                :            :  */</a>
+<span class="lineNum">     519 </span>                :            : char *
+<span class="lineNum">     520 </span>                :            : pg_server_to_any(const char *s, int len, int encoding)
+<span class="lineNum">     521 </span>                :            : {
+<span class="lineNum">     522 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">     523 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     524 </span>                :            : 
+<span class="lineNum">     525 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &lt;= 0)</span>
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (encoding == DatabaseEncoding-&gt;encoding ||</span>
+<span class="lineNum">     529 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 encoding == PG_SQL_ASCII ||</span>
+<span class="lineNum">     530 </span>                :<span class="lineNoCov">          0 :                 DatabaseEncoding-&gt;encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;              /* assume data is valid */</span>
+<span class="lineNum">     532 </span>                :            : 
+<span class="lineNum">     533 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ClientEncoding-&gt;encoding == encoding)</span>
+<span class="lineNum">     534 </span>                :<span class="lineNoCov">          0 :                 return perform_default_encoding_conversion(s, len, false, -1, NULL);</span>
+<span class="lineNum">     535 </span>                :            :         else
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :                 return (char *) pg_do_encoding_conversion(</span>
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :                         (unsigned char *) s, len, DatabaseEncoding-&gt;encoding, encoding);</span>
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     539 </span>                :            : 
+<span class="lineNum">     540 </span>                :            : /*
+<span class="lineNum">     541 </span>                :            :  *      Perform default encoding conversion using cached FmgrInfo. Since
+<span class="lineNum">     542 </span>                :            :  *      this function does not access database at all, it is safe to call
+<span class="lineNum">     543 </span>                :            :  *      outside transactions. Explicit setting client encoding required
+<span class="lineNum">     544 </span>                :            :  *      before calling this function. Otherwise no conversion is
+<span class="lineNum">     545 </span>                :            :  *      performed.
+<span class="lineNum">     546 </span>                :            :  *
+<span class="lineNum">     547 </span>                :            :  *  NOTE: this function was slightly updated to allow passing in a source
+<span class="lineNum">     548 </span>                :            :  *  encoding that is not necessarily ClientEncoding-&gt;encoding for client-to-
+<span class="lineNum">     549 </span>                :            :  *  server conversion. Default value is -1, which means: use ClientEncoding.
+<span class="lineNum">     550 </span>                :            :  *  See pg_custom_client_to_server for information.
+<a name="551"><span class="lineNum">     551 </span>                :            :  */</a>
+<span class="lineNum">     552 </span>                :            : static char *
+<span class="lineNum">     553 </span>                :            : perform_default_encoding_conversion(const char *src, int len, bool is_client_to_server, 
+<span class="lineNum">     554 </span>                :            :                                                                         int custom_client_encoding, 
+<span class="lineNum">     555 </span>                :            :                                                                         FmgrInfo *custom_encoding_proc)
+<span class="lineNum">     556 </span>                :            : {
+<span class="lineNum">     557 </span>                :            :         char       *result;
+<span class="lineNum">     558 </span>                :            :         int                     src_encoding,
+<span class="lineNum">     559 </span>                :            :                                 dest_encoding;
+<span class="lineNum">     560 </span>                :            :         FmgrInfo   *flinfo;
+<span class="lineNum">     561 </span>                :            : 
+<span class="lineNum">     562 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (is_client_to_server)</span>
+<span class="lineNum">     563 </span>                :            :         {
+<span class="lineNum">     564 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(custom_client_encoding == -1)</span>
+<span class="lineNum">     565 </span>                :            :                 {
+<span class="lineNum">     566 </span>                :            :                         /* this is the normal path of execution */
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                         src_encoding = ClientEncoding-&gt;encoding;</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                         dest_encoding = DatabaseEncoding-&gt;encoding;</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :                         flinfo = ToServerConvProc;                      </span>
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     571 </span>                :            :                 else
+<span class="lineNum">     572 </span>                :            :                 {
+<span class="lineNum">     573 </span>                :            :                         /* this is the custom path of execution, for external tbl encodings */
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                         src_encoding = custom_client_encoding;</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :                         dest_encoding = DatabaseEncoding-&gt;encoding;</span>
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :                         flinfo = custom_encoding_proc;</span>
+<span class="lineNum">     577 </span>                :            :                 }
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     579 </span>                :            :         else
+<span class="lineNum">     580 </span>                :            :         {
+<span class="lineNum">     581 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(custom_client_encoding == -1)</span>
+<span class="lineNum">     582 </span>                :            :                 {
+<span class="lineNum">     583 </span>                :            :                         /* this is the normal path of execution */
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                         src_encoding = DatabaseEncoding-&gt;encoding;</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                         dest_encoding = ClientEncoding-&gt;encoding;</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                         flinfo = ToClientConvProc;                      </span>
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     588 </span>                :            :                 else
+<span class="lineNum">     589 </span>                :            :                 {
+<span class="lineNum">     590 </span>                :            :                         /* this is the custom path of execution, for external tbl encodings */
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                         src_encoding = DatabaseEncoding-&gt;encoding;</span>
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                         dest_encoding = custom_client_encoding;</span>
+<span class="lineNum">     593 </span>                :<span class="lineNoCov">          0 :                         flinfo = custom_encoding_proc;</span>
+<span class="lineNum">     594 </span>                :            :                 }
+<span class="lineNum">     595 </span>                :            :         }
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flinfo == NULL)</span>
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                 return (char *) src;</span>
+<span class="lineNum">     599 </span>                :            : 
+<span class="lineNum">     600 </span>                :            :         /*
+<span class="lineNum">     601 </span>                :            :          * Allocate space for conversion result, being wary of integer overflow
+<span class="lineNum">     602 </span>                :            :          */
+<span class="lineNum">     603 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((Size) len &gt;= (MaxAllocSize / (Size) MAX_CONVERSION_GROWTH))</span>
+<span class="lineNum">     604 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     605 </span>                :            :                                 (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+<span class="lineNum">     606 </span>                :            :                                  errmsg(&quot;out of memory&quot;),
+<span class="lineNum">     607 </span>                :            :                  errdetail(&quot;String of %d bytes is too long for encoding conversion.&quot;,
+<span class="lineNum">     608 </span>                :            :                                    len)));
+<span class="lineNum">     609 </span>                :            : 
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :         result = palloc(len * MAX_CONVERSION_GROWTH + 1);</span>
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :         FunctionCall5(flinfo,</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                                   Int32GetDatum(src_encoding),</span>
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 :                                   Int32GetDatum(dest_encoding),</span>
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :                                   CStringGetDatum((char *) src),</span>
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :                                   CStringGetDatum(result),</span>
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :                                   Int32GetDatum(len));</span>
+<span class="lineNum">     618 </span>                :            :                 
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     621 </span>                :            : 
+<span class="lineNum">     622 </span>                :            : 
+<span class="lineNum">     623 </span>                :            : 
+<span class="lineNum">     624 </span>                :            : #ifdef USE_WIDE_UPPER_LOWER
+<span class="lineNum">     625 </span>                :            : 
+<span class="lineNum">     626 </span>                :            : /*
+<span class="lineNum">     627 </span>                :            :  * wchar2char --- convert wide characters to multibyte format
+<span class="lineNum">     628 </span>                :            :  *
+<span class="lineNum">     629 </span>                :            :  * This has the same API as the standard wcstombs() function; in particular,
+<span class="lineNum">     630 </span>                :            :  * tolen is the maximum number of bytes to store at *to, and *from must be
+<span class="lineNum">     631 </span>                :            :  * zero-terminated.  The output will be zero-terminated iff there is room.
+<a name="632"><span class="lineNum">     632 </span>                :            :  */</a>
+<span class="lineNum">     633 </span>                :            : size_t
+<span class="lineNum">     634 </span>                :            : wchar2char(char *to, const wchar_t *from, size_t tolen)
+<span class="lineNum">     635 </span>                :            : {
+<span class="lineNum">     636 </span>                :            :         size_t          result;
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (tolen == 0)</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     640 </span>                :            : 
+<span class="lineNum">     641 </span>                :            : #ifdef WIN32
+<span class="lineNum">     642 </span>                :            : 
+<span class="lineNum">     643 </span>                :            :         /*
+<span class="lineNum">     644 </span>                :            :          * On Windows, the &quot;Unicode&quot; locales assume UTF16 not UTF8 encoding, and
+<span class="lineNum">     645 </span>                :            :          * for some reason mbstowcs and wcstombs won't do this for us, so we use
+<span class="lineNum">     646 </span>                :            :          * MultiByteToWideChar().
+<span class="lineNum">     647 </span>                :            :          */
+<span class="lineNum">     648 </span>                :            :         if (GetDatabaseEncoding() == PG_UTF8)
+<span class="lineNum">     649 </span>                :            :         {
+<span class="lineNum">     650 </span>                :            :                 result = WideCharToMultiByte(CP_UTF8, 0, from, -1, to, tolen,
+<span class="lineNum">     651 </span>                :            :                                                                          NULL, NULL);
+<span class="lineNum">     652 </span>                :            :                 /* A zero return is failure */
+<span class="lineNum">     653 </span>                :            :                 if (result &lt;= 0)
+<span class="lineNum">     654 </span>                :            :                         result = -1;
+<span class="lineNum">     655 </span>                :            :                 else
+<span class="lineNum">     656 </span>                :            :                 {
+<span class="lineNum">     657 </span>                :            :                         Assert(result &lt;= tolen);
+<span class="lineNum">     658 </span>                :            :                         /* Microsoft counts the zero terminator in the result */
+<span class="lineNum">     659 </span>                :            :                         result--;
+<span class="lineNum">     660 </span>                :            :                 }
+<span class="lineNum">     661 </span>                :            :         }
+<span class="lineNum">     662 </span>                :            :         else
+<span class="lineNum">     663 </span>                :            : #endif   /* WIN32 */
+<span class="lineNum">     664 </span>                :            :         {
+<span class="lineNum">     665 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!lc_ctype_is_c());</span>
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :                 result = wcstombs(to, from, tolen);</span>
+<span class="lineNum">     667 </span>                :            :         }
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     670 </span>                :            : 
+<span class="lineNum">     671 </span>                :            : /*
+<span class="lineNum">     672 </span>                :            :  * char2wchar --- convert multibyte characters to wide characters
+<span class="lineNum">     673 </span>                :            :  *
+<span class="lineNum">     674 </span>                :            :  * This has almost the API of mbstowcs(), except that *from need not be
+<span class="lineNum">     675 </span>                :            :  * null-terminated; instead, the number of input bytes is specified as
+<span class="lineNum">     676 </span>                :            :  * fromlen.  Also, we ereport() rather than returning -1 for invalid
+<span class="lineNum">     677 </span>                :            :  * input encoding.      tolen is the maximum number of wchar_t's to store at *to.
+<span class="lineNum">     678 </span>                :            :  * The output will be zero-terminated iff there is room.
+<a name="679"><span class="lineNum">     679 </span>                :            :  */</a>
+<span class="lineNum">     680 </span>                :            : size_t
+<span class="lineNum">     681 </span>                :            : char2wchar(wchar_t *to, size_t tolen, const char *from, size_t fromlen)
+<span class="lineNum">     682 </span>                :            : {
+<span class="lineNum">     683 </span>                :            :         size_t          result;
+<span class="lineNum">     684 </span>                :            : 
+<span class="lineNum">     685 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (tolen == 0)</span>
+<span class="lineNum">     686 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     687 </span>                :            : 
+<span class="lineNum">     688 </span>                :            : #ifdef WIN32
+<span class="lineNum">     689 </span>                :            :         /* See WIN32 &quot;Unicode&quot; comment above */
+<span class="lineNum">     690 </span>                :            :         if (GetDatabaseEncoding() == PG_UTF8)
+<span class="lineNum">     691 </span>                :            :         {
+<span class="lineNum">     692 </span>                :            :                 /* Win32 API does not work for zero-length input */
+<span class="lineNum">     693 </span>                :            :                 if (fromlen == 0)
+<span class="lineNum">     694 </span>                :            :                         result = 0;
+<span class="lineNum">     695 </span>                :            :                 else
+<span class="lineNum">     696 </span>                :            :                 {
+<span class="lineNum">     697 </span>                :            :                         result = MultiByteToWideChar(CP_UTF8, 0, from, fromlen, to, tolen - 1);
+<span class="lineNum">     698 </span>                :            :                         /* A zero return is failure */
+<span class="lineNum">     699 </span>                :            :                         if (result == 0)
+<span class="lineNum">     700 </span>                :            :                                 result = -1;
+<span class="lineNum">     701 </span>                :            :                 }
+<span class="lineNum">     702 </span>                :            : 
+<span class="lineNum">     703 </span>                :            :                 if (result != -1)
+<span class="lineNum">     704 </span>                :            :                 {
+<span class="lineNum">     705 </span>                :            :                         Assert(result &lt; tolen);
+<span class="lineNum">     706 </span>                :            :                         /* Append trailing null wchar (MultiByteToWideChar() does not) */
+<span class="lineNum">     707 </span>                :            :                         to[result] = 0;
+<span class="lineNum">     708 </span>                :            :                 }
+<span class="lineNum">     709 </span>                :            :         }
+<span class="lineNum">     710 </span>                :            :         else
+<span class="lineNum">     711 </span>                :            : #endif   /* WIN32 */
+<span class="lineNum">     712 </span>                :            :         {
+<span class="lineNum">     713 </span>                :            :                 /* mbstowcs requires ending '\0' */
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :                 char       *str = pnstrdup(from, fromlen);</span>
+<span class="lineNum">     715 </span>                :            : 
+<span class="lineNum">     716 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!lc_ctype_is_c());</span>
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                 result = mbstowcs(to, str, tolen);</span>
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :                 pfree(str);</span>
+<span class="lineNum">     719 </span>                :            :         }
+<span class="lineNum">     720 </span>                :            : 
+<span class="lineNum">     721 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == -1)</span>
+<span class="lineNum">     722 </span>                :            :         {
+<span class="lineNum">     723 </span>                :            :                 /*
+<span class="lineNum">     724 </span>                :            :                  * Invalid multibyte character encountered.  We try to give a useful
+<span class="lineNum">     725 </span>                :            :                  * error message by letting pg_verifymbstr check the string.  But it's
+<span class="lineNum">     726 </span>                :            :                  * possible that the string is OK to us, and not OK to mbstowcs ---
+<span class="lineNum">     727 </span>                :            :                  * this suggests that the LC_CTYPE locale is different from the
+<span class="lineNum">     728 </span>                :            :                  * database encoding.  Give a generic error message if verifymbstr
+<span class="lineNum">     729 </span>                :            :                  * can't find anything wrong.
+<span class="lineNum">     730 </span>                :            :                  */
+<span class="lineNum">     731 </span>                :<span class="lineNoCov">          0 :                 pg_verifymbstr(from, fromlen, false);   /* might not return */</span>
+<span class="lineNum">     732 </span>                :            :                 /* but if it does ... */
+<span class="lineNum">     733 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     734 </span>                :            :                                 (errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
+<span class="lineNum">     735 </span>                :            :                                  errmsg(&quot;invalid multibyte character for locale&quot;),
+<span class="lineNum">     736 </span>                :            :                                  errhint(&quot;The server's LC_CTYPE locale is probably incompatible with the database encoding.&quot;)));
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     738 </span>                :            : 
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     741 </span>                :            : #endif
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            : /*
+<span class="lineNum">     744 </span>                :            :  * pg_custom_client_to_server
+<span class="lineNum">     745 </span>                :            :  *
+<span class="lineNum">     746 </span>                :            :  * convert client encoding to server encoding, but use the passed in encodings
+<span class="lineNum">     747 </span>                :            :  * instead of the global client and server encoding variables. 
+<span class="lineNum">     748 </span>                :            :  *
+<span class="lineNum">     749 </span>                :            :  * This routine is basically a slightly modified version of pg_client_to_server.
+<span class="lineNum">     750 </span>                :            :  * Instead of creating this routine a better way may have been to just call
+<span class="lineNum">     751 </span>                :            :  * pg_do_encoding_conversion(), which takes in the necessary arguments, however
+<span class="lineNum">     752 </span>                :            :  * it does not do several necessary checks that pg_client_to_server() does, and
+<span class="lineNum">     753 </span>                :            :  * altering it to have those check may break other parts of the system. Therefore
+<span class="lineNum">     754 </span>                :            :  * until there's a better idea we resort to duplicating some code.
+<span class="lineNum">     755 </span>                :            :  *
+<span class="lineNum">     756 </span>                :            :  * The reason for creating this routine is to let external tables do data
+<span class="lineNum">     757 </span>                :            :  * conversion reliably. Since each external table has an encoding attached to
+<span class="lineNum">     758 </span>                :            :  * it we'd like to just convert from that encoding to the server encoding without
+<span class="lineNum">     759 </span>                :            :  * altering the global client_encoding variable for this local database.
+<a name="760"><span class="lineNum">     760 </span>                :            :  */</a>
+<span class="lineNum">     761 </span>                :            : char *
+<span class="lineNum">     762 </span>                :            : pg_custom_to_server(const char *s, int len, int src_encoding, void *cep)
+<span class="lineNum">     763 </span>                :            : {
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :         FmgrInfo *custom_encoding_proc = (FmgrInfo *)cep;</span>
+<span class="lineNum">     765 </span>                :            : 
+<span class="lineNum">     766 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">     767 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">     768 </span>                :            :         
+<span class="lineNum">     769 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &lt;= 0)</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     771 </span>                :            :         
+<span class="lineNum">     772 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (src_encoding == DatabaseEncoding-&gt;encoding ||</span>
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :                 src_encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     774 </span>                :            :         {
+<span class="lineNum">     775 </span>                :            :                 /*
+<span class="lineNum">     776 </span>                :            :                  * No conversion is needed, but we must still validate the data.
+<span class="lineNum">     777 </span>                :            :                  */
+<span class="lineNum">     778 </span>                :<span class="lineNoCov">          0 :                 (void) pg_verify_mbstr(DatabaseEncoding-&gt;encoding, s, len, false);</span>
+<span class="lineNum">     779 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     780 </span>                :            :         }
+<span class="lineNum">     781 </span>                :            :         
+<span class="lineNum">     782 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (DatabaseEncoding-&gt;encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     783 </span>                :            :         {
+<span class="lineNum">     784 </span>                :            :                 /*
+<span class="lineNum">     785 </span>                :            :                  * No conversion is possible, but we must still validate the data,
+<span class="lineNum">     786 </span>                :            :                  * because the client-side code might have done string escaping using
+<span class="lineNum">     787 </span>                :            :                  * the selected client_encoding.  If the client encoding is ASCII-safe
+<span class="lineNum">     788 </span>                :            :                  * then we just do a straight validation under that encoding.  For an
+<span class="lineNum">     789 </span>                :            :                  * ASCII-unsafe encoding we have a problem: we dare not pass such data
+<span class="lineNum">     790 </span>                :            :                  * to the parser but we have no way to convert it.      We compromise by
+<span class="lineNum">     791 </span>                :            :                  * rejecting the data if it contains any non-ASCII characters.
+<span class="lineNum">     792 </span>                :            :                  */
+<span class="lineNum">     793 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (PG_VALID_BE_ENCODING(src_encoding))</span>
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :                         (void) pg_verify_mbstr(src_encoding, s, len, false);</span>
+<span class="lineNum">     795 </span>                :            :                 else
+<span class="lineNum">     796 </span>                :            :                 {
+<span class="lineNum">     797 </span>                :            :                         int                     i;
+<span class="lineNum">     798 </span>                :            :                         
+<span class="lineNum">     799 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (i = 0; i &lt; len; i++)</span>
+<span class="lineNum">     800 </span>                :            :                         {
+<span class="lineNum">     801 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (s[i] == '\0' || IS_HIGHBIT_SET(s[i]))</span>
+<span class="lineNum">     802 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         ereport(ERROR,</span>
+<span class="lineNum">     803 </span>                :            :                                                         (errcode(ERRCODE_CHARACTER_NOT_IN_REPERTOIRE),
+<span class="lineNum">     804 </span>                :            :                                                          errmsg(&quot;invalid byte value for encoding \&quot;%s\&quot;: 0x%02x&quot;,
+<span class="lineNum">     805 </span>                :            :                                                                         pg_enc2name_tbl[PG_SQL_ASCII].name,
+<span class="lineNum">     806 </span>                :            :                                                                         (unsigned char) s[i])));
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     808 </span>                :            :                 }
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     810 </span>                :            :         }
+<span class="lineNum">     811 </span>                :            :         
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :         return perform_default_encoding_conversion(s, len, true, src_encoding, custom_encoding_proc);</span>
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     814 </span>                :            : 
+<span class="lineNum">     815 </span>                :            : /*
+<span class="lineNum">     816 </span>                :            :  * pg_server_to_custom
+<span class="lineNum">     817 </span>                :            :  * 
+<span class="lineNum">     818 </span>                :            :  * convert server encoding to custom encoding. the reverse of pg_custom_to_server.
+<span class="lineNum">     819 </span>                :            :  * see pg_custom_to_server, and perform_default_encoding_conversion headers for
+<span class="lineNum">     820 </span>                :            :  * more information.
+<a name="821"><span class="lineNum">     821 </span>                :            :  */</a>
+<span class="lineNum">     822 </span>                :            : char *
+<span class="lineNum">     823 </span>                :            : pg_server_to_custom(const char *s, int len, int dest_encoding, void *cep)
+<span class="lineNum">     824 </span>                :            : {
+<span class="lineNum">     825 </span>                :<span class="lineNoCov">          0 :         FmgrInfo *custom_encoding_proc = (FmgrInfo *)cep;</span>
+<span class="lineNum">     826 </span>                :            :         
+<span class="lineNum">     827 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">     828 </span>                :            : 
+<span class="lineNum">     829 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &lt;= 0)</span>
+<span class="lineNum">     830 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;</span>
+<span class="lineNum">     831 </span>                :            : 
+<span class="lineNum">     832 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (dest_encoding == DatabaseEncoding-&gt;encoding ||</span>
+<span class="lineNum">     833 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 dest_encoding == PG_SQL_ASCII ||</span>
+<span class="lineNum">     834 </span>                :<span class="lineNoCov">          0 :                 DatabaseEncoding-&gt;encoding == PG_SQL_ASCII)</span>
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :                 return (char *) s;              /* assume data is valid */</span>
+<span class="lineNum">     836 </span>                :            : 
+<span class="lineNum">     837 </span>                :<span class="lineNoCov">          0 :         return perform_default_encoding_conversion(s, len, false, dest_encoding, custom_encoding_proc);</span>
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     839 </span>                :            : 
+<a name="840"><span class="lineNum">     840 </span>                :            : /* convert a multibyte string to a wchar */</a>
+<span class="lineNum">     841 </span>                :            : int
+<span class="lineNum">     842 </span>                :            : pg_mb2wchar(const char *from, pg_wchar *to)
+<span class="lineNum">     843 </span>                :            : {
+<span class="lineNum">     844 </span>                :<span class="lineNoCov">          0 :         return (*pg_wchar_table[DatabaseEncoding-&gt;encoding].mb2wchar_with_len) ((const unsigned char *) from, to, strlen(from));</span>
+<span class="lineNum">     845 </span>                :            : }
+<span class="lineNum">     846 </span>                :            : 
+<a name="847"><span class="lineNum">     847 </span>                :            : /* convert a multibyte string to a wchar with a limited length */</a>
+<span class="lineNum">     848 </span>                :            : int
+<span class="lineNum">     849 </span>                :            : pg_mb2wchar_with_len(const char *from, pg_wchar *to, int len)
+<span class="lineNum">     850 </span>                :            : {
+<span class="lineNum">     851 </span>                :<span class="lineNoCov">          0 :         return (*pg_wchar_table[DatabaseEncoding-&gt;encoding].mb2wchar_with_len) ((const unsigned char *) from, to, len);</span>
+<span class="lineNum">     852 </span>                :            : }
+<span class="lineNum">     853 </span>                :            : 
+<a name="854"><span class="lineNum">     854 </span>                :            : /* same, with any encoding */</a>
+<span class="lineNum">     855 </span>                :            : int
+<span class="lineNum">     856 </span>                :            : pg_encoding_mb2wchar_with_len(int encoding,
+<span class="lineNum">     857 </span>                :            :                                                           const char *from, pg_wchar *to, int len)
+<span class="lineNum">     858 </span>                :            : {
+<span class="lineNum">     859 </span>                :<span class="lineNoCov">          0 :         return (*pg_wchar_table[encoding].mb2wchar_with_len) ((const unsigned char *) from, to, len);</span>
+<span class="lineNum">     860 </span>                :            : }
+<span class="lineNum">     861 </span>                :            : 
+<a name="862"><span class="lineNum">     862 </span>                :            : /* convert a wchar string to a multibyte */</a>
+<span class="lineNum">     863 </span>                :            : int
+<span class="lineNum">     864 </span>                :            : pg_wchar2mb(const pg_wchar *from, char *to)
+<span class="lineNum">     865 </span>                :            : {
+<span class="lineNum">     866 </span>                :<span class="lineNoCov">          0 :         return (*pg_wchar_table[DatabaseEncoding-&gt;encoding].wchar2mb_with_len) (from, (unsigned char *)to, pg_wchar_strlen(from));</span>
+<span class="lineNum">     867 </span>                :            : }
+<span class="lineNum">     868 </span>                :            : 
+<a name="869"><span class="lineNum">     869 </span>                :            : /* convert a wchar string to a multibyte with a limited length */</a>
+<span class="lineNum">     870 </span>                :            : int
+<span class="lineNum">     871 </span>                :            : pg_wchar2mb_with_len(const pg_wchar *from, char *to, int len)
+<span class="lineNum">     872 </span>                :            : {
+<span class="lineNum">     873 </span>                :<span class="lineNoCov">          0 :         return (*pg_wchar_table[DatabaseEncoding-&gt;encoding].wchar2mb_with_len) (from, (unsigned char *)to, len);</span>
+<span class="lineNum">     874 </span>                :            : }
+<span class="lineNum">     875 </span>                :            : 
+<a name="876"><span class="lineNum">     876 </span>                :            : /* same, with any encoding */</a>
+<span class="lineNum">     877 </span>                :            : int
+<span class="lineNum">     878 </span>                :            : pg_encoding_wchar2mb_with_len(int encoding,
+<span class="lineNum">     879 </span>                :            :                                                           const pg_wchar *from, char *to, int len)
+<span class="lineNum">     880 </span>                :            : {
+<span class="lineNum">     881 </span>                :<span class="lineNoCov">          0 :         return (*pg_wchar_table[encoding].wchar2mb_with_len) (from, (unsigned char *)to, len);</span>
+<span class="lineNum">     882 </span>                :            : }
+<span class="lineNum">     883 </span>                :            : 
+<a name="884"><span class="lineNum">     884 </span>                :            : /* returns the byte length of a multibyte word */</a>
+<span class="lineNum">     885 </span>                :            : int
+<span class="lineNum">     886 </span>                :            : pg_mblen(const char *mbstr)
+<span class="lineNum">     887 </span>                :            : {
+<span class="lineNum">     888 </span>                :<span class="lineNoCov">          0 :         return ((*pg_wchar_table[DatabaseEncoding-&gt;encoding].mblen) ((const unsigned char *) mbstr));</span>
+<span class="lineNum">     889 </span>                :            : }
+<span class="lineNum">     890 </span>                :            : 
+<a name="891"><span class="lineNum">     891 </span>                :            : /* returns the display length of a multibyte character */</a>
+<span class="lineNum">     892 </span>                :            : int
+<span class="lineNum">     893 </span>                :            : pg_dsplen(const char *mbstr)
+<span class="lineNum">     894 </span>                :            : {
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :         return ((*pg_wchar_table[DatabaseEncoding-&gt;encoding].dsplen) ((const unsigned char *) mbstr));</span>
+<span class="lineNum">     896 </span>                :            : }
+<span class="lineNum">     897 </span>                :            : 
+<a name="898"><span class="lineNum">     898 </span>                :            : /* returns the length (counted in wchars) of a multibyte string */</a>
+<span class="lineNum">     899 </span>                :            : int
+<span class="lineNum">     900 </span>                :            : pg_mbstrlen(const char *mbstr)
+<span class="lineNum">     901 </span>                :            : {
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :         int                     len = 0;</span>
+<span class="lineNum">     903 </span>                :            : 
+<span class="lineNum">     904 </span>                :            :         /* optimization for single byte encoding */
+<span class="lineNum">     905 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pg_database_encoding_max_length() == 1)</span>
+<span class="lineNum">     906 </span>                :<span class="lineNoCov">          0 :                 return strlen(mbstr);</span>
+<span class="lineNum">     907 </span>                :            : 
+<span class="lineNum">     908 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (*mbstr)</span>
+<span class="lineNum">     909 </span>                :            :         {
+<span class="lineNum">     910 </span>                :<span class="lineNoCov">          0 :                 mbstr += pg_mblen(mbstr);</span>
+<span class="lineNum">     911 </span>                :<span class="lineNoCov">          0 :                 len++;</span>
+<span class="lineNum">     912 </span>                :            :         }
+<span class="lineNum">     913 </span>                :<span class="lineNoCov">          0 :         return len;</span>
+<span class="lineNum">     914 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     915 </span>                :            : 
+<span class="lineNum">     916 </span>                :            : /* returns the length (counted in wchars) of a multibyte string
+<span class="lineNum">     917 </span>                :            :  * (not necessarily NULL terminated)
+<a name="918"><span class="lineNum">     918 </span>                :            :  */</a>
+<span class="lineNum">     919 </span>                :            : int
+<span class="lineNum">     920 </span>                :            : pg_mbstrlen_with_len(const char *mbstr, int limit)
+<span class="lineNum">     921 </span>                :            : {
+<span class="lineNum">     922 </span>                :<span class="lineNoCov">          0 :         int                     len = 0;</span>
+<span class="lineNum">     923 </span>                :            : 
+<span class="lineNum">     924 </span>                :            :         /* optimization for single byte encoding */
+<span class="lineNum">     925 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pg_database_encoding_max_length() == 1)</span>
+<span class="lineNum">     926 </span>                :<span class="lineNoCov">          0 :                 return limit;</span>
+<span class="lineNum">     927 </span>                :            : 
+<span class="lineNum">     928 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (limit &gt; 0 &amp;&amp; *mbstr)</span>
+<span class="lineNum">     929 </span>                :            :         {
+<span class="lineNum">     930 </span>                :<span class="lineNoCov">          0 :                 int                     l = pg_mblen(mbstr);</span>
+<span class="lineNum">     931 </span>                :            : 
+<span class="lineNum">     932 </span>                :<span class="lineNoCov">          0 :                 limit -= l;</span>
+<span class="lineNum">     933 </span>                :<span class="lineNoCov">          0 :                 mbstr += l;</span>
+<span class="lineNum">     934 </span>                :<span class="lineNoCov">          0 :                 len++;</span>
+<span class="lineNum">     935 </span>                :            :         }
+<span class="lineNum">     936 </span>                :<span class="lineNoCov">          0 :         return len;</span>
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>                :            : /*
+<span class="lineNum">     940 </span>                :            :  * returns the byte length of a multibyte string
+<span class="lineNum">     941 </span>                :            :  * (not necessarily NULL terminated)
+<span class="lineNum">     942 </span>                :            :  * that is no longer than limit.
+<span class="lineNum">     943 </span>                :            :  * this function does not break multibyte character boundary.
+<a name="944"><span class="lineNum">     944 </span>                :            :  */</a>
+<span class="lineNum">     945 </span>                :            : int
+<span class="lineNum">     946 </span>                :            : pg_mbcliplen(const char *mbstr, int len, int limit)
+<span class="lineNum">     947 </span>                :            : {
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :         return pg_encoding_mbcliplen(DatabaseEncoding-&gt;encoding, mbstr,</span>
+<span class="lineNum">     949 </span>                :<span class="lineNoCov">          0 :                                                                  len, limit);</span>
+<span class="lineNum">     950 </span>                :            : }
+<span class="lineNum">     951 </span>                :            : 
+<span class="lineNum">     952 </span>                :            : /*
+<span class="lineNum">     953 </span>                :            :  * pg_mbcliplen with specified encoding
+<a name="954"><span class="lineNum">     954 </span>                :            :  */</a>
+<span class="lineNum">     955 </span>                :            : int
+<span class="lineNum">     956 </span>                :            : pg_encoding_mbcliplen(int encoding, const char *mbstr,
+<span class="lineNum">     957 </span>                :            :                                           int len, int limit)
+<span class="lineNum">     958 </span>                :            : {
+<span class="lineNum">     959 </span>                :            :         mblen_converter mblen_fn;
+<span class="lineNum">     960 </span>                :<span class="lineNoCov">          0 :         int                     clen = 0;</span>
+<span class="lineNum">     961 </span>                :            :         int                     l;
+<span class="lineNum">     962 </span>                :            : 
+<span class="lineNum">     963 </span>                :            :         /* optimization for single byte encoding */
+<span class="lineNum">     964 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pg_encoding_max_length(encoding) == 1)</span>
+<span class="lineNum">     965 </span>                :<span class="lineNoCov">          0 :                 return cliplen(mbstr, len, limit);</span>
+<span class="lineNum">     966 </span>                :            : 
+<span class="lineNum">     967 </span>                :<span class="lineNoCov">          0 :         mblen_fn = pg_wchar_table[encoding].mblen;</span>
+<span class="lineNum">     968 </span>                :            : 
+<span class="lineNum">     969 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (len &gt; 0 &amp;&amp; *mbstr)</span>
+<span class="lineNum">     970 </span>                :            :         {
+<span class="lineNum">     971 </span>                :<span class="lineNoCov">          0 :                 l = (*mblen_fn) ((const unsigned char *) mbstr);</span>
+<span class="lineNum">     972 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((clen + l) &gt; limit)</span>
+<span class="lineNum">     973 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :                 clen += l;</span>
+<span class="lineNum">     975 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (clen == limit)</span>
+<span class="lineNum">     976 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     977 </span>                :<span class="lineNoCov">          0 :                 len -= l;</span>
+<span class="lineNum">     978 </span>                :<span class="lineNoCov">          0 :                 mbstr += l;</span>
+<span class="lineNum">     979 </span>                :            :         }
+<span class="lineNum">     980 </span>                :<span class="lineNoCov">          0 :         return clen;</span>
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     982 </span>                :            : 
+<span class="lineNum">     983 </span>                :            : /*
+<span class="lineNum">     984 </span>                :            :  * Similar to pg_mbcliplen except the limit parameter specifies the
+<span class="lineNum">     985 </span>                :            :  * character length, not the byte length.
+<a name="986"><span class="lineNum">     986 </span>                :            :  */</a>
+<span class="lineNum">     987 </span>                :            : int
+<span class="lineNum">     988 </span>                :            : pg_mbcharcliplen(const char *mbstr, int len, int limit)
+<span class="lineNum">     989 </span>                :            : {
+<span class="lineNum">     990 </span>                :<span class="lineNoCov">          0 :         int                     clen = 0;</span>
+<span class="lineNum">     991 </span>                :<span class="lineNoCov">          0 :         int                     nch = 0;</span>
+<span class="lineNum">     992 </span>                :            :         int                     l;
+<span class="lineNum">     993 </span>                :            : 
+<span class="lineNum">     994 </span>                :            :         /* optimization for single byte encoding */
+<span class="lineNum">     995 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pg_database_encoding_max_length() == 1)</span>
+<span class="lineNum">     996 </span>                :<span class="lineNoCov">          0 :                 return cliplen(mbstr, len, limit);</span>
+<span class="lineNum">     997 </span>                :            : 
+<span class="lineNum">     998 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (len &gt; 0 &amp;&amp; *mbstr)</span>
+<span class="lineNum">     999 </span>                :            :         {
+<span class="lineNum">    1000 </span>                :<span class="lineNoCov">          0 :                 l = pg_mblen(mbstr);</span>
+<span class="lineNum">    1001 </span>                :<span class="lineNoCov">          0 :                 nch++;</span>
+<span class="lineNum">    1002 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (nch &gt; limit)</span>
+<span class="lineNum">    1003 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                 clen += l;</span>
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                 len -= l;</span>
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :                 mbstr += l;</span>
+<span class="lineNum">    1007 </span>                :            :         }
+<span class="lineNum">    1008 </span>                :<span class="lineNoCov">          0 :         return clen;</span>
+<span class="lineNum">    1009 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1010 </span>                :            : 
+<a name="1011"><span class="lineNum">    1011 </span>                :            : /* mbcliplen for any single-byte encoding */</a>
+<span class="lineNum">    1012 </span>                :            : static int
+<span class="lineNum">    1013 </span>                :            : cliplen(const char *str, int len, int limit)
+<span class="lineNum">    1014 </span>                :            : {
+<span class="lineNum">    1015 </span>                :<span class="lineNoCov">          0 :         int                     l = 0;</span>
+<span class="lineNum">    1016 </span>                :            : 
+<span class="lineNum">    1017 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         len = Min(len, limit);</span>
+<span class="lineNum">    1018 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (l &lt; len &amp;&amp; str[l])</span>
+<span class="lineNum">    1019 </span>                :<span class="lineNoCov">          0 :                 l++;</span>
+<span class="lineNum">    1020 </span>                :<span class="lineNoCov">          0 :         return l;</span>
+<span class="lineNum">    1021 </span>                :            : }
+<span class="lineNum">    1022 </span>                :            : 
+<span class="lineNum">    1023 </span>                :            : #if defined(ENABLE_NLS) &amp;&amp; defined(WIN32)
+<span class="lineNum">    1024 </span>                :            : static const struct codeset_map {
+<span class="lineNum">    1025 </span>                :            :         int     encoding;
+<span class="lineNum">    1026 </span>                :            :         const char *codeset;
+<span class="lineNum">    1027 </span>                :            : } codeset_map_array[] = {
+<span class="lineNum">    1028 </span>                :            :         {PG_UTF8, &quot;UTF-8&quot;},
+<span class="lineNum">    1029 </span>                :            :         {PG_LATIN1, &quot;LATIN1&quot;},
+<span class="lineNum">    1030 </span>                :            :         {PG_LATIN2, &quot;LATIN2&quot;},
+<span class="lineNum">    1031 </span>                :            :         {PG_LATIN3, &quot;LATIN3&quot;},
+<span class="lineNum">    1032 </span>                :            :         {PG_LATIN4, &quot;LATIN4&quot;},
+<span class="lineNum">    1033 </span>                :            :         {PG_ISO_8859_5, &quot;ISO-8859-5&quot;},
+<span class="lineNum">    1034 </span>                :            :         {PG_ISO_8859_6, &quot;ISO_8859-6&quot;},
+<span class="lineNum">    1035 </span>                :            :         {PG_ISO_8859_7, &quot;ISO-8859-7&quot;},
+<span class="lineNum">    1036 </span>                :            :         {PG_ISO_8859_8, &quot;ISO-8859-8&quot;},
+<span class="lineNum">    1037 </span>                :            :         {PG_LATIN5, &quot;LATIN5&quot;},
+<span class="lineNum">    1038 </span>                :            :         {PG_LATIN6, &quot;LATIN6&quot;},
+<span class="lineNum">    1039 </span>                :            :         {PG_LATIN7, &quot;LATIN7&quot;},
+<span class="lineNum">    1040 </span>                :            :         {PG_LATIN8, &quot;LATIN8&quot;},
+<span class="lineNum">    1041 </span>                :            :         {PG_LATIN9, &quot;LATIN-9&quot;},
+<span class="lineNum">    1042 </span>                :            :         {PG_LATIN10, &quot;LATIN10&quot;},
+<span class="lineNum">    1043 </span>                :            :         {PG_KOI8R, &quot;KOI8-R&quot;},
+<span class="lineNum">    1044 </span>                :            :         {PG_WIN1250, &quot;CP1250&quot;},
+<span class="lineNum">    1045 </span>                :            :         {PG_WIN1251, &quot;CP1251&quot;},
+<span class="lineNum">    1046 </span>                :            :         {PG_WIN1252, &quot;CP1252&quot;},
+<span class="lineNum">    1047 </span>                :            :         {PG_WIN1253, &quot;CP1253&quot;},
+<span class="lineNum">    1048 </span>                :            :         {PG_WIN1254, &quot;CP1254&quot;},
+<span class="lineNum">    1049 </span>                :            :         {PG_WIN1255, &quot;CP1255&quot;},
+<span class="lineNum">    1050 </span>                :            :         {PG_WIN1256, &quot;CP1256&quot;},
+<span class="lineNum">    1051 </span>                :            :         {PG_WIN1257, &quot;CP1257&quot;},
+<span class="lineNum">    1052 </span>                :            :         {PG_WIN1258, &quot;CP1258&quot;},
+<span class="lineNum">    1053 </span>                :            :         {PG_WIN866, &quot;CP866&quot;},
+<span class="lineNum">    1054 </span>                :            :         {PG_WIN874, &quot;CP874&quot;},
+<span class="lineNum">    1055 </span>                :            :         {PG_EUC_CN, &quot;EUC-CN&quot;},
+<span class="lineNum">    1056 </span>                :            :         {PG_EUC_JP, &quot;EUC-JP&quot;},
+<span class="lineNum">    1057 </span>                :            :         {PG_EUC_KR, &quot;EUC-KR&quot;},
+<span class="lineNum">    1058 </span>                :            :         {PG_EUC_TW, &quot;EUC-TW&quot;},
+<span class="lineNum">    1059 </span>                :            :         {PG_EUC_JIS_2004, &quot;EUC-JP&quot;}
+<span class="lineNum">    1060 </span>                :            : };
+<span class="lineNum">    1061 </span>                :            : #endif /* WIN32 */
+<a name="1062"><span class="lineNum">    1062 </span>                :            : </a>
+<span class="lineNum">    1063 </span>                :            : void
+<span class="lineNum">    1064 </span>                :            : SetDatabaseEncoding(int encoding)
+<span class="lineNum">    1065 </span>                :            : {
+<span class="lineNum">    1066 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!PG_VALID_BE_ENCODING(encoding))</span>
+<span class="lineNum">    1067 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;invalid database encoding: %d&quot;, encoding);</span>
+<span class="lineNum">    1068 </span>                :            : 
+<span class="lineNum">    1069 </span>                :<span class="lineNoCov">          0 :         DatabaseEncoding = &amp;pg_enc2name_tbl[encoding];</span>
+<span class="lineNum">    1070 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding-&gt;encoding == encoding);</span>
+<span class="lineNum">    1071 </span>                :            : 
+<span class="lineNum">    1072 </span>                :            :         /*
+<span class="lineNum">    1073 </span>                :            :          * On Windows, we allow UTF-8 database encoding to be used with any
+<span class="lineNum">    1074 </span>                :            :          * locale setting, because UTF-8 requires special handling anyway.
+<span class="lineNum">    1075 </span>                :            :          * But this means that gettext() might be misled about what output
+<span class="lineNum">    1076 </span>                :            :          * encoding it should use, so we have to tell it explicitly.
+<span class="lineNum">    1077 </span>                :            :          *
+<span class="lineNum">    1078 </span>                :            :          * In future we might want to call bind_textdomain_codeset
+<span class="lineNum">    1079 </span>                :            :          * unconditionally, but that requires knowing how to spell the codeset
+<span class="lineNum">    1080 </span>                :            :          * name properly for all encodings on all platforms, which might be
+<span class="lineNum">    1081 </span>                :            :          * problematic.
+<span class="lineNum">    1082 </span>                :            :          *
+<span class="lineNum">    1083 </span>                :            :          * This is presently unnecessary, but harmless, on non-Windows platforms.
+<span class="lineNum">    1084 </span>                :            :          */
+<span class="lineNum">    1085 </span>                :            : #ifdef ENABLE_NLS
+<span class="lineNum">    1086 </span>                :            :         if (encoding == PG_UTF8)
+<span class="lineNum">    1087 </span>                :            :                 if (bind_textdomain_codeset(&quot;postgres&quot;, &quot;UTF-8&quot;) == NULL)
+<span class="lineNum">    1088 </span>                :            :                         elog(LOG, &quot;bind_textdomain_codeset failed&quot;);
+<span class="lineNum">    1089 </span>                :            : #endif
+<span class="lineNum">    1090 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1091 </span>                :            : 
+<span class="lineNum">    1092 </span>                :            : /*
+<span class="lineNum">    1093 </span>                :            :  * Bind gettext to the codeset equivalent with the database encoding.
+<a name="1094"><span class="lineNum">    1094 </span>                :            :  */</a>
+<span class="lineNum">    1095 </span>                :            : void
+<span class="lineNum">    1096 </span>                :            : pg_bind_textdomain_codeset(const char *domainname)
+<span class="lineNum">    1097 </span>                :            : {
+<span class="lineNum">    1098 </span>                :            : #if defined(ENABLE_NLS)
+<span class="lineNum">    1099 </span>                :            :         int                     encoding = GetDatabaseEncoding();
+<span class="lineNum">    1100 </span>                :            :         int                     i;
+<span class="lineNum">    1101 </span>                :            : 
+<span class="lineNum">    1102 </span>                :            :         /*
+<span class="lineNum">    1103 </span>                :            :          * gettext() uses the codeset specified by LC_CTYPE by default, so if that
+<span class="lineNum">    1104 </span>                :            :          * matches the database encoding we don't need to do anything. In CREATE
+<span class="lineNum">    1105 </span>                :            :          * DATABASE, we enforce or trust that the locale's codeset matches
+<span class="lineNum">    1106 </span>                :            :          * database encoding, except for the C locale. In C locale, we bind
+<span class="lineNum">    1107 </span>                :            :          * gettext() explicitly to the right codeset.
+<span class="lineNum">    1108 </span>                :            :          *
+<span class="lineNum">    1109 </span>                :            :          * On Windows, though, gettext() tends to get confused so we always bind
+<span class="lineNum">    1110 </span>                :            :          * it.
+<span class="lineNum">    1111 </span>                :            :          */
+<span class="lineNum">    1112 </span>                :            : #ifndef WIN32
+<span class="lineNum">    1113 </span>                :            :         const char *ctype = setlocale(LC_CTYPE, NULL);
+<span class="lineNum">    1114 </span>                :            : 
+<span class="lineNum">    1115 </span>                :            :         if (pg_strcasecmp(ctype, &quot;C&quot;) != 0 &amp;&amp; pg_strcasecmp(ctype, &quot;POSIX&quot;) != 0)
+<span class="lineNum">    1116 </span>                :            :                 return;
+<span class="lineNum">    1117 </span>                :            : #endif
+<span class="lineNum">    1118 </span>                :            : 
+<span class="lineNum">    1119 </span>                :            :         for (i = 0; pg_enc2gettext_tbl[i].name != NULL; i++)
+<span class="lineNum">    1120 </span>                :            :         {
+<span class="lineNum">    1121 </span>                :            :                 if (pg_enc2gettext_tbl[i].encoding == encoding)
+<span class="lineNum">    1122 </span>                :            :                 {
+<span class="lineNum">    1123 </span>                :            :                         if (bind_textdomain_codeset(domainname,
+<span class="lineNum">    1124 </span>                :            :                                                                                 pg_enc2gettext_tbl[i].name) == NULL)
+<span class="lineNum">    1125 </span>                :            :                                 elog(LOG, &quot;bind_textdomain_codeset failed&quot;);
+<span class="lineNum">    1126 </span>                :            :                         break;
+<span class="lineNum">    1127 </span>                :            :                 }
+<span class="lineNum">    1128 </span>                :            :         }
+<span class="lineNum">    1129 </span>                :            : #endif
+<span class="lineNum">    1130 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1131"><span class="lineNum">    1131 </span>                :            : </a>
+<span class="lineNum">    1132 </span>                :            : void
+<span class="lineNum">    1133 </span>                :            : SetDefaultClientEncoding(void)
+<span class="lineNum">    1134 </span>                :            : {
+<span class="lineNum">    1135 </span>                :<span class="lineNoCov">          0 :         ClientEncoding = &amp;pg_enc2name_tbl[GetDatabaseEncoding()];</span>
+<span class="lineNum">    1136 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1137"><span class="lineNum">    1137 </span>                :            : </a>
+<span class="lineNum">    1138 </span>                :            : int
+<span class="lineNum">    1139 </span>                :            : GetDatabaseEncoding(void)
+<span class="lineNum">    1140 </span>                :            : {
+<span class="lineNum">    1141 </span>[<span class="branchCov" title="Branch 0 was taken 898 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 898 times"> + </span>]:<span class="lineCov">        898 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">    1142 </span>                :<span class="lineCov">        898 :         return DatabaseEncoding-&gt;encoding;</span>
+<span class="lineNum">    1143 </span>                :            : }
+<a name="1144"><span class="lineNum">    1144 </span>                :            : </a>
+<span class="lineNum">    1145 </span>                :            : const char *
+<span class="lineNum">    1146 </span>                :            : GetDatabaseEncodingName(void)
+<span class="lineNum">    1147 </span>                :            : {
+<span class="lineNum">    1148 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">    1149 </span>                :<span class="lineNoCov">          0 :         return DatabaseEncoding-&gt;name;</span>
+<span class="lineNum">    1150 </span>                :            : }
+<a name="1151"><span class="lineNum">    1151 </span>                :            : </a>
+<span class="lineNum">    1152 </span>                :            : Datum
+<span class="lineNum">    1153 </span>                :            : getdatabaseencoding(PG_FUNCTION_ARGS)
+<span class="lineNum">    1154 </span>                :            : {
+<span class="lineNum">    1155 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(DatabaseEncoding);</span>
+<span class="lineNum">    1156 </span>                :<span class="lineNoCov">          0 :         return DirectFunctionCall1(namein, CStringGetDatum(DatabaseEncoding-&gt;name));</span>
+<span class="lineNum">    1157 </span>                :            : }
+<a name="1158"><span class="lineNum">    1158 </span>                :            : </a>
+<span class="lineNum">    1159 </span>                :            : Datum
+<span class="lineNum">    1160 </span>                :            : pg_client_encoding(PG_FUNCTION_ARGS)
+<span class="lineNum">    1161 </span>                :            : {
+<span class="lineNum">    1162 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ClientEncoding);</span>
+<span class="lineNum">    1163 </span>                :<span class="lineNoCov">          0 :         return DirectFunctionCall1(namein, CStringGetDatum(ClientEncoding-&gt;name));</span>
+<span class="lineNum">    1164 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

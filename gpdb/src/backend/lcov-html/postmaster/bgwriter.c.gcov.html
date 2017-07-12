@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - postmaster/bgwriter.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">postmaster</a> - bgwriter.c<span style="font-size: 80%;"> (source / <a href="bgwriter.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">74</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">28</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * bgwriter.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * The background writer (bgwriter) is new as of Postgres 8.0.  It attempts
+<span class="lineNum">       6 </span>                :            :  * to keep regular backends from having to write out dirty shared buffers
+<span class="lineNum">       7 </span>                :            :  * (which they would only do when needing to free a shared buffer to read in
+<span class="lineNum">       8 </span>                :            :  * another page).  In the best scenario all writes from shared buffers will
+<span class="lineNum">       9 </span>                :            :  * be issued by the background writer process.  However, regular backends are
+<span class="lineNum">      10 </span>                :            :  * still empowered to issue writes if the bgwriter fails to maintain enough
+<span class="lineNum">      11 </span>                :            :  * clean shared buffers.
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  * Previously, the background writer use to do this duty.  But we ended up with
+<span class="lineNum">      14 </span>                :            :  * a deadlock with the new FileRep functionality, so this functionality was split out into its
+<span class="lineNum">      15 </span>                :            :  * own server.
+<span class="lineNum">      16 </span>                :            :  *
+<span class="lineNum">      17 </span>                :            :  * The bgwriter is started by the postmaster as soon as the startup subprocess
+<span class="lineNum">      18 </span>                :            :  * finishes.
+<span class="lineNum">      19 </span>                :            :  * It remains alive until the postmaster commands it to terminate.
+<span class="lineNum">      20 </span>                :            :  * Normal termination is by SIGUSR2, which instructs the bgwriter to exit(0).
+<span class="lineNum">      21 </span>                :            :  * Emergency termination is by SIGQUIT; like any backend, the bgwriter will
+<span class="lineNum">      22 </span>                :            :  * simply abort and exit on SIGQUIT.
+<span class="lineNum">      23 </span>                :            :  *
+<span class="lineNum">      24 </span>                :            :  * If the bgwriter exits unexpectedly, the postmaster treats that the same
+<span class="lineNum">      25 </span>                :            :  * as a backend crash: shared memory may be corrupted, so remaining backends
+<span class="lineNum">      26 </span>                :            :  * should be killed by SIGQUIT and then a recovery cycle started.
+<span class="lineNum">      27 </span>                :            :  *
+<span class="lineNum">      28 </span>                :            :  *
+<span class="lineNum">      29 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">      30 </span>                :            :  *
+<span class="lineNum">      31 </span>                :            :  *
+<span class="lineNum">      32 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      33 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/postmaster/bgwriter.c,v 1.48 2008/01/01 19:45:51 momjian Exp $
+<span class="lineNum">      34 </span>                :            :  *
+<span class="lineNum">      35 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      36 </span>                :            :  */
+<span class="lineNum">      37 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>                :            : #include &lt;signal.h&gt;
+<span class="lineNum">      40 </span>                :            : #include &lt;sys/time.h&gt;
+<span class="lineNum">      41 </span>                :            : #include &lt;time.h&gt;
+<span class="lineNum">      42 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : #include &quot;access/xlog_internal.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;libpq/pqsignal.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      48 </span>                :            : #include &quot;postmaster/bgwriter.h&quot;
+<span class="lineNum">      49 </span>                :            : #include &quot;storage/fd.h&quot;
+<span class="lineNum">      50 </span>                :            : #include &quot;storage/freespace.h&quot;
+<span class="lineNum">      51 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      52 </span>                :            : #include &quot;storage/lwlock.h&quot;
+<span class="lineNum">      53 </span>                :            : #include &quot;storage/pmsignal.h&quot;
+<span class="lineNum">      54 </span>                :            : #include &quot;storage/shmem.h&quot;
+<span class="lineNum">      55 </span>                :            : #include &quot;storage/smgr.h&quot;
+<span class="lineNum">      56 </span>                :            : #include &quot;storage/spin.h&quot;
+<span class="lineNum">      57 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      58 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      59 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      60 </span>                :            : #include &quot;utils/resowner.h&quot;
+<span class="lineNum">      61 </span>                :            : #include &quot;utils/faultinjector.h&quot;
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : #include &quot;tcop/tcopprot.h&quot; /* quickdie() */
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : /*
+<span class="lineNum">      66 </span>                :            :  * GUC parameters
+<span class="lineNum">      67 </span>                :            :  */
+<span class="lineNum">      68 </span>                :            : int                     BgWriterDelay = 200;
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            : /*
+<span class="lineNum">      71 </span>                :            :  * Flags set by interrupt handlers for later service in the main loop.
+<span class="lineNum">      72 </span>                :            :  */
+<span class="lineNum">      73 </span>                :            : static volatile sig_atomic_t got_SIGHUP = false;
+<span class="lineNum">      74 </span>                :            : static volatile sig_atomic_t shutdown_requested = false;
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : /* Prototypes for private functions */
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :            : static void BgWriterNap(void);
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :            : /* Signal handlers */
+<span class="lineNum">      81 </span>                :            : 
+<span class="lineNum">      82 </span>                :            : static void BgSigHupHandler(SIGNAL_ARGS);
+<span class="lineNum">      83 </span>                :            : static void ReqShutdownHandler(SIGNAL_ARGS);
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :            : /*
+<span class="lineNum">      86 </span>                :            :  * Main entry point for bgwriter process
+<span class="lineNum">      87 </span>                :            :  *
+<span class="lineNum">      88 </span>                :            :  * This is invoked from AuxiliaryProcessMain, which has already created the
+<span class="lineNum">      89 </span>                :            :  * basic execution environment, but not enabled signals yet.
+<a name="90"><span class="lineNum">      90 </span>                :            :  */</a>
+<span class="lineNum">      91 </span>                :            : void
+<span class="lineNum">      92 </span>                :            : BackgroundWriterMain(void)
+<span class="lineNum">      93 </span>                :            : {
+<span class="lineNum">      94 </span>                :            :         sigjmp_buf      local_sigjmp_buf;
+<span class="lineNum">      95 </span>                :            :         MemoryContext bgwriter_context;
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            :         /*
+<span class="lineNum">      98 </span>                :            :          * If possible, make this process a group leader, so that the postmaster
+<span class="lineNum">      99 </span>                :            :          * can signal any child processes too.  (bgwriter probably never has any
+<span class="lineNum">     100 </span>                :            :          * child processes, but for consistency we make all postmaster child
+<span class="lineNum">     101 </span>                :            :          * processes do this.)
+<span class="lineNum">     102 </span>                :            :          */
+<span class="lineNum">     103 </span>                :            : #ifdef HAVE_SETSID
+<span class="lineNum">     104 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (setsid() &lt; 0)</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 elog(FATAL, &quot;setsid() failed: %m&quot;);</span>
+<span class="lineNum">     106 </span>                :            : #endif
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :            :         /*
+<span class="lineNum">     109 </span>                :            :          * Properly accept or ignore signals the postmaster might send us.
+<span class="lineNum">     110 </span>                :            :          *
+<span class="lineNum">     111 </span>                :            :          * Note: we deliberately ignore SIGTERM, because during a standard Unix
+<span class="lineNum">     112 </span>                :            :          * system shutdown cycle, init will SIGTERM all processes at once.      We
+<span class="lineNum">     113 </span>                :            :          * want to wait for the backends to exit, whereupon the postmaster will
+<span class="lineNum">     114 </span>                :            :          * tell us it's okay to shut down (via SIGUSR2).
+<span class="lineNum">     115 </span>                :            :          *
+<span class="lineNum">     116 </span>                :            :          * SIGUSR1 is presently unused; keep it spare in case someday we want this
+<span class="lineNum">     117 </span>                :            :          * process to participate in ProcSignal messaging.
+<span class="lineNum">     118 </span>                :            :          */
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGHUP, BgSigHupHandler);      /* set flag to read config file */</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGINT, SIG_IGN);</span>
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGTERM, SIG_IGN); /* ignore SIGTERM */</span>
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGQUIT, quickdie);            /* hard crash time: nothing bg-writer specific, just use the standard */</span>
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGALRM, SIG_IGN);</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGPIPE, SIG_IGN);</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGUSR1, SIG_IGN); /* reserve for ProcSignal */</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGUSR2, ReqShutdownHandler);          /* request shutdown */</span>
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>                :            :         /*
+<span class="lineNum">     129 </span>                :            :          * Reset some signals that are accepted by postmaster but not here
+<span class="lineNum">     130 </span>                :            :          */
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGCHLD, SIG_DFL);</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGTTIN, SIG_DFL);</span>
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGTTOU, SIG_DFL);</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGCONT, SIG_DFL);</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGWINCH, SIG_DFL);</span>
+<span class="lineNum">     136 </span>                :            : 
+<span class="lineNum">     137 </span>                :            :         /* We allow SIGQUIT (quickdie) at all times */
+<span class="lineNum">     138 </span>                :            : #ifdef HAVE_SIGPROCMASK
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :         sigdelset(&amp;BlockSig, SIGQUIT);</span>
+<span class="lineNum">     140 </span>                :            : #else
+<span class="lineNum">     141 </span>                :            :         BlockSig &amp;= ~(sigmask(SIGQUIT));
+<span class="lineNum">     142 </span>                :            : #endif
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :            :         /*
+<span class="lineNum">     145 </span>                :            :          * Create a resource owner to keep track of our resources (currently only
+<span class="lineNum">     146 </span>                :            :          * buffer pins).
+<span class="lineNum">     147 </span>                :            :          */
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :         CurrentResourceOwner = ResourceOwnerCreate(NULL, &quot;Background Writer&quot;);</span>
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :            :         /*
+<span class="lineNum">     151 </span>                :            :          * Create a memory context that we will do all our work in.  We do this so
+<span class="lineNum">     152 </span>                :            :          * that we can reset the context during error recovery and thereby avoid
+<span class="lineNum">     153 </span>                :            :          * possible memory leaks.  Formerly this code just ran in
+<span class="lineNum">     154 </span>                :            :          * TopMemoryContext, but resetting that would be a really bad idea.
+<span class="lineNum">     155 </span>                :            :          */
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :         bgwriter_context = AllocSetContextCreate(TopMemoryContext,</span>
+<span class="lineNum">     157 </span>                :            :                                                                                          &quot;Background Writer&quot;,
+<span class="lineNum">     158 </span>                :            :                                                                                          ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     159 </span>                :            :                                                                                          ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     160 </span>                :            :                                                                                          ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(bgwriter_context);</span>
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :            :         /*
+<span class="lineNum">     164 </span>                :            :          * If an exception is encountered, processing resumes here.
+<span class="lineNum">     165 </span>                :            :          *
+<span class="lineNum">     166 </span>                :            :          * See notes in postgres.c about the design of this coding.
+<span class="lineNum">     167 </span>                :            :          */
+<span class="lineNum">     168 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sigsetjmp(local_sigjmp_buf, 1) != 0)</span>
+<span class="lineNum">     169 </span>                :            :         {
+<span class="lineNum">     170 </span>                :            :                 /* Since not using PG_TRY, must reset error stack by hand */
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                 error_context_stack = NULL;</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :            :                 /* Prevent interrupts while cleaning up */
+<span class="lineNum">     174 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 HOLD_INTERRUPTS();</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :            :                 /* Report the error to the server log */
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                 EmitErrorReport();</span>
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :            :                 /*
+<span class="lineNum">     180 </span>                :            :                  * These operations are really just a minimal subset of
+<span class="lineNum">     181 </span>                :            :                  * AbortTransaction().  We don't have very many resources to worry
+<span class="lineNum">     182 </span>                :            :                  * about in bgwriter, but we do have LWLocks, buffers, and temp files.
+<span class="lineNum">     183 </span>                :            :                  */
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                 LWLockReleaseAll();</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                 AbortBufferIO();</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                 UnlockBuffers();</span>
+<span class="lineNum">     187 </span>                :            :                 /* buffer pins are released here: */
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                 ResourceOwnerRelease(CurrentResourceOwner,</span>
+<span class="lineNum">     189 </span>                :            :                                                          RESOURCE_RELEASE_BEFORE_LOCKS,
+<span class="lineNum">     190 </span>                :            :                                                          false, true);
+<span class="lineNum">     191 </span>                :            :                 /* we needn't bother with the other ResourceOwnerRelease phases */
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                 AtEOXact_Buffers(false);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                 AtEOXact_Files();</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                 AtEOXact_HashTables(false);</span>
+<span class="lineNum">     195 </span>                :            : 
+<span class="lineNum">     196 </span>                :            :                 /*
+<span class="lineNum">     197 </span>                :            :                  * Now return to normal top-level context and clear ErrorContext for
+<span class="lineNum">     198 </span>                :            :                  * next time.
+<span class="lineNum">     199 </span>                :            :                  */
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                 MemoryContextSwitchTo(bgwriter_context);</span>
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :                 FlushErrorState();</span>
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            :                 /* Flush any leaked data in the top-level context */
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                 MemoryContextResetAndDeleteChildren(bgwriter_context);</span>
+<span class="lineNum">     205 </span>                :            : 
+<span class="lineNum">     206 </span>                :            :                 /* Now we can allow interrupts again */
+<span class="lineNum">     207 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 RESUME_INTERRUPTS();</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :            :                 /*
+<span class="lineNum">     210 </span>                :            :                  * Sleep at least 1 second after any error.  A write error is likely
+<span class="lineNum">     211 </span>                :            :                  * to be repeated, and we don't want to be filling the error logs as
+<span class="lineNum">     212 </span>                :            :                  * fast as we can.
+<span class="lineNum">     213 </span>                :            :                  */
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                 pg_usleep(1000000L);</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :            :                 /*
+<span class="lineNum">     217 </span>                :            :                  * Close all open files after any error.  This is helpful on Windows,
+<span class="lineNum">     218 </span>                :            :                  * where holding deleted files open causes various strange errors.
+<span class="lineNum">     219 </span>                :            :                  * It's not clear we need it elsewhere, but shouldn't hurt.
+<span class="lineNum">     220 </span>                :            :                  */
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                 smgrcloseall();</span>
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :            :         /* We can now handle ereport(ERROR) */
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         PG_exception_stack = &amp;local_sigjmp_buf;</span>
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>                :            :         /*
+<span class="lineNum">     228 </span>                :            :          * Unblock signals (they were blocked when the postmaster forked us)
+<span class="lineNum">     229 </span>                :            :          */
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :         PG_SETMASK(&amp;UnBlockSig);</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :            :         /*
+<span class="lineNum">     233 </span>                :            :          * Loop forever
+<span class="lineNum">     234 </span>                :            :          */
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     236 </span>                :            :         {
+<span class="lineNum">     237 </span>                :            :                 /*
+<span class="lineNum">     238 </span>                :            :                  * Emergency bailout if postmaster has died.  This is to avoid the
+<span class="lineNum">     239 </span>                :            :                  * necessity for manual cleanup of all postmaster children.
+<span class="lineNum">     240 </span>                :            :                  */
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!PostmasterIsAlive(true))</span>
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                         exit(1);</span>
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                 SIMPLE_FAULT_INJECTOR(FaultInBackgroundWriterMain);</span>
+<span class="lineNum">     246 </span>                :            : #endif
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (got_SIGHUP)</span>
+<span class="lineNum">     248 </span>                :            :                 {
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         got_SIGHUP = false;</span>
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                         ProcessConfigFile(PGC_SIGHUP);</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     252 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (shutdown_requested)</span>
+<span class="lineNum">     253 </span>                :            :                 {
+<span class="lineNum">     254 </span>                :            :                         /*
+<span class="lineNum">     255 </span>                :            :                          * From here on, elog(ERROR) should end with exit(1), not send
+<span class="lineNum">     256 </span>                :            :                          * control back to the sigsetjmp block above
+<span class="lineNum">     257 </span>                :            :                          */
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                         ExitOnAnyError = true;</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                         DumpFreeSpaceMap(0, 0);</span>
+<span class="lineNum">     260 </span>                :            : 
+<span class="lineNum">     261 </span>                :            :                         /* Normal exit from the bgwriter server is here */
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :                         proc_exit(0);           /* done */</span>
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>                :            :                 /* Perform a cycle of dirty buffer writing. */
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :                 BgBufferSync();</span>
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :            :                 /*
+<span class="lineNum">     269 </span>                :            :                  * Send off activity statistics to the stats collector
+<span class="lineNum">     270 </span>                :            :                  */
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                 pgstat_send_bgwriter();</span>
+<span class="lineNum">     272 </span>                :            : 
+<span class="lineNum">     273 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (FirstCallSinceLastCheckpoint())</span>
+<span class="lineNum">     274 </span>                :            :                 {
+<span class="lineNum">     275 </span>                :            :                         /*
+<span class="lineNum">     276 </span>                :            :                          * After any checkpoint, close all smgr files.  This is so we
+<span class="lineNum">     277 </span>                :            :                          * won't hang onto smgr references to deleted files indefinitely.
+<span class="lineNum">     278 </span>                :            :                          */
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                         smgrcloseall();</span>
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     281 </span>                :            : 
+<span class="lineNum">     282 </span>                :            :                 /* Nap for the configured time. */
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :                 BgWriterNap();</span>
+<span class="lineNum">     284 </span>                :            :         }
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            : /*
+<span class="lineNum">     288 </span>                :            :  * BgWriterNap -- Nap for the configured time or until a signal is received.
+<a name="289"><span class="lineNum">     289 </span>                :            :  */</a>
+<span class="lineNum">     290 </span>                :            : static void
+<span class="lineNum">     291 </span>                :            : BgWriterNap(void)
+<span class="lineNum">     292 </span>                :            : {
+<span class="lineNum">     293 </span>                :            :         long            udelay;
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>                :            :         /*
+<span class="lineNum">     296 </span>                :            :          * Nap for the configured time, or sleep for 10 seconds if there is no
+<span class="lineNum">     297 </span>                :            :          * bgwriter activity configured.
+<span class="lineNum">     298 </span>                :            :          *
+<span class="lineNum">     299 </span>                :            :          * On some platforms, signals won't interrupt the sleep.  To ensure we
+<span class="lineNum">     300 </span>                :            :          * respond reasonably promptly when someone signals us, break down the
+<span class="lineNum">     301 </span>                :            :          * sleep into 1-second increments, and check for interrupts after each
+<span class="lineNum">     302 </span>                :            :          * nap.
+<span class="lineNum">     303 </span>                :            :          */
+<span class="lineNum">     304 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (bgwriter_lru_maxpages &gt; 0)</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :                 udelay = BgWriterDelay * 1000L;</span>
+<span class="lineNum">     306 </span>                :            :         else
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :                 udelay = 10000000L;             /* Ten seconds */</span>
+<span class="lineNum">     308 </span>                :            : 
+<span class="lineNum">     309 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (udelay &gt; 999999L)</span>
+<span class="lineNum">     310 </span>                :            :         {
+<span class="lineNum">     311 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (got_SIGHUP || shutdown_requested)</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                 pg_usleep(1000000L);</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                 udelay -= 1000000L;</span>
+<span class="lineNum">     315 </span>                :            :         }
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!(got_SIGHUP || shutdown_requested))</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                 pg_usleep(udelay);</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>                :            : /* --------------------------------
+<span class="lineNum">     322 </span>                :            :  *              signal handler routines
+<span class="lineNum">     323 </span>                :            :  * --------------------------------
+<span class="lineNum">     324 </span>                :            :  */
+<span class="lineNum">     325 </span>                :            : 
+<a name="326"><span class="lineNum">     326 </span>                :            : /* SIGHUP: set flag to re-read config file at next convenient time */</a>
+<span class="lineNum">     327 </span>                :            : static void
+<span class="lineNum">     328 </span>                :            : BgSigHupHandler(SIGNAL_ARGS)
+<span class="lineNum">     329 </span>                :            : {
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :         got_SIGHUP = true;</span>
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     332 </span>                :            : 
+<a name="333"><span class="lineNum">     333 </span>                :            : /* SIGUSR2: set flag to run a shutdown checkpoint and exit */</a>
+<span class="lineNum">     334 </span>                :            : static void
+<span class="lineNum">     335 </span>                :            : ReqShutdownHandler(SIGNAL_ARGS)
+<span class="lineNum">     336 </span>                :            : {
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :         shutdown_requested = true;</span>
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

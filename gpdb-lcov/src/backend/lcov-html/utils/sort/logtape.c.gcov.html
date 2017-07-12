@@ -1,0 +1,885 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/sort/logtape.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/sort</a> - logtape.c<span style="font-size: 80%;"> (source / <a href="logtape.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">251</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">208</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * logtape.c
+<span class="lineNum">       4 </span>                :            :  *        Management of &quot;logical tapes&quot; within temporary files.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * This is the greenplum logtape implementation.  The original postgres logtape
+<span class="lineNum">       7 </span>                :            :  * impl is unnecessarily complex and it prevents many perfomanace optmizations.
+<span class="lineNum">       8 </span>                :            :  */
+<span class="lineNum">       9 </span>                :            : 
+<span class="lineNum">      10 </span>                :            : /*
+<span class="lineNum">      11 </span>                :            :  * This module exists to support sorting via multiple merge passes (see
+<span class="lineNum">      12 </span>                :            :  * tuplesort.c).  Merging is an ideal algorithm for tape devices, but if
+<span class="lineNum">      13 </span>                :            :  * we implement it on disk by creating a separate file for each &quot;tape&quot;,
+<span class="lineNum">      14 </span>                :            :  * there is an annoying problem: the peak space usage is at least twice
+<span class="lineNum">      15 </span>                :            :  * the volume of actual data to be sorted.      (This must be so because each
+<span class="lineNum">      16 </span>                :            :  * datum will appear in both the input and output tapes of the final
+<span class="lineNum">      17 </span>                :            :  * merge pass.  For seven-tape polyphase merge, which is otherwise a
+<span class="lineNum">      18 </span>                :            :  * pretty good algorithm, peak usage is more like 4x actual data volume.)
+<span class="lineNum">      19 </span>                :            :  *
+<span class="lineNum">      20 </span>                :            :  * We can work around this problem by recognizing that any one tape
+<span class="lineNum">      21 </span>                :            :  * dataset (with the possible exception of the final output) is written
+<span class="lineNum">      22 </span>                :            :  * and read exactly once in a perfectly sequential manner.      Therefore,
+<span class="lineNum">      23 </span>                :            :  * a datum once read will not be required again, and we can recycle its
+<span class="lineNum">      24 </span>                :            :  * space for use by the new tape dataset(s) being generated.  In this way,
+<span class="lineNum">      25 </span>                :            :  * the total space usage is essentially just the actual data volume, plus
+<span class="lineNum">      26 </span>                :            :  * insignificant bookkeeping and start/stop overhead.
+<span class="lineNum">      27 </span>                :            :  *
+<span class="lineNum">      28 </span>                :            :  * Few OSes allow arbitrary parts of a file to be released back to the OS,
+<span class="lineNum">      29 </span>                :            :  * so we have to implement this space-recycling ourselves within a single
+<span class="lineNum">      30 </span>                :            :  * logical file.  logtape.c exists to perform this bookkeeping and provide
+<span class="lineNum">      31 </span>                :            :  * the illusion of N independent tape devices to tuplesort.c.  Note that
+<span class="lineNum">      32 </span>                :            :  * logtape.c itself depends on buffile.c to provide a &quot;logical file&quot; of
+<span class="lineNum">      33 </span>                :            :  * larger size than the underlying OS may support.
+<span class="lineNum">      34 </span>                :            :  *
+<span class="lineNum">      35 </span>                :            :  * For simplicity, we allocate and release space in the underlying file
+<span class="lineNum">      36 </span>                :            :  * in BLCKSZ-size blocks.  Space allocation boils down to keeping track
+<span class="lineNum">      37 </span>                :            :  * of which blocks in the underlying file belong to which logical tape,
+<span class="lineNum">      38 </span>                :            :  * plus any blocks that are free (recycled and not yet reused).
+<span class="lineNum">      39 </span>                :            :  * The blocks in each logical tape are remembered using a method borrowed
+<span class="lineNum">      40 </span>                :            :  * from the Unix HFS filesystem: we store data block numbers in an
+<span class="lineNum">      41 </span>                :            :  * &quot;indirect block&quot;.  If an indirect block fills up, we write it out to
+<span class="lineNum">      42 </span>                :            :  * the underlying file and remember its location in a second-level indirect
+<span class="lineNum">      43 </span>                :            :  * block.  In the same way second-level blocks are remembered in third-
+<span class="lineNum">      44 </span>                :            :  * level blocks, and so on if necessary (of course we're talking huge
+<span class="lineNum">      45 </span>                :            :  * amounts of data here).  The topmost indirect block of a given logical
+<span class="lineNum">      46 </span>                :            :  * tape is never actually written out to the physical file, but all lower-
+<span class="lineNum">      47 </span>                :            :  * level indirect blocks will be.
+<span class="lineNum">      48 </span>                :            :  *
+<span class="lineNum">      49 </span>                :            :  * The initial write pass is guaranteed to fill the underlying file
+<span class="lineNum">      50 </span>                :            :  * perfectly sequentially, no matter how data is divided into logical tapes.
+<span class="lineNum">      51 </span>                :            :  * Once we begin merge passes, the access pattern becomes considerably
+<span class="lineNum">      52 </span>                :            :  * less predictable --- but the seeking involved should be comparable to
+<span class="lineNum">      53 </span>                :            :  * what would happen if we kept each logical tape in a separate file,
+<span class="lineNum">      54 </span>                :            :  * so there's no serious performance penalty paid to obtain the space
+<span class="lineNum">      55 </span>                :            :  * savings of recycling.  We try to localize the write accesses by always
+<span class="lineNum">      56 </span>                :            :  * writing to the lowest-numbered free block when we have a choice; it's
+<span class="lineNum">      57 </span>                :            :  * not clear this helps much, but it can't hurt.  (XXX perhaps a LIFO
+<span class="lineNum">      58 </span>                :            :  * policy for free blocks would be better?)
+<span class="lineNum">      59 </span>                :            :  *
+<span class="lineNum">      60 </span>                :            :  * To support the above policy of writing to the lowest free block,
+<span class="lineNum">      61 </span>                :            :  * ltsGetFreeBlock sorts the list of free block numbers into decreasing
+<span class="lineNum">      62 </span>                :            :  * order each time it is asked for a block and the list isn't currently
+<span class="lineNum">      63 </span>                :            :  * sorted.      This is an efficient way to handle it because we expect cycles
+<span class="lineNum">      64 </span>                :            :  * of releasing many blocks followed by re-using many blocks, due to
+<span class="lineNum">      65 </span>                :            :  * tuplesort.c's &quot;preread&quot; behavior.
+<span class="lineNum">      66 </span>                :            :  *
+<span class="lineNum">      67 </span>                :            :  * Since all the bookkeeping and buffer memory is allocated with palloc(),
+<span class="lineNum">      68 </span>                :            :  * and the underlying file(s) are made with OpenTemporaryFile, all resources
+<span class="lineNum">      69 </span>                :            :  * for a logical tape set are certain to be cleaned up even if processing
+<span class="lineNum">      70 </span>                :            :  * is aborted by ereport(ERROR).  To avoid confusion, the caller should take
+<span class="lineNum">      71 </span>                :            :  * care that all calls for a single LogicalTapeSet are made in the same
+<span class="lineNum">      72 </span>                :            :  * palloc context.
+<span class="lineNum">      73 </span>                :            :  *
+<span class="lineNum">      74 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">      75 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      76 </span>                :            :  *
+<span class="lineNum">      77 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      78 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/utils/sort/logtape.c,v 1.26 2008/01/01 19:45:55 momjian Exp $
+<span class="lineNum">      79 </span>                :            :  *
+<span class="lineNum">      80 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      81 </span>                :            :  */
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :            : #include &quot;executor/execWorkfile.h&quot;
+<span class="lineNum">      86 </span>                :            : #include &quot;utils/logtape.h&quot;
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :            : #include &quot;cdb/cdbvars.h&quot;                /* currentSliceId */
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>                :            : /* A logical tape block, log tape blocks are organized into doulbe linked lists */
+<span class="lineNum">      92 </span>                :            : #define LOGTAPE_BLK_PAYLOAD_SIZE ((BLCKSZ - sizeof(long)*2 - sizeof(int) ))
+<span class="lineNum">      93 </span>                :            : typedef struct LogicalTapeBlock
+<span class="lineNum">      94 </span>                :            : {
+<span class="lineNum">      95 </span>                :            :         long prev_blk;
+<span class="lineNum">      96 </span>                :            :         long next_blk;
+<span class="lineNum">      97 </span>                :            :         int  payload_tail;
+<span class="lineNum">      98 </span>                :            :         char payload[LOGTAPE_BLK_PAYLOAD_SIZE];
+<span class="lineNum">      99 </span>                :            : } LogicalTapeBlock ;
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :            : /*
+<span class="lineNum">     103 </span>                :            :  * This data structure represents a single &quot;logical tape&quot; within the set
+<span class="lineNum">     104 </span>                :            :  * of logical tapes stored in the same file.  We must keep track of the
+<span class="lineNum">     105 </span>                :            :  * current partially-read-or-written data block as well as the active
+<span class="lineNum">     106 </span>                :            :  * indirect block level(s).
+<span class="lineNum">     107 </span>                :            :  */
+<span class="lineNum">     108 </span>                :            : struct LogicalTape
+<span class="lineNum">     109 </span>                :            : {
+<span class="lineNum">     110 </span>                :            :         LogicalTapeBlock currBlk;
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            :         bool            writing;                /* T while in write phase */
+<span class="lineNum">     113 </span>                :            :         bool            frozen;                 /* T if blocks should not be freed when read */
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            :         int64           firstBlkNum;  /* First block block number */
+<span class="lineNum">     116 </span>                :            :         LogicalTapePos   currPos;         /* current postion */
+<span class="lineNum">     117 </span>                :            : };
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :            : /*
+<span class="lineNum">     120 </span>                :            :  * This data structure represents a set of related &quot;logical tapes&quot; sharing
+<span class="lineNum">     121 </span>                :            :  * space in a single underlying file.  (But that &quot;file&quot; may be multiple files
+<span class="lineNum">     122 </span>                :            :  * if needed to escape OS limits on file size; buffile.c handles that for us.)
+<span class="lineNum">     123 </span>                :            :  * The number of tapes is fixed at creation.
+<span class="lineNum">     124 </span>                :            :  */
+<span class="lineNum">     125 </span>                :            : struct LogicalTapeSet
+<span class="lineNum">     126 </span>                :            : {
+<span class="lineNum">     127 </span>                :            :         ExecWorkFile    *pfile;                 /* underlying file for whole tape set */
+<span class="lineNum">     128 </span>                :            :         long            nFileBlocks;    /* # of blocks used in underlying file */
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :            :         /*
+<span class="lineNum">     131 </span>                :            :          * We store the numbers of recycled-and-available blocks in freeBlocks[].
+<span class="lineNum">     132 </span>                :            :          * When there are no such blocks, we extend the underlying file.
+<span class="lineNum">     133 </span>                :            :          *
+<span class="lineNum">     134 </span>                :            :          * If forgetFreeSpace is true then any freed blocks are simply forgotten
+<span class="lineNum">     135 </span>                :            :          * rather than being remembered in freeBlocks[].  See notes for
+<span class="lineNum">     136 </span>                :            :          * LogicalTapeSetForgetFreeSpace().
+<span class="lineNum">     137 </span>                :            :          *
+<span class="lineNum">     138 </span>                :            :          * If blocksSorted is true then the block numbers in freeBlocks are in
+<span class="lineNum">     139 </span>                :            :          * *decreasing* order, so that removing the last entry gives us the lowest
+<span class="lineNum">     140 </span>                :            :          * free block.  We re-sort the blocks whenever a block is demanded; this
+<span class="lineNum">     141 </span>                :            :          * should be reasonably efficient given the expected usage pattern.
+<span class="lineNum">     142 </span>                :            :          */
+<span class="lineNum">     143 </span>                :            :         bool            forgetFreeSpace; /* if we need to keep track of free space */
+<span class="lineNum">     144 </span>                :            :         bool            blocksSorted;   /* is freeBlocks[] currently in order? */
+<span class="lineNum">     145 </span>                :            :         long       *freeBlocks;         /* resizable array */
+<span class="lineNum">     146 </span>                :            :         long            nFreeBlocks;    /* # of currently free blocks */
+<span class="lineNum">     147 </span>                :            :         long            freeBlocksLen;  /* current allocated length of freeBlocks[] */
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :            :         /*
+<span class="lineNum">     150 </span>                :            :          * tapes[] is declared size 1 since C wants a fixed size, but actually it
+<span class="lineNum">     151 </span>                :            :          * is of length nTapes.
+<span class="lineNum">     152 </span>                :            :          */
+<span class="lineNum">     153 </span>                :            :         int                     nTapes;                 /* # of logical tapes in set */
+<span class="lineNum">     154 </span>                :            :         LogicalTape tapes[1];           /* must be last in struct! */
+<span class="lineNum">     155 </span>                :            : };
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :            : static void ltsWriteBlock(LogicalTapeSet *lts, int64 blocknum, void *buffer);
+<span class="lineNum">     158 </span>                :            : static void ltsReadBlock(LogicalTapeSet *lts, int64 blocknum, void *buffer);
+<span class="lineNum">     159 </span>                :            : static long ltsGetFreeBlock(LogicalTapeSet *lts);
+<span class="lineNum">     160 </span>                :            : static void ltsReleaseBlock(LogicalTapeSet *lts, int64 blocknum);
+<span class="lineNum">     161 </span>                :            : static LogicalTapeSet *LogicalTapeSetCreate_Named(const char *set_prefix, int ntapes, bool del_on_close);
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :            : /*
+<a name="164"><span class="lineNum">     164 </span>                :            :  * Writes state of a LogicalTapeSet to a state file</a>
+<span class="lineNum">     165 </span>                :            :  */
+<span class="lineNum">     166 </span>                :            : static void DumpLogicalTapeSetState(ExecWorkFile *statefile, LogicalTapeSet *lts, LogicalTape *lt)
+<span class="lineNum">     167 </span>                :            : {
+<span class="lineNum">     168 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lts &amp;&amp; lt &amp;&amp; lt-&gt;frozen);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     169 </span>                :            : 
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         bool res = ExecWorkFile_Write(statefile, &amp;(lts-&gt;nFileBlocks), sizeof(lts-&gt;nFileBlocks));</span>
+<span class="lineNum">     171 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(res);</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :         res = ExecWorkFile_Write(statefile, &amp;(lt-&gt;firstBlkNum), sizeof(lt-&gt;firstBlkNum));</span>
+<span class="lineNum">     174 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(res);</span>
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :            : /*
+<span class="lineNum">     178 </span>                :            :  * Loads the state of a LogicaTapeSet from a BufFile
+<span class="lineNum">     179 </span>                :            :  *
+<span class="lineNum">     180 </span>                :            :  *   statefile is an open ExecWorkFile containing the state of the LogicalTapeSet
+<span class="lineNum">     181 </span>                :            :  *   tapefile is an open ExecWorkfile containing the tapeset
+<a name="182"><span class="lineNum">     182 </span>                :            :  */</a>
+<span class="lineNum">     183 </span>                :            : LogicalTapeSet *
+<span class="lineNum">     184 </span>                :            : LoadLogicalTapeSetState(ExecWorkFile *statefile, ExecWorkFile *tapefile)
+<span class="lineNum">     185 </span>                :            : {
+<span class="lineNum">     186 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != statefile);</span>
+<span class="lineNum">     187 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != tapefile);</span>
+<span class="lineNum">     188 </span>                :            : 
+<span class="lineNum">     189 </span>                :            :         LogicalTapeSet *lts;
+<span class="lineNum">     190 </span>                :            :         LogicalTape *lt;
+<span class="lineNum">     191 </span>                :            :         size_t readSize;
+<span class="lineNum">     192 </span>                :            : 
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         lts = (LogicalTapeSet *) palloc(sizeof(LogicalTapeSet));</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         lts-&gt;pfile = tapefile;</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         lts-&gt;nTapes = 1;</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         lt = &amp;lts-&gt;tapes[0];</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :         readSize = ExecWorkFile_Read(statefile, &amp;(lts-&gt;nFileBlocks), sizeof(lts-&gt;nFileBlocks));</span>
+<span class="lineNum">     199 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(readSize != sizeof(lts-&gt;nFileBlocks))</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Load logicaltapeset failed to read nFileBlocks&quot;);</span>
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>                :            :         /* For loaded tape, we will read only and do not care about free space */
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :         lts-&gt;forgetFreeSpace = true;</span>
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :         lts-&gt;blocksSorted = true;</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :         lts-&gt;freeBlocks = NULL;</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :         lts-&gt;nFreeBlocks = 0;</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         lts-&gt;freeBlocksLen = 0;</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :         lt-&gt;writing = false;</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :         lt-&gt;frozen = true;</span>
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :         readSize = ExecWorkFile_Read(statefile, &amp;(lt-&gt;firstBlkNum), sizeof(lt-&gt;firstBlkNum));</span>
+<span class="lineNum">     213 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(readSize != sizeof(lt-&gt;firstBlkNum))</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Load logicaltapeset failed to read tape firstBlkNum&quot;);</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(lt-&gt;firstBlkNum != -1)</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :                 ltsReadBlock(lts, lt-&gt;firstBlkNum, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     218 </span>                :            : 
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         lt-&gt;currPos.blkNum = lt-&gt;firstBlkNum;</span>
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     221 </span>                :            : 
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         return lts;</span>
+<span class="lineNum">     223 </span>                :            : }
+<span class="lineNum">     224 </span>                :            :         
+<span class="lineNum">     225 </span>                :            : /*
+<span class="lineNum">     226 </span>                :            :  * Write a block-sized buffer to the specified block of the underlying file.
+<span class="lineNum">     227 </span>                :            :  *
+<span class="lineNum">     228 </span>                :            :  * NB: should not attempt to write beyond current end of file (ie, create
+<span class="lineNum">     229 </span>                :            :  * &quot;holes&quot; in file), since BufFile doesn't allow that.  The first write pass
+<span class="lineNum">     230 </span>                :            :  * must write blocks sequentially.
+<span class="lineNum">     231 </span>                :            :  *
+<span class="lineNum">     232 </span>                :            :  * No need for an error return convention; we ereport() on any error.
+<a name="233"><span class="lineNum">     233 </span>                :            :  */</a>
+<span class="lineNum">     234 </span>                :            : static void
+<span class="lineNum">     235 </span>                :            : ltsWriteBlock(LogicalTapeSet *lts, int64 blocknum, void *buffer)
+<span class="lineNum">     236 </span>                :            : {
+<span class="lineNum">     237 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lts != NULL);</span>
+<span class="lineNum">     238 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ExecWorkFile_Seek(lts-&gt;pfile, blocknum * BLCKSZ, SEEK_SET) != 0 ||</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                         !ExecWorkFile_Write(lts-&gt;pfile, buffer, BLCKSZ))</span>
+<span class="lineNum">     240 </span>                :            :         {
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     242 </span>                :            :                 /* XXX is it okay to assume errno is correct? */
+<span class="lineNum">     243 </span>                :            :                                 (errcode_for_file_access(),
+<span class="lineNum">     244 </span>                :            :                                  errmsg(&quot;could not write block &quot; INT64_FORMAT  &quot; of temporary file: %m&quot;,
+<span class="lineNum">     245 </span>                :            :                                                 blocknum),
+<span class="lineNum">     246 </span>                :            :                                  errhint(&quot;Perhaps out of disk space?&quot;)));
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :            : /*
+<span class="lineNum">     251 </span>                :            :  * Read a block-sized buffer from the specified block of the underlying file.
+<span class="lineNum">     252 </span>                :            :  *
+<span class="lineNum">     253 </span>                :            :  * No need for an error return convention; we ereport() on any error.   This
+<span class="lineNum">     254 </span>                :            :  * module should never attempt to read a block it doesn't know is there.
+<a name="255"><span class="lineNum">     255 </span>                :            :  */</a>
+<span class="lineNum">     256 </span>                :            : static void
+<span class="lineNum">     257 </span>                :            : ltsReadBlock(LogicalTapeSet *lts, int64 blocknum, void *buffer)
+<span class="lineNum">     258 </span>                :            : {
+<span class="lineNum">     259 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lts != NULL);</span>
+<span class="lineNum">     260 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ExecWorkFile_Seek(lts-&gt;pfile, blocknum * BLCKSZ, SEEK_SET) != 0 ||</span>
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :                         ExecWorkFile_Read(lts-&gt;pfile, buffer, BLCKSZ) != BLCKSZ)</span>
+<span class="lineNum">     262 </span>                :            :         {
+<span class="lineNum">     263 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     264 </span>                :            :                 /* XXX is it okay to assume errno is correct? */
+<span class="lineNum">     265 </span>                :            :                                 (errcode_for_file_access(),
+<span class="lineNum">     266 </span>                :            :                                  errmsg(&quot;could not read block &quot; INT64_FORMAT  &quot; of temporary file: %m&quot;,
+<span class="lineNum">     267 </span>                :            :                                                 blocknum)));
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     270 </span>                :            : 
+<span class="lineNum">     271 </span>                :            : /*
+<span class="lineNum">     272 </span>                :            :  * qsort comparator for sorting freeBlocks[] into decreasing order.
+<a name="273"><span class="lineNum">     273 </span>                :            :  */</a>
+<span class="lineNum">     274 </span>                :            : static int
+<span class="lineNum">     275 </span>                :            : freeBlocks_cmp(const void *a, const void *b)
+<span class="lineNum">     276 </span>                :            : {
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :         long            ablk = *((const long *) a);</span>
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :         long            bblk = *((const long *) b);</span>
+<span class="lineNum">     279 </span>                :            : 
+<span class="lineNum">     280 </span>                :            :         /* can't just subtract because long might be wider than int */
+<span class="lineNum">     281 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ablk &lt; bblk)</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     283 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ablk &gt; bblk)</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     286 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :            : /*
+<span class="lineNum">     289 </span>                :            :  * Select a currently unused block for writing to.
+<span class="lineNum">     290 </span>                :            :  *
+<span class="lineNum">     291 </span>                :            :  * NB: should only be called when writer is ready to write immediately,
+<span class="lineNum">     292 </span>                :            :  * to ensure that first write pass is sequential.
+<a name="293"><span class="lineNum">     293 </span>                :            :  */</a>
+<span class="lineNum">     294 </span>                :            : static long
+<span class="lineNum">     295 </span>                :            : ltsGetFreeBlock(LogicalTapeSet *lts)
+<span class="lineNum">     296 </span>                :            : {
+<span class="lineNum">     297 </span>                :            :         /*
+<span class="lineNum">     298 </span>                :            :          * If there are multiple free blocks, we select the one appearing last in
+<span class="lineNum">     299 </span>                :            :          * freeBlocks[] (after sorting the array if needed).  If there are none,
+<span class="lineNum">     300 </span>                :            :          * assign the next block at the end of the file.
+<span class="lineNum">     301 </span>                :            :          */
+<span class="lineNum">     302 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (lts-&gt;nFreeBlocks &gt; 0)</span>
+<span class="lineNum">     303 </span>                :            :         {
+<span class="lineNum">     304 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!lts-&gt;blocksSorted)</span>
+<span class="lineNum">     305 </span>                :            :                 {
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                         qsort((void *) lts-&gt;freeBlocks, lts-&gt;nFreeBlocks,</span>
+<span class="lineNum">     307 </span>                :            :                                   sizeof(long), freeBlocks_cmp);
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                         lts-&gt;blocksSorted = true;</span>
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                 return lts-&gt;freeBlocks[--lts-&gt;nFreeBlocks];</span>
+<span class="lineNum">     311 </span>                :            :         }
+<span class="lineNum">     312 </span>                :            :         else
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                 return lts-&gt;nFileBlocks++;</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     315 </span>                :            : 
+<span class="lineNum">     316 </span>                :            : /*
+<span class="lineNum">     317 </span>                :            :  * Return a block# to the freelist.
+<a name="318"><span class="lineNum">     318 </span>                :            :  */</a>
+<span class="lineNum">     319 </span>                :            : static void
+<span class="lineNum">     320 </span>                :            : ltsReleaseBlock(LogicalTapeSet *lts, int64 blocknum)
+<span class="lineNum">     321 </span>                :            : {
+<span class="lineNum">     322 </span>                :            :         long            ndx;
+<span class="lineNum">     323 </span>                :            : 
+<span class="lineNum">     324 </span>                :            :         /*
+<span class="lineNum">     325 </span>                :            :          * Do nothing if we're no longer interested in remembering free space.
+<span class="lineNum">     326 </span>                :            :          */
+<span class="lineNum">     327 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (lts-&gt;forgetFreeSpace)</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>                :            :         /*
+<span class="lineNum">     331 </span>                :            :          * Enlarge freeBlocks array if full.
+<span class="lineNum">     332 </span>                :            :          */
+<span class="lineNum">     333 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (lts-&gt;nFreeBlocks &gt;= lts-&gt;freeBlocksLen)</span>
+<span class="lineNum">     334 </span>                :            :         {
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                 lts-&gt;freeBlocksLen *= 2;</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                 lts-&gt;freeBlocks = (long *) repalloc(lts-&gt;freeBlocks,</span>
+<span class="lineNum">     337 </span>                :            :                                                                                   lts-&gt;freeBlocksLen * sizeof(long));
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>                :            :         /*
+<span class="lineNum">     341 </span>                :            :          * Add blocknum to array, and mark the array unsorted if it's no longer in
+<span class="lineNum">     342 </span>                :            :          * decreasing order.
+<span class="lineNum">     343 </span>                :            :          */
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         ndx = lts-&gt;nFreeBlocks++;</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :         lts-&gt;freeBlocks[ndx] = blocknum;</span>
+<span class="lineNum">     346 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ndx &gt; 0 &amp;&amp; lts-&gt;freeBlocks[ndx - 1] &lt; blocknum)</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                 lts-&gt;blocksSorted = false;</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :            : /* 
+<span class="lineNum">     351 </span>                :            :  * Create a logical tape
+<a name="352"><span class="lineNum">     352 </span>                :            :  */</a>
+<span class="lineNum">     353 </span>                :            : LogicalTape *
+<span class="lineNum">     354 </span>                :            : LogicalTapeCreate(LogicalTapeSet *lts, LogicalTape *lt)
+<span class="lineNum">     355 </span>                :            : {
+<span class="lineNum">     356 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(sizeof(LogicalTapeBlock) == BLCKSZ);</span>
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(lt == NULL)</span>
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :                 lt = (LogicalTape *) palloc(sizeof(LogicalTape));</span>
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :         lt-&gt;writing = true;</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :         lt-&gt;frozen = false;</span>
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :         lt-&gt;firstBlkNum = -1L;</span>
+<span class="lineNum">     364 </span>                :<span class="lineNoCov">          0 :         lt-&gt;currPos.blkNum = -1L;</span>
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :         return lt;</span>
+<span class="lineNum">     367 </span>                :            : }
+<span class="lineNum">     368 </span>                :            : 
+<span class="lineNum">     369 </span>                :            : /*
+<span class="lineNum">     370 </span>                :            :  * Create a set of logical tapes in a temporary underlying file.
+<span class="lineNum">     371 </span>                :            :  *
+<span class="lineNum">     372 </span>                :            :  * Each tape is initialized in write state.
+<a name="373"><span class="lineNum">     373 </span>                :            :  */</a>
+<span class="lineNum">     374 </span>                :            : static LogicalTapeSet *
+<span class="lineNum">     375 </span>                :            : LogicalTapeSetCreate_Internal(int ntapes)
+<span class="lineNum">     376 </span>                :            : {
+<span class="lineNum">     377 </span>                :            :         LogicalTapeSet *lts;
+<span class="lineNum">     378 </span>                :            :         int                     i;
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :            :         /*
+<span class="lineNum">     381 </span>                :            :          * Create top-level struct including per-tape LogicalTape structs. First
+<span class="lineNum">     382 </span>                :            :          * LogicalTape struct is already counted in sizeof(LogicalTapeSet).
+<span class="lineNum">     383 </span>                :            :          */
+<span class="lineNum">     384 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ntapes &gt; 0);</span>
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :         lts = (LogicalTapeSet *) palloc(sizeof(LogicalTapeSet) +</span>
+<span class="lineNum">     386 </span>                :            :                                                                         (ntapes - 1) *sizeof(LogicalTape));
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         lts-&gt;pfile = NULL; </span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :         lts-&gt;nFileBlocks = 0L;</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :         lts-&gt;forgetFreeSpace = false;</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :         lts-&gt;blocksSorted = true;    /* a zero-length array is sorted ... */</span>
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :         lts-&gt;freeBlocksLen = 32;     /* reasonable initial guess */</span>
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :         lts-&gt;freeBlocks = (long *) palloc(lts-&gt;freeBlocksLen * sizeof(long));</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :         lts-&gt;nFreeBlocks = 0;</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         lts-&gt;nTapes = ntapes;</span>
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>                :            :         /*
+<span class="lineNum">     397 </span>                :            :          * Initialize per-tape structs.  Note we allocate the I/O buffer and
+<span class="lineNum">     398 </span>                :            :          * first-level indirect block for a tape only when it is first actually
+<span class="lineNum">     399 </span>                :            :          * written to.  This avoids wasting memory space when tuplesort.c
+<span class="lineNum">     400 </span>                :            :          * overestimates the number of tapes needed.
+<span class="lineNum">     401 </span>                :            :          */
+<span class="lineNum">     402 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; ntapes; i++)</span>
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                 LogicalTapeCreate(lts, &amp;lts-&gt;tapes[i]); </span>
+<span class="lineNum">     404 </span>                :            : 
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         return lts;</span>
+<span class="lineNum">     406 </span>                :            : }
+<span class="lineNum">     407 </span>                :            : 
+<span class="lineNum">     408 </span>                :            : /*
+<a name="409"><span class="lineNum">     409 </span>                :            :  * Creates a LogicalTapeSet with a generated file name.</a>
+<span class="lineNum">     410 </span>                :            :  */
+<span class="lineNum">     411 </span>                :            : LogicalTapeSet *LogicalTapeSetCreate(int ntapes, bool del_on_close)
+<span class="lineNum">     412 </span>                :            : {
+<span class="lineNum">     413 </span>                :            :         char tmpprefix[MAXPGPATH];
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :         int len = snprintf(tmpprefix, MAXPGPATH, &quot;%s/slice%d_sort&quot;,</span>
+<span class="lineNum">     415 </span>                :            :                         PG_TEMP_FILES_DIR,
+<span class="lineNum">     416 </span>                :            :                         currentSliceId);
+<span class="lineNum">     417 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         insist_log(len &lt;= MAXPGPATH - 1, &quot;could not generate temporary file name&quot;);</span>
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :         StringInfo uniquename = ExecWorkFile_AddUniqueSuffix(tmpprefix);</span>
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :         LogicalTapeSet *lts = LogicalTapeSetCreate_Named(uniquename-&gt;data, ntapes, del_on_close);</span>
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         pfree(uniquename-&gt;data);</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :         pfree(uniquename);</span>
+<span class="lineNum">     424 </span>                :            : 
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :         return lts;</span>
+<span class="lineNum">     426 </span>                :            : }
+<span class="lineNum">     427 </span>                :            : 
+<span class="lineNum">     428 </span>                :            : /*
+<span class="lineNum">     429 </span>                :            :  * Creates a LogicalTapeSet with a given name.
+<span class="lineNum">     430 </span>                :            :  *
+<span class="lineNum">     431 </span>                :            :  * Note: Requires the pgsql_tmp/ directory to be part of the prefix
+<a name="432"><span class="lineNum">     432 </span>                :            :  */</a>
+<span class="lineNum">     433 </span>                :            : static LogicalTapeSet *
+<span class="lineNum">     434 </span>                :            : LogicalTapeSetCreate_Named(const char *set_prefix, int ntapes, bool del_on_close)
+<span class="lineNum">     435 </span>                :            : {
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :         LogicalTapeSet *lts = LogicalTapeSetCreate_Internal(ntapes);</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         lts-&gt;pfile = ExecWorkFile_Create(set_prefix, BUFFILE, del_on_close, 0 /* compressType */);</span>
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :         return lts;</span>
+<span class="lineNum">     439 </span>                :            : }
+<span class="lineNum">     440 </span>                :            : 
+<span class="lineNum">     441 </span>                :            : /*
+<a name="442"><span class="lineNum">     442 </span>                :            :  * Creates a LogicalTapeSet with a given underlying file</a>
+<span class="lineNum">     443 </span>                :            :  */
+<span class="lineNum">     444 </span>                :            : LogicalTapeSet *LogicalTapeSetCreate_File(ExecWorkFile *ewfile, int ntapes)
+<span class="lineNum">     445 </span>                :            : {
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :         LogicalTapeSet *lts = LogicalTapeSetCreate_Internal(ntapes);</span>
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         lts-&gt;pfile = ewfile;</span>
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 :         return lts;</span>
+<span class="lineNum">     449 </span>                :            : }
+<span class="lineNum">     450 </span>                :            : 
+<span class="lineNum">     451 </span>                :            : /*
+<span class="lineNum">     452 </span>                :            :  * Close a logical tape set and release all resources.
+<a name="453"><span class="lineNum">     453 </span>                :            :  */</a>
+<span class="lineNum">     454 </span>                :            : void
+<span class="lineNum">     455 </span>                :            : LogicalTapeSetClose(LogicalTapeSet *lts, workfile_set *workset)
+<span class="lineNum">     456 </span>                :            : {
+<span class="lineNum">     457 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lts != NULL);</span>
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :         workfile_mgr_close_file(workset, lts-&gt;pfile);</span>
+<span class="lineNum">     459 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(lts-&gt;freeBlocks)</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                 pfree(lts-&gt;freeBlocks);</span>
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :         pfree(lts);</span>
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     463 </span>                :            : 
+<span class="lineNum">     464 </span>                :            : /*
+<span class="lineNum">     465 </span>                :            :  * Mark a logical tape set as not needing management of free space anymore.
+<span class="lineNum">     466 </span>                :            :  *
+<span class="lineNum">     467 </span>                :            :  * This should be called if the caller does not intend to write any more data
+<span class="lineNum">     468 </span>                :            :  * into the tape set, but is reading from un-frozen tapes.      Since no more
+<span class="lineNum">     469 </span>                :            :  * writes are planned, remembering free blocks is no longer useful.  Setting
+<span class="lineNum">     470 </span>                :            :  * this flag lets us avoid wasting time and space in ltsReleaseBlock(), which
+<span class="lineNum">     471 </span>                :            :  * is not designed to handle large numbers of free blocks.
+<a name="472"><span class="lineNum">     472 </span>                :            :  */</a>
+<span class="lineNum">     473 </span>                :            : void
+<span class="lineNum">     474 </span>                :            : LogicalTapeSetForgetFreeSpace(LogicalTapeSet *lts)
+<span class="lineNum">     475 </span>                :            : {
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :         lts-&gt;forgetFreeSpace = true;</span>
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     478 </span>                :            : 
+<span class="lineNum">     479 </span>                :            : /*
+<span class="lineNum">     480 </span>                :            :  * Write to a logical tape.
+<span class="lineNum">     481 </span>                :            :  *
+<span class="lineNum">     482 </span>                :            :  * There are no error returns; we ereport() on failure.
+<a name="483"><span class="lineNum">     483 </span>                :            :  */</a>
+<span class="lineNum">     484 </span>                :            : void
+<span class="lineNum">     485 </span>                :            : LogicalTapeWrite(LogicalTapeSet *lts, LogicalTape *lt,
+<span class="lineNum">     486 </span>                :            :                                  void *ptr, size_t size)
+<span class="lineNum">     487 </span>                :            : {
+<span class="lineNum">     488 </span>                :            :         long        tmpBlkNum;
+<span class="lineNum">     489 </span>                :            :         size_t          nthistime;
+<span class="lineNum">     490 </span>                :            : 
+<span class="lineNum">     491 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;writing);</span>
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (lt-&gt;firstBlkNum == -1)</span>
+<span class="lineNum">     494 </span>                :            :         {
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;firstBlkNum = ltsGetFreeBlock(lts);</span>
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.prev_blk = -1L;</span>
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.next_blk = -1L;</span>
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.payload_tail = 0;</span>
+<span class="lineNum">     499 </span>                :            : 
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.blkNum = lt-&gt;firstBlkNum;</span>
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     503 </span>                :            : 
+<span class="lineNum">     504 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (size &gt; 0)</span>
+<span class="lineNum">     505 </span>                :            :         {
+<span class="lineNum">     506 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(lt-&gt;currPos.offset == lt-&gt;currBlk.payload_tail);</span>
+<span class="lineNum">     507 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(lt-&gt;currPos.offset &lt;= LOGTAPE_BLK_PAYLOAD_SIZE);</span>
+<span class="lineNum">     508 </span>                :            : 
+<span class="lineNum">     509 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (lt-&gt;currPos.offset == LOGTAPE_BLK_PAYLOAD_SIZE)</span>
+<span class="lineNum">     510 </span>                :            :                 {
+<span class="lineNum">     511 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(lt-&gt;currBlk.payload_tail == LOGTAPE_BLK_PAYLOAD_SIZE);</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :                         tmpBlkNum = ltsGetFreeBlock(lts);</span>
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currBlk.next_blk = tmpBlkNum;</span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                         ltsWriteBlock(lts, lt-&gt;currPos.blkNum, &amp;(lt-&gt;currBlk));</span>
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currBlk.prev_blk = lt-&gt;currPos.blkNum;</span>
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currBlk.next_blk = -1L;</span>
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currBlk.payload_tail = 0;</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.blkNum = tmpBlkNum;</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     521 </span>                :            : 
+<span class="lineNum">     522 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 nthistime = size &gt; (LOGTAPE_BLK_PAYLOAD_SIZE - lt-&gt;currPos.offset) ?</span>
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :                         (LOGTAPE_BLK_PAYLOAD_SIZE - lt-&gt;currPos.offset) : size;</span>
+<span class="lineNum">     524 </span>                :            : 
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :                 memcpy(lt-&gt;currBlk.payload + lt-&gt;currBlk.payload_tail, ptr, nthistime);</span>
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :                 ptr = (void *) ((char *) ptr + nthistime);</span>
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.payload_tail += nthistime;</span>
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.offset += nthistime;</span>
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :                 size -= nthistime;</span>
+<span class="lineNum">     530 </span>                :            :         }
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     532 </span>                :            : 
+<span class="lineNum">     533 </span>                :            : /*
+<span class="lineNum">     534 </span>                :            :  * Rewind logical tape and switch from writing to reading or vice versa.
+<span class="lineNum">     535 </span>                :            :  *
+<span class="lineNum">     536 </span>                :            :  * Unless the tape has been &quot;frozen&quot; in read state, forWrite must be the
+<span class="lineNum">     537 </span>                :            :  * opposite of the previous tape state.
+<a name="538"><span class="lineNum">     538 </span>                :            :  */</a>
+<span class="lineNum">     539 </span>                :            : void
+<span class="lineNum">     540 </span>                :            : LogicalTapeRewind(LogicalTapeSet *lts, LogicalTape *lt, bool forWrite)
+<span class="lineNum">     541 </span>                :            : {
+<span class="lineNum">     542 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         AssertEquivalent(lt-&gt;firstBlkNum==-1, lt-&gt;currPos.blkNum == -1);</span>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!forWrite)</span>
+<span class="lineNum">     545 </span>                :            :         {
+<span class="lineNum">     546 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (lt-&gt;writing)</span>
+<span class="lineNum">     547 </span>                :            :                 {
+<span class="lineNum">     548 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(lt-&gt;firstBlkNum != -1)</span>
+<span class="lineNum">     549 </span>                :            :                         {
+<span class="lineNum">     550 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(lt-&gt;currBlk.next_blk == -1L);</span>
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :                                 ltsWriteBlock(lts, lt-&gt;currPos.blkNum, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if(lt-&gt;currPos.blkNum != lt-&gt;firstBlkNum)</span>
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :                                         ltsReadBlock(lts, lt-&gt;firstBlkNum, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     556 </span>                :            :                         
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.blkNum = lt-&gt;firstBlkNum;</span>
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     559 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;writing = false;</span>
+<span class="lineNum">     560 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     561 </span>                :            :                 else
+<span class="lineNum">     562 </span>                :            :                 {
+<span class="lineNum">     563 </span>                :            :                         /*
+<span class="lineNum">     564 </span>                :            :                          * This is only OK if tape is frozen; we rewind for (another) read
+<span class="lineNum">     565 </span>                :            :                          * pass.
+<span class="lineNum">     566 </span>                :            :                          */
+<span class="lineNum">     567 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(lt-&gt;frozen);</span>
+<span class="lineNum">     568 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(lt-&gt;currPos.blkNum != lt-&gt;firstBlkNum)</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :                                 ltsReadBlock(lts, lt-&gt;firstBlkNum, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.blkNum = lt-&gt;firstBlkNum;</span>
+<span class="lineNum">     572 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     573 </span>                :            :                 }
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     575 </span>                :            :         else
+<span class="lineNum">     576 </span>                :            :         {
+<span class="lineNum">     577 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;firstBlkNum = -1L;</span>
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.prev_blk = -1L;</span>
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.next_blk = -1L;</span>
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currBlk.payload_tail = 0;</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.blkNum = -1L;</span>
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;writing = true;</span>
+<span class="lineNum">     584 </span>                :            :         }
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     586 </span>                :            : 
+<span class="lineNum">     587 </span>                :            : /*
+<span class="lineNum">     588 </span>                :            :  * Read from a logical tape.
+<span class="lineNum">     589 </span>                :            :  *
+<span class="lineNum">     590 </span>                :            :  * Early EOF is indicated by return value less than #bytes requested.
+<a name="591"><span class="lineNum">     591 </span>                :            :  */</a>
+<span class="lineNum">     592 </span>                :            : size_t
+<span class="lineNum">     593 </span>                :            : LogicalTapeRead(LogicalTapeSet *lts, LogicalTape *lt,
+<span class="lineNum">     594 </span>                :            :                                 void *ptr, size_t size)
+<span class="lineNum">     595 </span>                :            : {
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :         size_t          nread = 0;</span>
+<span class="lineNum">     597 </span>                :            :         size_t          nthistime;
+<span class="lineNum">     598 </span>                :            : 
+<span class="lineNum">     599 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!lt-&gt;writing);</span>
+<span class="lineNum">     600 </span>                :            : 
+<span class="lineNum">     601 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(lt-&gt;currPos.blkNum == -1)</span>
+<span class="lineNum">     602 </span>                :<span class="lineNoCov">          0 :                 return nread;</span>
+<span class="lineNum">     603 </span>                :            : 
+<span class="lineNum">     604 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (size &gt; 0)</span>
+<span class="lineNum">     605 </span>                :            :         {
+<span class="lineNum">     606 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(lt-&gt;currPos.offset &lt;= lt-&gt;currBlk.payload_tail);</span>
+<span class="lineNum">     607 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(lt-&gt;currPos.offset == lt-&gt;currBlk.payload_tail)</span>
+<span class="lineNum">     608 </span>                :            :                 {
+<span class="lineNum">     609 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(lt-&gt;currBlk.next_blk == -1)</span>
+<span class="lineNum">     610 </span>                :            :                         {
+<span class="lineNum">     611 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if(!lt-&gt;frozen)</span>
+<span class="lineNum">     612 </span>                :            :                                 {
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                                         ltsReleaseBlock(lts, lt-&gt;currPos.blkNum);</span>
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 :                                         lt-&gt;firstBlkNum = -1L;</span>
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :                                         lt-&gt;currPos.blkNum = -1L;</span>
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :                                         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :                                 return nread;</span>
+<span class="lineNum">     619 </span>                :            :                         }
+<span class="lineNum">     620 </span>                :            :                         
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.blkNum = lt-&gt;currBlk.next_blk;</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.offset = 0;</span>
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :                         ltsReadBlock(lts, lt-&gt;currBlk.next_blk, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     624 </span>                :            : 
+<span class="lineNum">     625 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(!lt-&gt;frozen)</span>
+<span class="lineNum">     626 </span>                :            :                         {
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :                                 ltsReleaseBlock(lts, lt-&gt;currBlk.prev_blk);</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                                 lt-&gt;firstBlkNum = lt-&gt;currPos.blkNum;</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     631 </span>                :            : 
+<span class="lineNum">     632 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(lt-&gt;currPos.offset &lt; lt-&gt;currBlk.payload_tail)</span>
+<span class="lineNum">     633 </span>                :            :                 {
+<span class="lineNum">     634 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         nthistime = size &gt; (lt-&gt;currBlk.payload_tail - lt-&gt;currPos.offset) ?</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                                 lt-&gt;currBlk.payload_tail - lt-&gt;currPos.offset :</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                                 size;</span>
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :                         memcpy(ptr, lt-&gt;currBlk.payload + lt-&gt;currPos.offset, nthistime);</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :                         size -= nthistime;</span>
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                         ptr = (void *) ((char *) ptr + nthistime);</span>
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.offset += nthistime;</span>
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :                         nread += nthistime;</span>
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     644 </span>                :            :         }
+<span class="lineNum">     645 </span>                :            : 
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :         return nread;</span>
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     648 </span>                :            : 
+<span class="lineNum">     649 </span>                :            : /*
+<span class="lineNum">     650 </span>                :            :  * &quot;Freeze&quot; the contents of a tape so that it can be read multiple times
+<span class="lineNum">     651 </span>                :            :  * and/or read backwards.  Once a tape is frozen, its contents will not
+<span class="lineNum">     652 </span>                :            :  * be released until the LogicalTapeSet is destroyed.  This is expected
+<span class="lineNum">     653 </span>                :            :  * to be used only for the final output pass of a merge.
+<span class="lineNum">     654 </span>                :            :  *
+<span class="lineNum">     655 </span>                :            :  * This *must* be called just at the end of a write pass, before the
+<span class="lineNum">     656 </span>                :            :  * tape is rewound (after rewind is too late!).  It performs a rewind
+<span class="lineNum">     657 </span>                :            :  * and switch to read mode &quot;for free&quot;.        An immediately following rewind-
+<span class="lineNum">     658 </span>                :            :  * for-read call is OK but not necessary.
+<a name="659"><span class="lineNum">     659 </span>                :            :  */</a>
+<span class="lineNum">     660 </span>                :            : void
+<span class="lineNum">     661 </span>                :            : LogicalTapeFreeze(LogicalTapeSet *lts, LogicalTape *lt) 
+<span class="lineNum">     662 </span>                :            : {
+<span class="lineNum">     663 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;writing);</span>
+<span class="lineNum">     664 </span>                :            : 
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :         LogicalTapeRewind(lts, lt, false); </span>
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :         lt-&gt;writing = false;</span>
+<span class="lineNum">     667 </span>                :<span class="lineNoCov">          0 :         lt-&gt;frozen = true;</span>
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     669 </span>                :            : 
+<span class="lineNum">     670 </span>                :            : /* Flush the destination tape so the logtapeset can be used by shareinput.
+<span class="lineNum">     671 </span>                :            :  * We assume the tape has been frozen before this call 
+<a name="672"><span class="lineNum">     672 </span>                :            :  */</a>
+<span class="lineNum">     673 </span>                :            : void
+<span class="lineNum">     674 </span>                :            : LogicalTapeFlush(LogicalTapeSet *lts, LogicalTape *lt, ExecWorkFile *pstatefile)
+<span class="lineNum">     675 </span>                :            : {
+<span class="lineNum">     676 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lts &amp;&amp; lts-&gt;pfile);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     677 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;frozen);</span>
+<span class="lineNum">     678 </span>                :            : 
+<span class="lineNum">     679 </span>                :<span class="lineNoCov">          0 :         ExecWorkFile_Flush(lts-&gt;pfile);</span>
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :         DumpLogicalTapeSetState(pstatefile, lts, lt);</span>
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     682 </span>                :            : 
+<span class="lineNum">     683 </span>                :            : /*
+<span class="lineNum">     684 </span>                :            :  * Backspace the tape a given number of bytes.  (We also support a more
+<span class="lineNum">     685 </span>                :            :  * general seek interface, see below.)
+<span class="lineNum">     686 </span>                :            :  *
+<span class="lineNum">     687 </span>                :            :  * *Only* a frozen-for-read tape can be backed up; we don't support
+<span class="lineNum">     688 </span>                :            :  * random access during write, and an unfrozen read tape may have
+<span class="lineNum">     689 </span>                :            :  * already discarded the desired data!
+<span class="lineNum">     690 </span>                :            :  *
+<span class="lineNum">     691 </span>                :            :  * Return value is TRUE if seek successful, FALSE if there isn't that much
+<span class="lineNum">     692 </span>                :            :  * data before the current point (in which case there's no state change).
+<a name="693"><span class="lineNum">     693 </span>                :            :  */</a>
+<span class="lineNum">     694 </span>                :            : bool
+<span class="lineNum">     695 </span>                :            : LogicalTapeBackspace(LogicalTapeSet *lts, LogicalTape *lt, size_t size)
+<span class="lineNum">     696 </span>                :            : {
+<span class="lineNum">     697 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt &amp;&amp; lt-&gt;frozen);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     698 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while(size &gt; 0)</span>
+<span class="lineNum">     699 </span>                :            :         {
+<span class="lineNum">     700 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(lt-&gt;currPos.blkNum == -1)</span>
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     702 </span>                :            : 
+<span class="lineNum">     703 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(size &lt;= lt-&gt;currPos.offset)</span>
+<span class="lineNum">     704 </span>                :            :                 {
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                         lt-&gt;currPos.offset -= size;</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     707 </span>                :            :                 }
+<span class="lineNum">     708 </span>                :            :         
+<span class="lineNum">     709 </span>                :<span class="lineNoCov">          0 :                 size -= lt-&gt;currPos.offset;</span>
+<span class="lineNum">     710 </span>                :            :                 
+<span class="lineNum">     711 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(lt-&gt;currBlk.prev_blk == -1L)</span>
+<span class="lineNum">     712 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     713 </span>                :            : 
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.blkNum = lt-&gt;currBlk.prev_blk;</span>
+<span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :                 ltsReadBlock(lts, lt-&gt;currPos.blkNum, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     716 </span>                :<span class="lineNoCov">          0 :                 lt-&gt;currPos.offset = lt-&gt;currBlk.payload_tail;</span>
+<span class="lineNum">     717 </span>                :            :         }
+<span class="lineNum">     718 </span>                :            : 
+<span class="lineNum">     719 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     720 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="721"><span class="lineNum">     721 </span>                :            : </a>
+<span class="lineNum">     722 </span>                :            : /* Get a logical tape given tape number */
+<span class="lineNum">     723 </span>                :            : LogicalTape *LogicalTapeSetGetTape(LogicalTapeSet *lts, int tapenum)
+<span class="lineNum">     724 </span>                :            : {
+<span class="lineNum">     725 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(tapenum &gt;= 0 &amp;&amp; tapenum &lt; lts-&gt;nTapes);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :         return &amp;lts-&gt;tapes[tapenum];</span>
+<span class="lineNum">     727 </span>                :            : }
+<span class="lineNum">     728 </span>                :            : 
+<span class="lineNum">     729 </span>                :            : /*
+<span class="lineNum">     730 </span>                :            :  * Seek to an arbitrary position in a logical tape.
+<span class="lineNum">     731 </span>                :            :  *
+<span class="lineNum">     732 </span>                :            :  * *Only* a frozen-for-read tape can be seeked. 
+<span class="lineNum">     733 </span>                :            :  * We assume seek tape will seek on a pos that returned by tell, that is, the pos is a 
+<span class="lineNum">     734 </span>                :            :  * valid postion on this tape.  The return value is ALWAYS true.
+<a name="735"><span class="lineNum">     735 </span>                :            :  */</a>
+<span class="lineNum">     736 </span>                :            : bool
+<span class="lineNum">     737 </span>                :            : LogicalTapeSeek(LogicalTapeSet *lts, LogicalTape *lt, LogicalTapePos *pos)
+<span class="lineNum">     738 </span>                :            : {
+<span class="lineNum">     739 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;frozen);</span>
+<span class="lineNum">     740 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;firstBlkNum != -1L);</span>
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(pos-&gt;blkNum != lt-&gt;currPos.blkNum)</span>
+<span class="lineNum">     743 </span>                :<span class="lineNoCov">          0 :                 ltsReadBlock(lts, pos-&gt;blkNum, &amp;lt-&gt;currBlk);</span>
+<span class="lineNum">     744 </span>                :            : 
+<span class="lineNum">     745 </span>                :<span class="lineNoCov">          0 :         lt-&gt;currPos.blkNum = pos-&gt;blkNum;</span>
+<span class="lineNum">     746 </span>                :<span class="lineNoCov">          0 :         lt-&gt;currPos.offset = pos-&gt;offset;</span>
+<span class="lineNum">     747 </span>                :            : 
+<span class="lineNum">     748 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     749 </span>                :            : }
+<span class="lineNum">     750 </span>                :            : 
+<span class="lineNum">     751 </span>                :            : /*
+<span class="lineNum">     752 </span>                :            :  * Obtain current position in a form suitable for a later LogicalTapeSeek.
+<a name="753"><span class="lineNum">     753 </span>                :            :  */</a>
+<span class="lineNum">     754 </span>                :            : void
+<span class="lineNum">     755 </span>                :            : LogicalTapeTell(LogicalTapeSet *lts, LogicalTape *lt, LogicalTapePos *pos)
+<span class="lineNum">     756 </span>                :            : {
+<span class="lineNum">     757 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;frozen);</span>
+<span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :         pos-&gt;blkNum = lt-&gt;currPos.blkNum;</span>
+<span class="lineNum">     759 </span>                :<span class="lineNoCov">          0 :         pos-&gt;offset = lt-&gt;currPos.offset;</span>
+<span class="lineNum">     760 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     761 </span>                :            : 
+<span class="lineNum">     762 </span>                :            : /*
+<span class="lineNum">     763 </span>                :            :  * Obtain current position from an unfrozen tape.
+<a name="764"><span class="lineNum">     764 </span>                :            :  */</a>
+<span class="lineNum">     765 </span>                :            : void
+<span class="lineNum">     766 </span>                :            : LogicalTapeUnfrozenTell(LogicalTapeSet *lts, LogicalTape *lt, LogicalTapePos *pos)
+<span class="lineNum">     767 </span>                :            : {
+<span class="lineNum">     768 </span>                :<span class="lineNoCov">          0 :         pos-&gt;blkNum = lt-&gt;currPos.blkNum;</span>
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :         pos-&gt;offset = lt-&gt;currPos.offset;</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     771 </span>                :            : 
+<span class="lineNum">     772 </span>                :            : /*
+<span class="lineNum">     773 </span>                :            :  * Obtain total disk space currently used by a LogicalTapeSet, in blocks.
+<a name="774"><span class="lineNum">     774 </span>                :            :  */</a>
+<span class="lineNum">     775 </span>                :            : long
+<span class="lineNum">     776 </span>                :            : LogicalTapeSetBlocks(LogicalTapeSet *lts)
+<span class="lineNum">     777 </span>                :            : {
+<span class="lineNum">     778 </span>                :<span class="lineNoCov">          0 :         return lts-&gt;nFileBlocks;</span>
+<a name="779"><span class="lineNum">     779 </span>                :            : }</a>
+<span class="lineNum">     780 </span>                :            : 
+<span class="lineNum">     781 </span>                :            : LogicalTape *LogicalTapeSetDuplicateTape(LogicalTapeSet *lts, LogicalTape *lt)
+<span class="lineNum">     782 </span>                :            : {
+<span class="lineNum">     783 </span>                :<span class="lineNoCov">          0 :         LogicalTape *dup = (LogicalTape *) palloc(sizeof(LogicalTape));</span>
+<span class="lineNum">     784 </span>                :            : 
+<span class="lineNum">     785 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(lt-&gt;frozen);</span>
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :         memcpy(dup, lt, sizeof(LogicalTape));</span>
+<span class="lineNum">     787 </span>                :            : 
+<span class="lineNum">     788 </span>                :<span class="lineNoCov">          0 :         return dup;</span>
+<span class="lineNum">     789 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

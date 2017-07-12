@@ -1,0 +1,1400 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - postmaster/sendalert.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">postmaster</a> - sendalert.c<span style="font-size: 80%;"> (source / <a href="sendalert.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">408</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">258</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * sendalert.c
+<span class="lineNum">       4 </span>                :            :  *        Send alerts via SMTP (email) or SNMP INFORM messages.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Copyright (c) 2009, Greenplum
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">       9 </span>                :            :  */
+<span class="lineNum">      10 </span>                :            : #if !defined(_XOPEN_SOURCE) || _XOPEN_SOURCE&lt;600
+<span class="lineNum">      11 </span>                :            : #undef _XOPEN_SOURCE
+<span class="lineNum">      12 </span>                :            : #define _XOPEN_SOURCE 600
+<span class="lineNum">      13 </span>                :            : #endif
+<span class="lineNum">      14 </span>                :            : #if !defined(_POSIX_C_SOURCE) || _POSIX_C_SOURCE&lt;200112L
+<span class="lineNum">      15 </span>                :            : #undef _POSIX_C_SOURCE
+<span class="lineNum">      16 </span>                :            : /* Define to activate features from IEEE Stds 1003.1-2001 */
+<span class="lineNum">      17 </span>                :            : #define _POSIX_C_SOURCE 200112L
+<span class="lineNum">      18 </span>                :            : #endif
+<span class="lineNum">      19 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;pg_config.h&quot;  /* Adding this helps eclipse see that USE_SNMP is set */
+<span class="lineNum">      21 </span>                :            : 
+<span class="lineNum">      22 </span>                :            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      23 </span>                :            : #include &lt;signal.h&gt;
+<span class="lineNum">      24 </span>                :            : #include &lt;time.h&gt;
+<span class="lineNum">      25 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      26 </span>                :            : #include &lt;sys/stat.h&gt;
+<span class="lineNum">      27 </span>                :            : #include &lt;sys/time.h&gt;
+<span class="lineNum">      28 </span>                :            : #include &lt;stdio.h&gt;
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : #include &lt;sys/socket.h&gt;
+<span class="lineNum">      31 </span>                :            : #include &lt;netdb.h&gt;
+<span class="lineNum">      32 </span>                :            : #include &lt;netinet/in.h&gt;
+<span class="lineNum">      33 </span>                :            : #ifdef HAVE_NETINET_TCP_H
+<span class="lineNum">      34 </span>                :            : #include &lt;netinet/tcp.h&gt;
+<span class="lineNum">      35 </span>                :            : #endif
+<span class="lineNum">      36 </span>                :            : #include &lt;arpa/inet.h&gt;
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : #include &quot;lib/stringinfo.h&quot;
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :            : #include &quot;pgtime.h&quot;
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : #include &quot;postmaster/syslogger.h&quot;
+<span class="lineNum">      43 </span>                :            : #include &quot;postmaster/sendalert.h&quot;
+<span class="lineNum">      44 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;utils/elog.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      48 </span>                :            : #include &quot;sendalert_common.h&quot;
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>                :            : extern int      PostPortNumber;
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : #if defined(HAVE_DECL_CURLOPT_MAIL_FROM) &amp;&amp; HAVE_DECL_CURLOPT_MAIL_FROM
+<span class="lineNum">      53 </span>                :            : #include &lt;curl/curl.h&gt;
+<span class="lineNum">      54 </span>                :            : #endif
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :            : #ifdef USE_SNMP
+<span class="lineNum">      57 </span>                :            : #include &lt;net-snmp/net-snmp-config.h&gt;
+<span class="lineNum">      58 </span>                :            : #include &lt;net-snmp/definitions.h&gt;
+<span class="lineNum">      59 </span>                :            : #include &lt;net-snmp/types.h&gt;
+<span class="lineNum">      60 </span>                :            : 
+<span class="lineNum">      61 </span>                :            : //#include &lt;net-snmp/utilities.h&gt;
+<span class="lineNum">      62 </span>                :            : #include &lt;net-snmp/session_api.h&gt;
+<span class="lineNum">      63 </span>                :            : #include &lt;net-snmp/pdu_api.h&gt;
+<span class="lineNum">      64 </span>                :            : #include &lt;net-snmp/mib_api.h&gt;
+<span class="lineNum">      65 </span>                :            : #include &lt;net-snmp/varbind_api.h&gt;
+<span class="lineNum">      66 </span>                :            : //#include &lt;net-snmp/config_api.h&gt;
+<span class="lineNum">      67 </span>                :            : #include &lt;net-snmp/output_api.h&gt;
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            : oid             objid_enterprise[] = { 1, 3, 6, 1, 4, 1, 3, 1, 1 };
+<span class="lineNum">      71 </span>                :            : oid             objid_sysdescr[] = { 1, 3, 6, 1, 2, 1, 1, 1, 0 };
+<span class="lineNum">      72 </span>                :            : oid             objid_sysuptime[] = { 1, 3, 6, 1, 2, 1, 1, 3, 0 };
+<span class="lineNum">      73 </span>                :            : oid             objid_snmptrap[] = { 1, 3, 6, 1, 6, 3, 1, 1, 4, 1, 0 };
+<span class="lineNum">      74 </span>                :            : oid                             objid_rdbmsrelstate[] = { 1, 3, 6, 1, 2, 1, 39, 1, 9, 1, 1 };
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : // {iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprises(1) gpdbMIB(31327) gpdbObjects(1) gpdbAlertMsg(1)}
+<span class="lineNum">      77 </span>                :            : oid                             objid_gpdbAlertMsg[] = { 1, 3, 6, 1, 4, 1, 31327, 1, 1 };
+<span class="lineNum">      78 </span>                :            : oid                             objid_gpdbAlertSeverity[] = { 1, 3, 6, 1, 4, 1, 31327, 1, 2 };
+<span class="lineNum">      79 </span>                :            : oid                             objid_gpdbAlertSqlstate[] = { 1, 3, 6, 1, 4, 1, 31327, 1, 3 };
+<span class="lineNum">      80 </span>                :            : oid                             objid_gpdbAlertDetail[] = { 1, 3, 6, 1, 4, 1, 31327, 1, 4 };
+<span class="lineNum">      81 </span>                :            : oid                             objid_gpdbAlertSqlStmt[] = { 1, 3, 6, 1, 4, 1, 31327, 1, 5 };
+<span class="lineNum">      82 </span>                :            : oid                             objid_gpdbAlertSystemName[] = { 1, 3, 6, 1, 4, 1, 31327, 1, 6 };
+<span class="lineNum">      83 </span>                :            : #endif
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :            : #if defined(HAVE_DECL_CURLOPT_MAIL_FROM) &amp;&amp; HAVE_DECL_CURLOPT_MAIL_FROM
+<span class="lineNum">      86 </span>                :            : /* state information for messagebody_cb function */
+<span class="lineNum">      87 </span>                :            : typedef struct
+<span class="lineNum">      88 </span>                :            : {
+<span class="lineNum">      89 </span>                :            :         StringInfoData body;
+<span class="lineNum">      90 </span>                :            :         size_t consumed;
+<span class="lineNum">      91 </span>                :            : } upload_ctx;
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :            : static size_t messagebody_cb(void *ptr, size_t size, size_t nmemb, void *userp);
+<span class="lineNum">      94 </span>                :            : static void build_messagebody(StringInfo buf, const GpErrorData *errorData,
+<span class="lineNum">      95 </span>                :            :                                   const char *subject, const char *email_priority);
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            : static void send_alert_via_email(const GpErrorData * errorData,
+<span class="lineNum">      98 </span>                :            :                                          const char * subject, const char * email_priority);
+<span class="lineNum">      99 </span>                :            : static char *extract_email_addr(char *str);
+<span class="lineNum">     100 </span>                :            : static bool SplitMailString(char *rawstring, char delimiter, List **namelist);
+<span class="lineNum">     101 </span>                :            : #endif
+<span class="lineNum">     102 </span>                :            : 
+<span class="lineNum">     103 </span>                :            : #ifdef USE_SNMP
+<span class="lineNum">     104 </span>                :            : static int send_snmp_inform_or_trap();
+<span class="lineNum">     105 </span>                :            : extern pg_time_t        MyStartTime;
+<span class="lineNum">     106 </span>                :            : #endif
+<a name="107"><span class="lineNum">     107 </span>                :            : </a>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :            : int send_alert_from_chunks(const PipeProtoChunk *chunk,
+<span class="lineNum">     110 </span>                :            :                 const PipeProtoChunk * saved_chunks_in)
+<span class="lineNum">     111 </span>                :            : {
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :         int ret = -1;</span>
+<span class="lineNum">     114 </span>                :            :         GpErrorData errorData;
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>                :            :         CSVChunkStr chunkstr =
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :         { chunk, chunk-&gt;data + sizeof(GpErrorDataFixFields) };</span>
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :         memset(&amp;errorData, 0, sizeof(errorData));</span>
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :         memcpy(&amp;errorData.fix_fields, chunk-&gt;data, sizeof(errorData.fix_fields));</span>
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (chunk == NULL)</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     125 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (chunk-&gt;hdr.len == 0)</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     127 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (chunk-&gt;hdr.zero != 0)</span>
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (chunk-&gt;hdr.log_format != 'c')</span>
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR,&quot;send_alert_from_chunks only works when CSV logging is enabled&quot;);</span>
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         errorData.username = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :         errorData.databasename = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :         errorData.remote_host = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         errorData.remote_port = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :         errorData.error_severity = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :         errorData.sql_state = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :         errorData.error_message = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :         errorData.error_detail = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :         errorData.error_hint = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         errorData.internal_query = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         errorData.error_context = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :         errorData.debug_query_string = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :         errorData.error_func_name = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         errorData.error_filename = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :         errorData.stacktrace = get_str_from_chunk(&amp;chunkstr,saved_chunks_in);</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_TRY();</span>
+<span class="lineNum">     151 </span>                :            :         {
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         ret = send_alert(&amp;errorData);</span>
+<span class="lineNum">     153 </span>                :            :         }
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :         PG_CATCH();</span>
+<span class="lineNum">     155 </span>                :            :         {
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                 elog(LOG,&quot;send_alert failed.  Not sending the alert&quot;);</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                 free(errorData.stacktrace ); errorData.stacktrace = NULL;</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                 free((char *)errorData.error_filename ); errorData.error_filename = NULL;</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                 free((char *)errorData.error_func_name ); errorData.error_func_name = NULL;</span>
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                 free(errorData.debug_query_string ); errorData.debug_query_string = NULL;</span>
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :                 free(errorData.error_context); errorData.error_context = NULL;</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                 free(errorData.internal_query ); errorData.internal_query = NULL;</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                 free(errorData.error_hint ); errorData.error_hint = NULL;</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                 free(errorData.error_detail ); errorData.error_detail = NULL;</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                 free(errorData.error_message ); errorData.error_message = NULL;</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                 free(errorData.sql_state ); errorData.sql_state = NULL;</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :                 free((char *)errorData.error_severity ); errorData.error_severity = NULL;</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                 free(errorData.remote_port ); errorData.remote_port = NULL;</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                 free(errorData.remote_host ); errorData.remote_host = NULL;</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                 free(errorData.databasename ); errorData.databasename = NULL;</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                 free(errorData.username ); errorData.username = NULL;</span>
+<span class="lineNum">     172 </span>                :            :                 /* Carry on with error handling. */
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :                 PG_RE_THROW();</span>
+<span class="lineNum">     174 </span>                :            :         }
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         PG_END_TRY();</span>
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :            :         // Don't forget to free them!  Best in reverse order of the mallocs.
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :         free(errorData.stacktrace ); errorData.stacktrace = NULL;</span>
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :         free((char *)errorData.error_filename ); errorData.error_filename = NULL;</span>
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :         free((char *)errorData.error_func_name ); errorData.error_func_name = NULL;</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         free(errorData.debug_query_string ); errorData.debug_query_string = NULL;</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :         free(errorData.error_context); errorData.error_context = NULL;</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         free(errorData.internal_query ); errorData.internal_query = NULL;</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :         free(errorData.error_hint ); errorData.error_hint = NULL;</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         free(errorData.error_detail ); errorData.error_detail = NULL;</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         free(errorData.error_message ); errorData.error_message = NULL;</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :         free(errorData.sql_state ); errorData.sql_state = NULL;</span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         free((char *)errorData.error_severity ); errorData.error_severity = NULL;</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         free(errorData.remote_port ); errorData.remote_port = NULL;</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :         free(errorData.remote_host ); errorData.remote_host = NULL;</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         free(errorData.databasename ); errorData.databasename = NULL;</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         free(errorData.username ); errorData.username = NULL;</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            : #ifdef USE_SNMP
+<span class="lineNum">     199 </span>                :            : static int send_snmp_inform_or_trap(const GpErrorData * errorData, const char * subject, const char * severity)
+<span class="lineNum">     200 </span>                :            : {
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>                :            :         netsnmp_session session, *ss = NULL;
+<span class="lineNum">     203 </span>                :            :         netsnmp_pdu    *pdu, *response;
+<span class="lineNum">     204 </span>                :            :         int                             status;
+<span class="lineNum">     205 </span>                :            :         char            csysuptime[20];
+<span class="lineNum">     206 </span>                :            :         static bool     snmp_initialized = false;
+<span class="lineNum">     207 </span>                :            :         static char myhostname[255];    /* gethostname usually is limited to 65 chars out, but make this big to be safe */
+<span class="lineNum">     208 </span>                :            :         char       *rawstring = NULL;
+<span class="lineNum">     209 </span>                :            :         List       *elemlist = NIL;
+<span class="lineNum">     210 </span>                :            :         ListCell   *l = NULL;
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :            :         /*
+<span class="lineNum">     213 </span>                :            :          * &quot;inform&quot; messages get a positive acknowledgement response from the SNMP manager.
+<span class="lineNum">     214 </span>                :            :          * If it doesn't come, the message might be resent.
+<span class="lineNum">     215 </span>                :            :          *
+<span class="lineNum">     216 </span>                :            :          * &quot;trap&quot; messages are one-way, and we have no idea if the manager received it.
+<span class="lineNum">     217 </span>                :            :          * But, it's faster and cheaper, and no need to retry.  So some people might prefer it.
+<span class="lineNum">     218 </span>                :            :          */
+<span class="lineNum">     219 </span>                :            :         bool inform = strcmp(gp_snmp_use_inform_or_trap,&quot;inform&quot;) == 0;
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :            : 
+<span class="lineNum">     222 </span>                :            :         if (gp_snmp_monitor_address == NULL || gp_snmp_monitor_address[0] == '\0')
+<span class="lineNum">     223 </span>                :            :         {
+<span class="lineNum">     224 </span>                :            :                 static bool firsttime = 1;
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :            :                 ereport(firsttime ? LOG : DEBUG1,(errmsg(&quot;SNMP inform/trap alerts are disabled&quot;)));
+<span class="lineNum">     227 </span>                :            :                 firsttime = false;
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :            :                 return -1;
+<span class="lineNum">     230 </span>                :            :         }
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :            : 
+<span class="lineNum">     233 </span>                :            :         /*
+<span class="lineNum">     234 </span>                :            :          * SNMP managers are required to handle messages up to at least 484 bytes long, but I believe most existing
+<span class="lineNum">     235 </span>                :            :          * managers support messages up to one packet (ethernet frame) in size, 1472 bytes.
+<span class="lineNum">     236 </span>                :            :          *
+<span class="lineNum">     237 </span>                :            :          * But, should we take that chance?  Or play it safe and limit the message to 484 bytes?
+<span class="lineNum">     238 </span>                :            :          */
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>                :            :         elog(DEBUG2,&quot;send_snmp_inform_or_trap&quot;);
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :            :         if (!snmp_initialized)
+<span class="lineNum">     243 </span>                :            :         {
+<span class="lineNum">     244 </span>                :            :                 snmp_enable_stderrlog();
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>                :            :                 if (gp_snmp_debug_log != NULL &amp;&amp; gp_snmp_debug_log[0] != '\0')
+<span class="lineNum">     247 </span>                :            :                 {
+<span class="lineNum">     248 </span>                :            :                         snmp_enable_filelog(gp_snmp_debug_log, 1);
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :            :                         //debug_register_tokens(&quot;ALL&quot;);
+<span class="lineNum">     251 </span>                :            :                         snmp_set_do_debugging(1);
+<span class="lineNum">     252 </span>                :            :                 }
+<span class="lineNum">     253 </span>                :            : 
+<span class="lineNum">     254 </span>                :            :                 /*
+<span class="lineNum">     255 </span>                :            :                  * Initialize the SNMP library.  This also reads the MIB database.
+<span class="lineNum">     256 </span>                :            :                  */
+<span class="lineNum">     257 </span>                :            :                 /* Add GPDB-MIB to the list to be loaded */
+<span class="lineNum">     258 </span>                :            :                 putenv(&quot;MIBS=+GPDB-MIB:SNMP-FRAMEWORK-MIB:SNMPv2-CONF:SNMPv2-TC:SNMPv2-TC&quot;);
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :            :                 init_snmp(&quot;sendalert&quot;);
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            :                 snmp_initialized = true;
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :            :                 {
+<span class="lineNum">     265 </span>                :            :                         char portnum[16];
+<span class="lineNum">     266 </span>                :            :                         myhostname[0] = '\0';
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :            :                         if (gethostname(myhostname, sizeof(myhostname)) == 0)
+<span class="lineNum">     269 </span>                :            :                         {
+<span class="lineNum">     270 </span>                :            :                                 strcat(myhostname,&quot;:&quot;);
+<span class="lineNum">     271 </span>                :            :                                 pg_ltoa(PostPortNumber,portnum);
+<span class="lineNum">     272 </span>                :            :                                 strcat(myhostname,portnum);
+<span class="lineNum">     273 </span>                :            :                         }
+<span class="lineNum">     274 </span>                :            :                 }
+<span class="lineNum">     275 </span>                :            :         }
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :            :         /*
+<span class="lineNum">     278 </span>                :            :          * Trap/Inform messages always start with the system up time. (SysUpTime.0)
+<span class="lineNum">     279 </span>                :            :          *
+<span class="lineNum">     280 </span>                :            :          * This presumably would be the uptime of GPDB, not the machine it is running on, I think.
+<span class="lineNum">     281 </span>                :            :          *
+<span class="lineNum">     282 </span>                :            :          * Use Postmaster's &quot;MyStartTime&quot; as a way to get that.
+<span class="lineNum">     283 </span>                :            :          */
+<span class="lineNum">     284 </span>                :            : 
+<span class="lineNum">     285 </span>                :            :         sprintf(csysuptime, &quot;%ld&quot;, (long)(time(NULL) - MyStartTime));
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :            :         /*
+<span class="lineNum">     289 </span>                :            :         // ERRCODE_DISK_FULL could be reported vi rbmsMIB rdbmsTraps rdbmsOutOfSpace trap.
+<span class="lineNum">     290 </span>                :            :         // But it appears we never generate that error?
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            :         // ERRCODE_ADMIN_SHUTDOWN means SysAdmin aborted somebody's request.  Not interesting?
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>                :            :         // ERRCODE_CRASH_SHUTDOWN sounds interesting, but I don't see that we ever generate it.
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :            :         // ERRCODE_CANNOT_CONNECT_NOW means we are starting up, shutting down, in recovery, or Too many users are logged on.
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :            :         // abnormal database system shutdown
+<span class="lineNum">     299 </span>                :            :         */
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>                :            : 
+<span class="lineNum">     303 </span>                :            :         /*
+<span class="lineNum">     304 </span>                :            :          * The gpdbAlertSeverity is a crude attempt to classify some of these messages based on severity,
+<span class="lineNum">     305 </span>                :            :          * where OK means everything is running normal, Down means everything is shut down, degraded would be
+<span class="lineNum">     306 </span>                :            :          * for times when some segments are down, but the system is up, The others are maybe useful in the future
+<span class="lineNum">     307 </span>                :            :          *
+<span class="lineNum">     308 </span>                :            :          *  gpdbSevUnknown(0),
+<span class="lineNum">     309 </span>                :            :          *      gpdbSevOk(1),
+<span class="lineNum">     310 </span>                :            :          *      gpdbSevWarning(2),
+<span class="lineNum">     311 </span>                :            :          *      gpdbSevError(3),
+<span class="lineNum">     312 </span>                :            :          *      gpdbSevFatal(4),
+<span class="lineNum">     313 </span>                :            :          *      gpdbSevPanic(5),
+<span class="lineNum">     314 </span>                :            :          *      gpdbSevSystemDegraded(6),
+<span class="lineNum">     315 </span>                :            :          *      gpdbSevSystemDown(7)
+<span class="lineNum">     316 </span>                :            :          */
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>                :            :         char detail[MAX_ALERT_STRING+1];
+<span class="lineNum">     320 </span>                :            :         snprintf(detail, MAX_ALERT_STRING, &quot;%s&quot;, errorData-&gt;error_detail);
+<span class="lineNum">     321 </span>                :            :         detail[127] = '\0';
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :            :         char sqlstmt[MAX_ALERT_STRING+1];
+<span class="lineNum">     324 </span>                :            :         char * sqlstmtp = errorData-&gt;debug_query_string;
+<span class="lineNum">     325 </span>                :            :         if (sqlstmtp == NULL || sqlstmtp[0] == '\0')
+<span class="lineNum">     326 </span>                :            :                 sqlstmtp = errorData-&gt;internal_query;
+<span class="lineNum">     327 </span>                :            :         if (sqlstmtp == NULL)
+<span class="lineNum">     328 </span>                :            :                 sqlstmtp = &quot;&quot;;
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :            :         snprintf(sqlstmt, MAX_ALERT_STRING, &quot;%s&quot;, sqlstmtp);
+<span class="lineNum">     332 </span>                :            :         sqlstmt[MAX_ALERT_STRING] = '\0';
+<span class="lineNum">     333 </span>                :            : 
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :            :         /* Need a modifiable copy of To list */
+<span class="lineNum">     336 </span>                :            :         rawstring = pstrdup(gp_snmp_monitor_address);
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :            :         /* Parse string into list of identifiers */
+<span class="lineNum">     339 </span>                :            :         if (!SplitMailString(rawstring, ',', &amp;elemlist))
+<span class="lineNum">     340 </span>                :            :         {
+<span class="lineNum">     341 </span>                :            :                 /* syntax error in list */
+<span class="lineNum">     342 </span>                :            :                 ereport(LOG,
+<span class="lineNum">     343 </span>                :            :                                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+<span class="lineNum">     344 </span>                :            :                                  errmsg(&quot;invalid list syntax for \&quot;gp_snmp_monitor_address\&quot;&quot;)));
+<span class="lineNum">     345 </span>                :            :                 return -1;
+<span class="lineNum">     346 </span>                :            :         }
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :            :         /*
+<span class="lineNum">     350 </span>                :            :          * This session is just a template, and doesn't need to be connected.
+<span class="lineNum">     351 </span>                :            :          * It is used by snmp_add(), which copies this info, opens the new session, and assigns the transport.
+<span class="lineNum">     352 </span>                :            :          */
+<span class="lineNum">     353 </span>                :            :         snmp_sess_init( &amp;session ); /* Initialize session to default values */
+<span class="lineNum">     354 </span>                :            :         session.version = SNMP_VERSION_2c;
+<span class="lineNum">     355 </span>                :            :         session.timeout = SNMP_DEFAULT_TIMEOUT;
+<span class="lineNum">     356 </span>                :            :         session.retries = SNMP_DEFAULT_RETRIES;
+<span class="lineNum">     357 </span>                :            :         session.remote_port = 162;                                                      // I think this isn't used by net-snmp any more.
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            :         /*if (strchr(session.peername,':')==NULL)
+<span class="lineNum">     360 </span>                :            :                 strcat(session.peername,&quot;:162&quot;);*/
+<span class="lineNum">     361 </span>                :            :         session.community = (u_char *)gp_snmp_community;
+<span class="lineNum">     362 </span>                :            :         session.community_len = strlen((const char *)session.community);  // SNMP_DEFAULT_COMMUNITY_LEN means &quot;public&quot;
+<span class="lineNum">     363 </span>                :            :         session.callback_magic = NULL;
+<span class="lineNum">     364 </span>                :            : 
+<span class="lineNum">     365 </span>                :            :         foreach(l, elemlist)
+<span class="lineNum">     366 </span>                :            :         {
+<span class="lineNum">     367 </span>                :            :                 char       *cur_gp_snmp_monitor_address = (char *) lfirst(l);
+<span class="lineNum">     368 </span>                :            : 
+<span class="lineNum">     369 </span>                :            :                 if (cur_gp_snmp_monitor_address == NULL || cur_gp_snmp_monitor_address[0] == '\0')
+<span class="lineNum">     370 </span>                :            :                         continue;
+<span class="lineNum">     371 </span>                :            : 
+<span class="lineNum">     372 </span>                :            :                 session.peername = cur_gp_snmp_monitor_address;
+<span class="lineNum">     373 </span>                :            :                 /*
+<span class="lineNum">     374 </span>                :            :                  * If we try to &quot;snmp_open( &amp;session )&quot;, net-snmp will set up a connection to that
+<span class="lineNum">     375 </span>                :            :                  * endpoint on port 161, assuming we are the network monitor, and the other side is an agent.
+<span class="lineNum">     376 </span>                :            :                  *
+<span class="lineNum">     377 </span>                :            :                  * But we are pretending to be an agent, sending traps to the NM, so we don't need this.
+<span class="lineNum">     378 </span>                :            :                  */
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :            :                 /*if (!snmp_open( &amp;session ))       // Don't open the session here!
+<span class="lineNum">     381 </span>                :            :                 {
+<span class="lineNum">     382 </span>                :            :                         const char     *str;
+<span class="lineNum">     383 </span>                :            :                         int             xerr;
+<span class="lineNum">     384 </span>                :            :                         xerr = snmp_errno;
+<span class="lineNum">     385 </span>                :            :                         str = snmp_api_errstring(xerr);
+<span class="lineNum">     386 </span>                :            :                         elog(LOG, &quot;snmp_open: %s&quot;, str);
+<span class="lineNum">     387 </span>                :            :                         return -1;
+<span class="lineNum">     388 </span>                :            :                 }*/
+<span class="lineNum">     389 </span>                :            : 
+<span class="lineNum">     390 </span>                :            :                 /*
+<span class="lineNum">     391 </span>                :            :                  * This call copies the info from &quot;session&quot; to &quot;ss&quot;, assigns the transport, and opens the session.
+<span class="lineNum">     392 </span>                :            :                  * We must specify &quot;snmptrap&quot; so the transport will know we want port 162 by default.
+<span class="lineNum">     393 </span>                :            :                  */
+<span class="lineNum">     394 </span>                :            :                 ss = snmp_add(&amp;session,
+<span class="lineNum">     395 </span>                :            :                                           netsnmp_transport_open_client(&quot;snmptrap&quot;, cur_gp_snmp_monitor_address),
+<span class="lineNum">     396 </span>                :            :                                           NULL, NULL);
+<span class="lineNum">     397 </span>                :            :                 if (ss == NULL) {
+<span class="lineNum">     398 </span>                :            :                         /*
+<span class="lineNum">     399 </span>                :            :                          * diagnose netsnmp_transport_open_client and snmp_add errors with
+<span class="lineNum">     400 </span>                :            :                          * the input netsnmp_session pointer
+<span class="lineNum">     401 </span>                :            :                          */
+<span class="lineNum">     402 </span>                :            :                         {
+<span class="lineNum">     403 </span>                :            :                                 char           *err;
+<span class="lineNum">     404 </span>                :            :                                 snmp_error(&amp;session, NULL, NULL, &amp;err);
+<span class="lineNum">     405 </span>                :            :                                 elog(LOG, &quot;send_alert snmp_add of %s failed: %s&quot;, cur_gp_snmp_monitor_address, err);
+<span class="lineNum">     406 </span>                :            :                                 free(err);
+<span class="lineNum">     407 </span>                :            :                         }
+<span class="lineNum">     408 </span>                :            :                         return -1;
+<span class="lineNum">     409 </span>                :            :                 }
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            :                 /*
+<span class="lineNum">     412 </span>                :            :                  * We need to create the pdu each time, as it gets freed when we send a trap.
+<span class="lineNum">     413 </span>                :            :                  */
+<span class="lineNum">     414 </span>                :            :                 pdu = snmp_pdu_create(inform ? SNMP_MSG_INFORM : SNMP_MSG_TRAP2);
+<span class="lineNum">     415 </span>                :            :                 if (!pdu)
+<span class="lineNum">     416 </span>                :            :                 {
+<span class="lineNum">     417 </span>                :            :                         const char     *str;
+<span class="lineNum">     418 </span>                :            :                         int             xerr;
+<span class="lineNum">     419 </span>                :            :                         xerr = snmp_errno;
+<span class="lineNum">     420 </span>                :            :                         str = snmp_api_errstring(xerr);
+<span class="lineNum">     421 </span>                :            :                         elog(LOG, &quot;Failed to create notification PDU: %s&quot;, str);
+<span class="lineNum">     422 </span>                :            :                         return -1;
+<span class="lineNum">     423 </span>                :            :                 }
+<span class="lineNum">     424 </span>                :            : 
+<span class="lineNum">     425 </span>                :            :                 /*
+<span class="lineNum">     426 </span>                :            :                  * Trap/Inform messages always start with the system up time. (SysUpTime.0)
+<span class="lineNum">     427 </span>                :            :                  * We use Postmaster's &quot;MyStartTime&quot; as a way to get that.
+<span class="lineNum">     428 </span>                :            :                  */
+<span class="lineNum">     429 </span>                :            : 
+<span class="lineNum">     430 </span>                :            :                 snmp_add_var(pdu, objid_sysuptime,
+<span class="lineNum">     431 </span>                :            :                                                         sizeof(objid_sysuptime) / sizeof(oid),
+<span class="lineNum">     432 </span>                :            :                                                         't', (const char *)csysuptime);
+<span class="lineNum">     433 </span>                :            : 
+<span class="lineNum">     434 </span>                :            :         #if 0
+<span class="lineNum">     435 </span>                :            :                 /*
+<span class="lineNum">     436 </span>                :            :                  * In the future, we might want to send RDBMS-MIB::rdbmsStateChange when the system becomes unavailable or
+<span class="lineNum">     437 </span>                :            :                  * partially unavailable.  This code, which is not currently used, shows how to build the pdu for
+<span class="lineNum">     438 </span>                :            :                  * that trap.
+<span class="lineNum">     439 </span>                :            :                  */
+<span class="lineNum">     440 </span>                :            :                 /* {iso(1) identified-organization(3) dod(6) internet(1) mgmt(2) mib-2(1) rdbmsMIB(39) rdbmsTraps(2) rdbmsStateChange(1)} */
+<span class="lineNum">     441 </span>                :            :                 snmp_add_var(pdu, objid_snmptrap,
+<span class="lineNum">     442 </span>                :            :                                                         sizeof(objid_snmptrap) / sizeof(oid),
+<span class="lineNum">     443 </span>                :            :                                                         'o', &quot;1.3.6.1.2.1.39.2.1&quot;);  // rdbmsStateChange
+<span class="lineNum">     444 </span>                :            : 
+<span class="lineNum">     445 </span>                :            : 
+<span class="lineNum">     446 </span>                :            :                 snmp_add_var(pdu, objid_rdbmsrelstate,
+<span class="lineNum">     447 </span>                :            :                                                         sizeof(objid_rdbmsrelstate) / sizeof(oid),
+<span class="lineNum">     448 </span>                :            :                                                         'i', &quot;5&quot;);  // 4 = restricted, 5 = unavailable
+<span class="lineNum">     449 </span>                :            :         #endif
+<span class="lineNum">     450 </span>                :            : 
+<span class="lineNum">     451 </span>                :            :                 /* {iso(1) identified-organization(3) dod(6) internet(1) private(4) enterprises(1) gpdbMIB(31327) gpdbTraps(5) gpdbTrapsList(0) gpdbAlert(1)} */
+<span class="lineNum">     452 </span>                :            : 
+<span class="lineNum">     453 </span>                :            :                 /*
+<span class="lineNum">     454 </span>                :            :                  * We could specify this trap oid by name, rather than numeric oid, but then if the GPDB-MIB wasn't
+<span class="lineNum">     455 </span>                :            :                  * found, we'd get an error.  Using the numeric oid means we can still work without the MIB loaded.
+<span class="lineNum">     456 </span>                :            :                  */
+<span class="lineNum">     457 </span>                :            :                 snmp_add_var(pdu, objid_snmptrap,
+<span class="lineNum">     458 </span>                :            :                                                         sizeof(objid_snmptrap) / sizeof(oid),
+<span class="lineNum">     459 </span>                :            :                                                         'o', &quot;1.3.6.1.4.1.31327.5.0.1&quot;);  // gpdbAlert
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>                :            : 
+<span class="lineNum">     462 </span>                :            :                 snmp_add_var(pdu, objid_gpdbAlertMsg,
+<span class="lineNum">     463 </span>                :            :                                                         sizeof(objid_gpdbAlertMsg) / sizeof(oid),
+<span class="lineNum">     464 </span>                :            :                                                         's', subject);  // SnmpAdminString = UTF-8 text
+<span class="lineNum">     465 </span>                :            :                 snmp_add_var(pdu, objid_gpdbAlertSeverity,
+<span class="lineNum">     466 </span>                :            :                                                         sizeof(objid_gpdbAlertSeverity) / sizeof(oid),
+<span class="lineNum">     467 </span>                :            :                                                         'i', (char *)severity);
+<span class="lineNum">     468 </span>                :            : 
+<span class="lineNum">     469 </span>                :            :                 snmp_add_var(pdu, objid_gpdbAlertSqlstate,
+<span class="lineNum">     470 </span>                :            :                                                         sizeof(objid_gpdbAlertSqlstate) / sizeof(oid),
+<span class="lineNum">     471 </span>                :            :                                                         's', errorData-&gt;sql_state);
+<span class="lineNum">     472 </span>                :            : 
+<span class="lineNum">     473 </span>                :            :                 snmp_add_var(pdu, objid_gpdbAlertDetail,
+<span class="lineNum">     474 </span>                :            :                                                         sizeof(objid_gpdbAlertDetail) / sizeof(oid),
+<span class="lineNum">     475 </span>                :            :                                                         's', detail); // SnmpAdminString = UTF-8 text
+<span class="lineNum">     476 </span>                :            : 
+<span class="lineNum">     477 </span>                :            :                 snmp_add_var(pdu, objid_gpdbAlertSqlStmt,
+<span class="lineNum">     478 </span>                :            :                                                         sizeof(objid_gpdbAlertSqlStmt) / sizeof(oid),
+<span class="lineNum">     479 </span>                :            :                                                         's', sqlstmt); // SnmpAdminString = UTF-8 text
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>                :            :                 snmp_add_var(pdu, objid_gpdbAlertSystemName,
+<span class="lineNum">     482 </span>                :            :                                                         sizeof(objid_gpdbAlertSystemName) / sizeof(oid),
+<span class="lineNum">     483 </span>                :            :                                                         's', myhostname); // SnmpAdminString = UTF-8 text
+<span class="lineNum">     484 </span>                :            : 
+<span class="lineNum">     485 </span>                :            : 
+<span class="lineNum">     486 </span>                :            : 
+<span class="lineNum">     487 </span>                :            :                 elog(DEBUG2,&quot;ready to send to %s&quot;,cur_gp_snmp_monitor_address);
+<span class="lineNum">     488 </span>                :            :                 if (inform)
+<span class="lineNum">     489 </span>                :            :                         status = snmp_synch_response(ss, pdu, &amp;response);
+<span class="lineNum">     490 </span>                :            :                 else
+<span class="lineNum">     491 </span>                :            :                         status = snmp_send(ss, pdu) == 0;
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>                :            :                 elog(DEBUG2,&quot;send, status %d&quot;,status);
+<span class="lineNum">     494 </span>                :            :                 if (status != STAT_SUCCESS)
+<span class="lineNum">     495 </span>                :            :                 {
+<span class="lineNum">     496 </span>                :            :                         /* Something went wrong */
+<span class="lineNum">     497 </span>                :            :                         if (ss)
+<span class="lineNum">     498 </span>                :            :                         {
+<span class="lineNum">     499 </span>                :            :                                 char           *err;
+<span class="lineNum">     500 </span>                :            :                                 snmp_error(ss, NULL, NULL, &amp;err);
+<span class="lineNum">     501 </span>                :            :                                 elog(LOG, &quot;sendalert failed to send %s: %s&quot;, inform ? &quot;inform&quot; : &quot;trap&quot;, err);
+<span class="lineNum">     502 </span>                :            :                                 free(err);
+<span class="lineNum">     503 </span>                :            :                         }
+<span class="lineNum">     504 </span>                :            :                         else
+<span class="lineNum">     505 </span>                :            :                         {
+<span class="lineNum">     506 </span>                :            :                                 elog(LOG, &quot;sendalert failed to send %s: %s&quot;, inform ? &quot;inform&quot; : &quot;trap&quot;, &quot;Something went wrong&quot;);
+<span class="lineNum">     507 </span>                :            :                         }
+<span class="lineNum">     508 </span>                :            :                         if (!inform)
+<span class="lineNum">     509 </span>                :            :                                 snmp_free_pdu(pdu);
+<span class="lineNum">     510 </span>                :            :                 }
+<span class="lineNum">     511 </span>                :            :                 else if (inform)
+<span class="lineNum">     512 </span>                :            :                         snmp_free_pdu(response);
+<span class="lineNum">     513 </span>                :            : 
+<span class="lineNum">     514 </span>                :            :                 snmp_close(ss);
+<span class="lineNum">     515 </span>                :            :                 ss = NULL;
+<span class="lineNum">     516 </span>                :            : 
+<span class="lineNum">     517 </span>                :            :         }
+<span class="lineNum">     518 </span>                :            : 
+<span class="lineNum">     519 </span>                :            :         /*
+<span class="lineNum">     520 </span>                :            :          * don't do the shutdown, to avoid the cost of starting up snmp each time
+<span class="lineNum">     521 </span>                :            :          * (plus, it doesn't seem to work to run snmp_init() again after a shutdown)
+<span class="lineNum">     522 </span>                :            :          *
+<span class="lineNum">     523 </span>                :            :          * It would be nice to call this when the syslogger is shutting down.
+<span class="lineNum">     524 </span>                :            :          */
+<span class="lineNum">     525 </span>                :            :         /*snmp_shutdown(&quot;sendalert&quot;);*/
+<span class="lineNum">     526 </span>                :            : 
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :            :         return 0;
+<span class="lineNum">     529 </span>                :            : }
+<span class="lineNum">     530 </span>                :            : #endif
+<span class="lineNum">     531 </span>                :            : 
+<a name="532"><span class="lineNum">     532 </span>                :            : #if defined(HAVE_DECL_CURLOPT_MAIL_FROM) &amp;&amp; HAVE_DECL_CURLOPT_MAIL_FROM</a>
+<span class="lineNum">     533 </span>                :            : static void
+<span class="lineNum">     534 </span>                :            : send_alert_via_email(const GpErrorData *errorData,
+<span class="lineNum">     535 </span>                :            :                                          const char *subject, const char *email_priority)
+<span class="lineNum">     536 </span>                :            : {
+<span class="lineNum">     537 </span>                :            :         CURL       *curl;
+<span class="lineNum">     538 </span>                :            :         upload_ctx      upload_ctx;
+<span class="lineNum">     539 </span>                :            :         char       *rawstring;
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :         List       *elemlist = NIL;</span>
+<span class="lineNum">     541 </span>                :            :         ListCell   *l;
+<span class="lineNum">     542 </span>                :            :         static int      num_connect_failures = 0;
+<span class="lineNum">     543 </span>                :            :         static time_t last_connect_failure_ts = 0;
+<span class="lineNum">     544 </span>                :            :         char            smtp_url[200];
+<span class="lineNum">     545 </span>                :            :         int                     num_recipients;
+<span class="lineNum">     546 </span>                :            :         int                     num_sent_successfully;
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :         char       *from = NULL;</span>
+<span class="lineNum">     548 </span>                :            : 
+<span class="lineNum">     549 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (gp_email_connect_failures &amp;&amp; num_connect_failures &gt;= gp_email_connect_failures)</span>
+<span class="lineNum">     550 </span>                :            :         {
+<span class="lineNum">     551 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (time(0) - last_connect_failure_ts &gt; gp_email_connect_avoid_duration)</span>
+<span class="lineNum">     552 </span>                :            :                 {
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :                         num_connect_failures = 0;</span>
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :                         elog(LOG, &quot;Retrying emails now...&quot;);</span>
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     556 </span>                :            :                 else
+<span class="lineNum">     557 </span>                :            :                 {
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                         elog(LOG, &quot;Not attempting emails as of now&quot;);</span>
+<span class="lineNum">     559 </span>                :<span class="lineNoCov">          0 :                         return;</span>
+<span class="lineNum">     560 </span>                :            :                 }
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     562 </span>                :            : 
+<span class="lineNum">     563 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (gp_email_to == NULL || strlen(gp_email_to) == 0)</span>
+<span class="lineNum">     564 </span>                :            :         {
+<span class="lineNum">     565 </span>                :            :                 static bool firsttime = 1;
+<span class="lineNum">     566 </span>                :            : 
+<span class="lineNum">     567 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(firsttime ? LOG : DEBUG1,(errmsg(&quot;e-mail alerts are disabled&quot;)));</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                 firsttime = false;</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     570 </span>                :            :         }
+<span class="lineNum">     571 </span>                :            : 
+<span class="lineNum">     572 </span>                :            :     /*
+<span class="lineNum">     573 </span>                :            :      * Per curl docs/example:
+<span class="lineNum">     574 </span>                :            :          *
+<span class="lineNum">     575 </span>                :            :      * Note that this option isn't strictly required, omitting it will result
+<span class="lineNum">     576 </span>                :            :      * in libcurl sending the MAIL FROM command with empty sender data. All
+<span class="lineNum">     577 </span>                :            :      * autoresponses should have an empty reverse-path, and should be directed
+<span class="lineNum">     578 </span>                :            :      * to the address in the reverse-path which triggered them. Otherwise, they
+<span class="lineNum">     579 </span>                :            :      * could cause an endless loop. See RFC 5321 Section 4.5.5 for more details.
+<span class="lineNum">     580 </span>                :            :      */
+<span class="lineNum">     581 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strlen(gp_email_from) == 0)</span>
+<span class="lineNum">     582 </span>                :            :         {
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;e-mail alerts are not properly configured:  No 'from:' address configured&quot;);</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     585 </span>                :            :         }
+<span class="lineNum">     586 </span>                :            : 
+<span class="lineNum">     587 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strchr(gp_email_to, ';') == NULL &amp;&amp; strchr(gp_email_to, ',') != NULL)</span>
+<span class="lineNum">     588 </span>                :            :         {
+<span class="lineNum">     589 </span>                :            :                 // email addrs should be separated by ';', but because we used to require ',',
+<span class="lineNum">     590 </span>                :            :                 // let's accept that if it looks OK.
+<span class="lineNum">     591 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (strchr(gp_email_to,',') != NULL)</span>
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                         *strchr(gp_email_to,',') = ';';</span>
+<span class="lineNum">     593 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     594 </span>                :            : 
+<span class="lineNum">     595 </span>                :<span class="lineNoCov">          0 :         from = extract_email_addr(gp_email_from);</span>
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>                :            :         /* Build the message headers + body */
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;upload_ctx.body);</span>
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :         build_messagebody(&amp;upload_ctx.body, errorData, subject, email_priority);</span>
+<span class="lineNum">     600 </span>                :            : 
+<span class="lineNum">     601 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (gp_email_smtp_server != NULL &amp;&amp; strlen(gp_email_smtp_server) &gt; 0)</span>
+<span class="lineNum">     602 </span>                :<span class="lineNoCov">          0 :                 snprintf(smtp_url, sizeof(smtp_url), &quot;smtp://%s&quot;, gp_email_smtp_server);</span>
+<span class="lineNum">     603 </span>                :            :         else
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :                 snprintf(smtp_url, sizeof(smtp_url), &quot;smtp://localhost&quot;);</span>
+<span class="lineNum">     605 </span>                :            : 
+<span class="lineNum">     606 </span>                :            :         /* Need a modifiable copy of To list */
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :         rawstring = pstrdup(gp_email_to);</span>
+<span class="lineNum">     608 </span>                :            : 
+<span class="lineNum">     609 </span>                :            :         /* Parse string into list of identifiers */
+<span class="lineNum">     610 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!SplitMailString(rawstring, ';', &amp;elemlist))</span>
+<span class="lineNum">     611 </span>                :            :         {
+<span class="lineNum">     612 </span>                :            :                 /* syntax error in list */
+<span class="lineNum">     613 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(LOG,</span>
+<span class="lineNum">     614 </span>                :            :                                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+<span class="lineNum">     615 </span>                :            :                                  errmsg(&quot;invalid list syntax for \&quot;gp_email_to\&quot;&quot;)));
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     617 </span>                :            : 
+<span class="lineNum">     618 </span>                :            :         /*
+<span class="lineNum">     619 </span>                :            :          * Ok, let's initialize libcurl.
+<span class="lineNum">     620 </span>                :            :          */
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :         curl = curl_easy_init();</span>
+<span class="lineNum">     622 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (curl)</span>
+<span class="lineNum">     623 </span>                :            :         {
+<span class="lineNum">     624 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 PG_TRY();</span>
+<span class="lineNum">     625 </span>                :            :                 {
+<span class="lineNum">     626 </span>                :            :                         /*
+<span class="lineNum">     627 </span>                :            :                          * Loop around the list of recipients, and send the same message
+<span class="lineNum">     628 </span>                :            :                          * to each one. We send all the messages using the same
+<span class="lineNum">     629 </span>                :            :                          * easy-handle; that allows curl to reuse the same connection for
+<span class="lineNum">     630 </span>                :            :                          * each sent message.
+<span class="lineNum">     631 </span>                :            :                          *
+<span class="lineNum">     632 </span>                :            :                          * XXX: libcurl supports sending to a list of recipients, but if
+<span class="lineNum">     633 </span>                :            :                          * the delivery to any one of them fails, it bails out without
+<span class="lineNum">     634 </span>                :            :                          * sending to any of the recipients. See curl known bug #70,
+<span class="lineNum">     635 </span>                :            :                          * http://curl.haxx.se/bug/view.cgi?id=1116
+<span class="lineNum">     636 </span>                :            :                          *
+<span class="lineNum">     637 </span>                :            :                          * If that ever gets fixed in libcurl, we should build a single
+<span class="lineNum">     638 </span>                :            :                          * list of recipients here and only send the mail once.
+<span class="lineNum">     639 </span>                :            :                          */
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                         num_recipients = 0;</span>
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                         num_sent_successfully = 0;</span>
+<span class="lineNum">     642 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(l, elemlist)</span>
+<span class="lineNum">     643 </span>                :            :                         {
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :                                 char       *cur_gp_email_addr = (char *) lfirst(l);</span>
+<span class="lineNum">     645 </span>                :            :                                 char       *to;
+<span class="lineNum">     646 </span>                :            :                                 struct curl_slist *recipient;
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :                                 bool            connect_failure = false;</span>
+<span class="lineNum">     648 </span>                :            :                                 CURLcode        res;
+<span class="lineNum">     649 </span>                :            :                                 char            curlerror[CURL_ERROR_SIZE];
+<span class="lineNum">     650 </span>                :            : 
+<span class="lineNum">     651 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (cur_gp_email_addr == NULL || *cur_gp_email_addr == '\0')</span>
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :                                         continue;</span>
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :                                 num_recipients++;</span>
+<span class="lineNum">     654 </span>                :            : 
+<span class="lineNum">     655 </span>                :            :                                 /* Recipient must be in RFC2821 format */
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :                                 to = extract_email_addr(cur_gp_email_addr);</span>
+<span class="lineNum">     657 </span>                :            : 
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 :                                 recipient = curl_slist_append(NULL, to);</span>
+<span class="lineNum">     659 </span>                :            : 
+<span class="lineNum">     660 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (recipient == NULL)</span>
+<span class="lineNum">     661 </span>                :            :                                 {
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :                                         elog(LOG, &quot;could not append recipient %s&quot;, to);</span>
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :                                         pfree(to);</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                                         continue;</span>
+<span class="lineNum">     665 </span>                :            :                                 }
+<span class="lineNum">     666 </span>                :            : 
+<span class="lineNum">     667 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, curlerror);</span>
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_URL, smtp_url);</span>
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT,</span>
+<span class="lineNum">     670 </span>                :            :                                                                  (long) gp_email_connect_timeout);
+<span class="lineNum">     671 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (gp_email_smtp_userid &amp;&amp; *gp_email_smtp_userid)</span>
+<span class="lineNum">     672 </span>                :<span class="lineNoCov">          0 :                                         curl_easy_setopt(curl, CURLOPT_USERNAME,</span>
+<span class="lineNum">     673 </span>                :            :                                                                          gp_email_smtp_userid);
+<span class="lineNum">     674 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (gp_email_smtp_password &amp;&amp; *gp_email_smtp_password)</span>
+<span class="lineNum">     675 </span>                :<span class="lineNoCov">          0 :                                         curl_easy_setopt(curl, CURLOPT_PASSWORD,</span>
+<span class="lineNum">     676 </span>                :            :                                                                          gp_email_smtp_password);
+<span class="lineNum">     677 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (from &amp;&amp; *from)</span>
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :                                         curl_easy_setopt(curl, CURLOPT_MAIL_FROM, from);</span>
+<span class="lineNum">     679 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_MAIL_RCPT, recipient);</span>
+<span class="lineNum">     680 </span>                :            : 
+<span class="lineNum">     681 </span>                :            :                                 /*
+<span class="lineNum">     682 </span>                :            :                                  * Use a callback function to pass the payload (headers and
+<span class="lineNum">     683 </span>                :            :                                  * the message body) to libcurl.
+<span class="lineNum">     684 </span>                :            :                                  */
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :                                 upload_ctx.consumed = 0;</span>
+<span class="lineNum">     686 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_READFUNCTION, messagebody_cb);</span>
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_READDATA, &amp;upload_ctx);</span>
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 :                                 curl_easy_setopt(curl, CURLOPT_UPLOAD, 1L);</span>
+<span class="lineNum">     689 </span>                :            : 
+<span class="lineNum">     690 </span>                :            :                                 /* Ok, all set. Send the message */
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :                                 res = curl_easy_perform(curl);</span>
+<span class="lineNum">     692 </span>                :            : 
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :                                 curl_slist_free_all(recipient);</span>
+<span class="lineNum">     694 </span>                :            : 
+<span class="lineNum">     695 </span>                :            :                                 /* Did it succeed? */
+<span class="lineNum">     696 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :                                 switch(res)</span>
+<span class="lineNum">         </span>   <span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     697 </span>                :            :                                 {
+<span class="lineNum">     698 </span>                :            :                                         case CURLE_OK:
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                                                 num_connect_failures = 0;</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :                                                 num_sent_successfully++;</span>
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     702 </span>                :            : 
+<span class="lineNum">     703 </span>                :            :                                                 /*
+<span class="lineNum">     704 </span>                :            :                                                  * If we get any of these errors, something went wrong
+<span class="lineNum">     705 </span>                :            :                                                  * with connecting to the server. Treat it as a
+<span class="lineNum">     706 </span>                :            :                                                  * connection failure, and bail out immediately
+<span class="lineNum">     707 </span>                :            :                                                  * without trying the rest of the recipients.
+<span class="lineNum">     708 </span>                :            :                                                  */
+<span class="lineNum">     709 </span>                :            :                                         case CURLE_OPERATION_TIMEDOUT:
+<span class="lineNum">     710 </span>                :            :                                         case CURLE_UNSUPPORTED_PROTOCOL:
+<span class="lineNum">     711 </span>                :            :                                         case CURLE_URL_MALFORMAT:
+<span class="lineNum">     712 </span>                :            :                                         case CURLE_COULDNT_RESOLVE_PROXY:
+<span class="lineNum">     713 </span>                :            :                                         case CURLE_COULDNT_RESOLVE_HOST:
+<span class="lineNum">     714 </span>                :            :                                         case CURLE_COULDNT_CONNECT:
+<span class="lineNum">     715 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(LOG,</span>
+<span class="lineNum">     716 </span>                :            :                                                                 (errmsg(&quot;could not connect to SMTP server&quot;),
+<span class="lineNum">     717 </span>                :            :                                                                  errdetail(&quot;%s&quot;, curlerror)));
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :                                                 connect_failure = true;</span>
+<span class="lineNum">     719 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     720 </span>                :            : 
+<span class="lineNum">     721 </span>                :            :                                                 /*
+<span class="lineNum">     722 </span>                :            :                                                  * Any other error might be because of an invalid
+<span class="lineNum">     723 </span>                :            :                                                  * recipient, for example, and we might still succeed
+<span class="lineNum">     724 </span>                :            :                                                  * in sending to the other recipients. Continue.
+<span class="lineNum">     725 </span>                :            :                                                  */
+<span class="lineNum">     726 </span>                :            :                                         default:
+<span class="lineNum">     727 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(LOG,</span>
+<span class="lineNum">     728 </span>                :            :                                                                 (errmsg(&quot;could not send alert email to \&quot;%s\&quot;&quot;, to),
+<span class="lineNum">     729 </span>                :            :                                                                  errdetail(&quot;%s&quot;, curlerror)));
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     731 </span>                :            :                                 }
+<span class="lineNum">     732 </span>                :            : 
+<span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 :                                 pfree(to);</span>
+<span class="lineNum">     734 </span>                :            : 
+<span class="lineNum">     735 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (connect_failure)</span>
+<span class="lineNum">     736 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     738 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (num_recipients == 0 &amp;&amp; list_length(elemlist) &gt; 0)</span>
+<span class="lineNum">     739 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(LOG,</span>
+<span class="lineNum">     740 </span>                :            :                                                 (errmsg(&quot;Could not understand e-mail To: list&quot;)));
+<span class="lineNum">     741 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (num_sent_successfully == 0)</span>
+<span class="lineNum">     742 </span>                :            :                         {
+<span class="lineNum">     743 </span>                :            :                                 /*
+<span class="lineNum">     744 </span>                :            :                                  * If we couldn't deliver the mail to any recipients, treat it
+<span class="lineNum">     745 </span>                :            :                                  * as a connection failure.
+<span class="lineNum">     746 </span>                :            :                                  */
+<span class="lineNum">     747 </span>                :<span class="lineNoCov">          0 :                                 num_connect_failures++;</span>
+<span class="lineNum">     748 </span>                :<span class="lineNoCov">          0 :                                 last_connect_failure_ts = time(NULL);</span>
+<span class="lineNum">     749 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     750 </span>                :            :                 }
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :                 PG_CATCH();</span>
+<span class="lineNum">     752 </span>                :            :                 {
+<span class="lineNum">     753 </span>                :            :                         /*
+<span class="lineNum">     754 </span>                :            :                          * Close the handle. This closes the connection to the SMTP
+<span class="lineNum">     755 </span>                :            :                          * server.
+<span class="lineNum">     756 </span>                :            :                          */
+<span class="lineNum">     757 </span>                :<span class="lineNoCov">          0 :                         curl_easy_cleanup(curl);</span>
+<span class="lineNum">     758 </span>                :            : 
+<span class="lineNum">     759 </span>                :<span class="lineNoCov">          0 :                         PG_RE_THROW();</span>
+<span class="lineNum">     760 </span>                :            :                 }
+<span class="lineNum">     761 </span>                :<span class="lineNoCov">          0 :                 PG_END_TRY();</span>
+<span class="lineNum">     762 </span>                :            : 
+<span class="lineNum">     763 </span>                :            :                 /* Close the handle. This closes the connection to the SMTP server. */
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :                 curl_easy_cleanup(curl);</span>
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     766 </span>                :            :         else
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;Unable to send e-mail: curl_easy_init failed&quot;);</span>
+<span class="lineNum">     768 </span>                :            : 
+<span class="lineNum">     769 </span>                :            :         /*
+<span class="lineNum">     770 </span>                :            :          * Free other stuff we allocated. We run in a long-lived memory context
+<span class="lineNum">     771 </span>                :            :          * so we have to be careful to not leak.
+<span class="lineNum">     772 </span>                :            :          */
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :         pfree(rawstring);</span>
+<span class="lineNum">     774 </span>                :<span class="lineNoCov">          0 :         list_free(elemlist);</span>
+<span class="lineNum">     775 </span>                :<span class="lineNoCov">          0 :         pfree(from);</span>
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :         pfree(upload_ctx.body.data);</span>
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="778"><span class="lineNum">     778 </span>                :            : #endif</a>
+<span class="lineNum">     779 </span>                :            : 
+<span class="lineNum">     780 </span>                :            : int send_alert(const GpErrorData * errorData)
+<span class="lineNum">     781 </span>                :            : {
+<span class="lineNum">     782 </span>                :            : 
+<span class="lineNum">     783 </span>                :            :         char subject[128];
+<span class="lineNum">     784 </span>                :<span class="lineNoCov">          0 :         bool send_via_email = true;</span>
+<span class="lineNum">     785 </span>                :            :         char email_priority[2];
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :         bool send_via_snmp = true;</span>
+<span class="lineNum">     787 </span>                :            :         char snmp_severity[2];
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>                :            :         static char previous_subject[128];
+<span class="lineNum">     790 </span>                :            :         pg_time_t current_time;
+<span class="lineNum">     791 </span>                :            :         static pg_time_t previous_time;
+<span class="lineNum">     792 </span>                :            :         static GpErrorDataFixFields previous_fix_fields;
+<span class="lineNum">     793 </span>                :            : 
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :         elog(DEBUG2,&quot;send_alert: %s: %s&quot;,errorData-&gt;error_severity, errorData-&gt;error_message);</span>
+<span class="lineNum">     795 </span>                :            : 
+<span class="lineNum">     796 </span>                :            :         /*
+<span class="lineNum">     797 </span>                :            :          * SIGPIPE must be ignored, or we will have problems.
+<span class="lineNum">     798 </span>                :            :          *
+<span class="lineNum">     799 </span>                :            :          * but this is already set in syslogger.c, so we are OK
+<span class="lineNum">     800 </span>                :            :          * //pqsignal(SIGPIPE, SIG_IGN);  // already set in syslogger.c
+<span class="lineNum">     801 </span>                :            :          *
+<span class="lineNum">     802 </span>                :            :          */
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>                :            :         /* Set up a subject line for the alert.  set_alert_severity will limit it to 127 bytes just to be safe. */
+<span class="lineNum">     805 </span>                :            :         /* Assign a severity and email priority for this alert*/
+<span class="lineNum">     806 </span>                :            : 
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :         set_alert_severity(errorData,</span>
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                                                 subject,</span>
+<span class="lineNum">     809 </span>                :            :                                                 &amp;send_via_email,
+<span class="lineNum">     810 </span>                :<span class="lineNoCov">          0 :                                                 email_priority,</span>
+<span class="lineNum">     811 </span>                :            :                                                 &amp;send_via_snmp,
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :                                                 snmp_severity);</span>
+<span class="lineNum">     813 </span>                :            : 
+<span class="lineNum">     814 </span>                :            : 
+<span class="lineNum">     815 </span>                :            :         /*
+<span class="lineNum">     816 </span>                :            :          * Check to see if we are sending the same message as last time.
+<span class="lineNum">     817 </span>                :            :          * This could mean the system is in a loop generating an error over and over,
+<span class="lineNum">     818 </span>                :            :          * or the application is just re-doing the same bad request over and over.
+<span class="lineNum">     819 </span>                :            :          *
+<span class="lineNum">     820 </span>                :            :          * This is pretty crude, as we don't consider loops where we alternate between a small
+<span class="lineNum">     821 </span>                :            :          * number of messages.
+<span class="lineNum">     822 </span>                :            :          */
+<span class="lineNum">     823 </span>                :            : 
+<span class="lineNum">     824 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strcmp(subject,previous_subject)==0)</span>
+<span class="lineNum">     825 </span>                :            :         {
+<span class="lineNum">     826 </span>                :            :                 /*
+<span class="lineNum">     827 </span>                :            :                  * Looks like the same message based on the errMsg, but we need to
+<span class="lineNum">     828 </span>                :            :                  * investigate further.
+<span class="lineNum">     829 </span>                :            :                  */
+<span class="lineNum">     830 </span>                :<span class="lineNoCov">          0 :                 bool same_message_repeated = true;</span>
+<span class="lineNum">     831 </span>                :            : 
+<span class="lineNum">     832 </span>                :            :                 /*
+<span class="lineNum">     833 </span>                :            :                  * If the message is from a different segDB, consider it a different message.
+<span class="lineNum">     834 </span>                :            :                  */
+<span class="lineNum">     835 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;fix_fields.gp_segment_id != previous_fix_fields.gp_segment_id)</span>
+<span class="lineNum">     836 </span>                :<span class="lineNoCov">          0 :                         same_message_repeated = false;</span>
+<span class="lineNum">     837 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;fix_fields.gp_is_primary != previous_fix_fields.gp_is_primary)</span>
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 :                         same_message_repeated = false;</span>
+<span class="lineNum">     839 </span>                :            :                 /*
+<span class="lineNum">     840 </span>                :            :                  * If the message is from a different user, consider it a different message,
+<span class="lineNum">     841 </span>                :            :                  * unless it is a FATAL, because an application repeatedly sending in a request
+<span class="lineNum">     842 </span>                :            :                  * that crashes (SIGSEGV) will get a new session ID each time
+<span class="lineNum">     843 </span>                :            :                  */
+<span class="lineNum">     844 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;fix_fields.gp_session_id != previous_fix_fields.gp_session_id)</span>
+<span class="lineNum">     845 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (strcmp(errorData-&gt;error_severity,&quot;FATAL&quot;) != 0)</span>
+<span class="lineNum">     846 </span>                :<span class="lineNoCov">          0 :                                 same_message_repeated = false;</span>
+<span class="lineNum">     847 </span>                :            :                 /*
+<span class="lineNum">     848 </span>                :            :                  * Don't consider gp_command_count, because a loop where the application is repeatedly
+<span class="lineNum">     849 </span>                :            :                  * sending a bad request will have a changing command_count.
+<span class="lineNum">     850 </span>                :            :                  *
+<span class="lineNum">     851 </span>                :            :                  * Likewise, the transaction ids will be changing each time, so don't consider them.
+<span class="lineNum">     852 </span>                :            :                  */
+<span class="lineNum">     853 </span>                :            : 
+<span class="lineNum">     854 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (same_message_repeated)</span>
+<span class="lineNum">     855 </span>                :            :                 {
+<span class="lineNum">     856 </span>                :<span class="lineNoCov">          0 :                         current_time = (pg_time_t)time(NULL);</span>
+<span class="lineNum">     857 </span>                :            :                         /*
+<span class="lineNum">     858 </span>                :            :                          * This is the same alert as last time.  Limit us to one repeat alert every 30 seconds
+<span class="lineNum">     859 </span>                :            :                          * to avoid spamming the sysAdmin's mailbox or the snmp network monitor.
+<span class="lineNum">     860 </span>                :            :                          *
+<span class="lineNum">     861 </span>                :            :                          * We don't just turn off the alerting until a different message comes in, because
+<span class="lineNum">     862 </span>                :            :                          * if enough time has passed, this message might (probably?) refer to a new issue.
+<span class="lineNum">     863 </span>                :            :                          *
+<span class="lineNum">     864 </span>                :            :                          * Note that the message will still exist in the log, it's just that we won't
+<span class="lineNum">     865 </span>                :            :                          * send it via e-mail or snmp notification.
+<span class="lineNum">     866 </span>                :            :                          */
+<span class="lineNum">     867 </span>                :            : 
+<span class="lineNum">     868 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (current_time - previous_time &lt; 30)</span>
+<span class="lineNum">     869 </span>                :            :                         {
+<span class="lineNum">     870 </span>                :            :                                 /* Bail out here rather than send the alert. */
+<span class="lineNum">     871 </span>                :<span class="lineNoCov">          0 :                                 elog(DEBUG2,&quot;Suppressing repeats of this alert messages...&quot;);</span>
+<span class="lineNum">     872 </span>                :<span class="lineNoCov">          0 :                                 return -1;</span>
+<span class="lineNum">     873 </span>                :            :                         }
+<span class="lineNum">     874 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     875 </span>                :            : 
+<span class="lineNum">     876 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     877 </span>                :            : 
+<span class="lineNum">     878 </span>                :<span class="lineNoCov">          0 :         strcpy(previous_subject, subject);</span>
+<span class="lineNum">     879 </span>                :<span class="lineNoCov">          0 :         previous_time = (pg_time_t)time(NULL);</span>
+<span class="lineNum">     880 </span>                :<span class="lineNoCov">          0 :         memcpy(&amp;previous_fix_fields,&amp;errorData-&gt;fix_fields,sizeof(GpErrorDataFixFields));</span>
+<span class="lineNum">     881 </span>                :            : 
+<span class="lineNum">     882 </span>                :            : #ifdef USE_SNMP
+<span class="lineNum">     883 </span>                :            :         if (send_via_snmp)
+<span class="lineNum">     884 </span>                :            :                 send_snmp_inform_or_trap(errorData, subject, snmp_severity);
+<span class="lineNum">     885 </span>                :            :         else 
+<span class="lineNum">     886 </span>                :            :                 elog(DEBUG4,&quot;Not sending via SNMP&quot;);
+<span class="lineNum">     887 </span>                :            : #endif
+<span class="lineNum">     888 </span>                :            : 
+<span class="lineNum">     889 </span>                :            : #if defined(HAVE_DECL_CURLOPT_MAIL_FROM) &amp;&amp; HAVE_DECL_CURLOPT_MAIL_FROM
+<span class="lineNum">     890 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (send_via_email)</span>
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                 send_alert_via_email(errorData, subject, email_priority);</span>
+<span class="lineNum">     892 </span>                :            :         else
+<span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :                 elog(DEBUG4,&quot;Not sending via e-mail&quot;);</span>
+<span class="lineNum">     894 </span>                :            : #endif
+<span class="lineNum">     895 </span>                :            : 
+<span class="lineNum">     896 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     897 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     898 </span>                :            : 
+<a name="899"><span class="lineNum">     899 </span>                :            : </a>
+<span class="lineNum">     900 </span>                :            : static size_t
+<span class="lineNum">     901 </span>                :            : pg_strnlen(const char *str, size_t maxlen)
+<span class="lineNum">     902 </span>                :            : {
+<span class="lineNum">     903 </span>                :<span class="lineNoCov">          0 :         const char *p = str;</span>
+<span class="lineNum">     904 </span>                :            : 
+<span class="lineNum">     905 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (maxlen-- &gt; 0 &amp;&amp; *p)</span>
+<span class="lineNum">     906 </span>                :<span class="lineNoCov">          0 :                 p++;</span>
+<span class="lineNum">     907 </span>                :<span class="lineNoCov">          0 :         return p - str;</span>
+<a name="908"><span class="lineNum">     908 </span>                :            : }</a>
+<span class="lineNum">     909 </span>                :            : 
+<span class="lineNum">     910 </span>                :            : static void move_to_next_chunk(CSVChunkStr * chunkstr,
+<span class="lineNum">     911 </span>                :            :                 const PipeProtoChunk * saved_chunks)
+<span class="lineNum">     912 </span>                :            : {
+<span class="lineNum">     913 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(chunkstr != NULL);</span>
+<span class="lineNum">     914 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(saved_chunks != NULL);</span>
+<span class="lineNum">     915 </span>                :            : 
+<span class="lineNum">     916 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (chunkstr-&gt;chunk != NULL)</span>
+<span class="lineNum">     917 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (chunkstr-&gt;p - chunkstr-&gt;chunk-&gt;data &gt;= chunkstr-&gt;chunk-&gt;hdr.len)</span>
+<span class="lineNum">     918 </span>                :            :                 {
+<span class="lineNum">     919 </span>                :            :                         /* switch to next chunk */
+<span class="lineNum">     920 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (chunkstr-&gt;chunk-&gt;hdr.next &gt;= 0)</span>
+<span class="lineNum">     921 </span>                :            :                         {
+<span class="lineNum">     922 </span>                :<span class="lineNoCov">          0 :                                 chunkstr-&gt;chunk = &amp;saved_chunks[chunkstr-&gt;chunk-&gt;hdr.next];</span>
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :                                 chunkstr-&gt;p = chunkstr-&gt;chunk-&gt;data;</span>
+<span class="lineNum">     924 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     925 </span>                :            :                         else
+<span class="lineNum">     926 </span>                :            :                         {
+<span class="lineNum">     927 </span>                :            :                                 /* no more chunks */
+<span class="lineNum">     928 </span>                :<span class="lineNoCov">          0 :                                 chunkstr-&gt;chunk = NULL;</span>
+<span class="lineNum">     929 </span>                :<span class="lineNoCov">          0 :                                 chunkstr-&gt;p = NULL;</span>
+<span class="lineNum">     930 </span>                :            :                         }
+<span class="lineNum">     931 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     932 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="933"><span class="lineNum">     933 </span>                :            : </a>
+<span class="lineNum">     934 </span>                :            : char *
+<span class="lineNum">     935 </span>                :            : get_str_from_chunk(CSVChunkStr *chunkstr, const PipeProtoChunk *saved_chunks)
+<span class="lineNum">     936 </span>                :            : {
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 :         int wlen = 0;</span>
+<span class="lineNum">     938 </span>                :<span class="lineNoCov">          0 :         int len = 0;</span>
+<span class="lineNum">     939 </span>                :<span class="lineNoCov">          0 :         char * out = NULL;</span>
+<span class="lineNum">     940 </span>                :            : 
+<span class="lineNum">     941 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(chunkstr != NULL);</span>
+<span class="lineNum">     942 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(saved_chunks != NULL);</span>
+<span class="lineNum">     943 </span>                :            : 
+<span class="lineNum">     944 </span>                :<span class="lineNoCov">          0 :         move_to_next_chunk(chunkstr, saved_chunks);</span>
+<span class="lineNum">     945 </span>                :            : 
+<span class="lineNum">     946 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (chunkstr-&gt;p == NULL)</span>
+<span class="lineNum">     947 </span>                :            :         {
+<span class="lineNum">     948 </span>                :<span class="lineNoCov">          0 :                 return strdup(&quot;&quot;);</span>
+<span class="lineNum">     949 </span>                :            :         }
+<span class="lineNum">     950 </span>                :            : 
+<span class="lineNum">     951 </span>                :<span class="lineNoCov">          0 :         len = chunkstr-&gt;chunk-&gt;hdr.len - (chunkstr-&gt;p - chunkstr-&gt;chunk-&gt;data);</span>
+<span class="lineNum">     952 </span>                :            : 
+<span class="lineNum">     953 </span>                :            :         /* Check if the string is an empty string */
+<span class="lineNum">     954 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &gt; 0 &amp;&amp; chunkstr-&gt;p[0] == '\0')</span>
+<span class="lineNum">     955 </span>                :            :         {
+<span class="lineNum">     956 </span>                :<span class="lineNoCov">          0 :                 chunkstr-&gt;p++;</span>
+<span class="lineNum">     957 </span>                :<span class="lineNoCov">          0 :                 move_to_next_chunk(chunkstr, saved_chunks);</span>
+<span class="lineNum">     958 </span>                :            : 
+<span class="lineNum">     959 </span>                :<span class="lineNoCov">          0 :                 return strdup(&quot;&quot;);</span>
+<span class="lineNum">     960 </span>                :            :         }
+<span class="lineNum">     961 </span>                :            : 
+<span class="lineNum">     962 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len == 0 &amp;&amp; chunkstr-&gt;chunk-&gt;hdr.next &gt;= 0)</span>
+<span class="lineNum">     963 </span>                :            :         {
+<span class="lineNum">     964 </span>                :<span class="lineNoCov">          0 :                 const PipeProtoChunk *next_chunk =</span>
+<span class="lineNum">     965 </span>                :<span class="lineNoCov">          0 :                                 &amp;saved_chunks[chunkstr-&gt;chunk-&gt;hdr.next];</span>
+<span class="lineNum">     966 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (next_chunk-&gt;hdr.len &gt; 0 &amp;&amp; next_chunk-&gt;data[0] == '\0')</span>
+<span class="lineNum">     967 </span>                :            :                 {
+<span class="lineNum">     968 </span>                :<span class="lineNoCov">          0 :                         chunkstr-&gt;p++;</span>
+<span class="lineNum">     969 </span>                :<span class="lineNoCov">          0 :                         move_to_next_chunk(chunkstr, saved_chunks);</span>
+<span class="lineNum">     970 </span>                :<span class="lineNoCov">          0 :                         return strdup(&quot;&quot;);</span>
+<span class="lineNum">     971 </span>                :            :                 }
+<span class="lineNum">     972 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     973 </span>                :            : 
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :         wlen = pg_strnlen(chunkstr-&gt;p, len);</span>
+<span class="lineNum">     975 </span>                :            : 
+<span class="lineNum">     976 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (wlen &lt; len)</span>
+<span class="lineNum">     977 </span>                :            :         {
+<span class="lineNum">     978 </span>                :            :                 // String all contained in this chunk
+<span class="lineNum">     979 </span>                :<span class="lineNoCov">          0 :                 out = malloc(wlen + 1);</span>
+<span class="lineNum">     980 </span>                :<span class="lineNoCov">          0 :                 memcpy(out, chunkstr-&gt;p, wlen + 1); // include the null byte</span>
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :                 chunkstr-&gt;p += wlen + 1; // skip to start of next string.</span>
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :                 return out;</span>
+<span class="lineNum">     983 </span>                :            :         }
+<span class="lineNum">     984 </span>                :            : 
+<span class="lineNum">     985 </span>                :<span class="lineNoCov">          0 :         out = malloc(wlen + 1);</span>
+<span class="lineNum">     986 </span>                :<span class="lineNoCov">          0 :         memcpy(out, chunkstr-&gt;p, wlen);</span>
+<span class="lineNum">     987 </span>                :<span class="lineNoCov">          0 :         out[wlen] = '\0';</span>
+<span class="lineNum">     988 </span>                :<span class="lineNoCov">          0 :         chunkstr-&gt;p += wlen;</span>
+<span class="lineNum">     989 </span>                :            : 
+<span class="lineNum">     990 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (chunkstr-&gt;p)</span>
+<span class="lineNum">     991 </span>                :            :         {
+<span class="lineNum">     992 </span>                :<span class="lineNoCov">          0 :                 move_to_next_chunk(chunkstr, saved_chunks);</span>
+<span class="lineNum">     993 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (chunkstr-&gt;p == NULL)</span>
+<span class="lineNum">     994 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     995 </span>                :<span class="lineNoCov">          0 :                 len = chunkstr-&gt;chunk-&gt;hdr.len - (chunkstr-&gt;p - chunkstr-&gt;chunk-&gt;data);</span>
+<span class="lineNum">     996 </span>                :            : 
+<span class="lineNum">     997 </span>                :<span class="lineNoCov">          0 :                 wlen = pg_strnlen(chunkstr-&gt;p, len);</span>
+<span class="lineNum">     998 </span>                :            : 
+<span class="lineNum">     999 </span>                :            :                 /* Write OK, don't forget to account for the trailing 0 */
+<span class="lineNum">    1000 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (wlen &lt; len)</span>
+<span class="lineNum">    1001 </span>                :            :                 {
+<span class="lineNum">    1002 </span>                :            :                         // Remainder of String all contained in this chunk
+<span class="lineNum">    1003 </span>                :<span class="lineNoCov">          0 :                         out = realloc(out, strlen(out) + wlen + 1);</span>
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                         strncat(out, chunkstr-&gt;p, wlen + 1); // include the null byte</span>
+<span class="lineNum">    1005 </span>                :            : 
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :                         chunkstr-&gt;p += wlen + 1; // skip to start of next string.</span>
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 :                         return out;</span>
+<span class="lineNum">    1008 </span>                :            :                 }
+<span class="lineNum">    1009 </span>                :            :                 else
+<span class="lineNum">    1010 </span>                :            :                 {
+<span class="lineNum">    1011 </span>                :<span class="lineNoCov">          0 :                         int newlen = strlen(out) + wlen;</span>
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 :                         out = realloc(out, newlen + 1);</span>
+<span class="lineNum">    1013 </span>                :<span class="lineNoCov">          0 :                         strncat(out, chunkstr-&gt;p, wlen);</span>
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 :                         out[newlen] = '\0';</span>
+<span class="lineNum">    1015 </span>                :            : 
+<span class="lineNum">    1016 </span>                :<span class="lineNoCov">          0 :                         chunkstr-&gt;p += wlen;</span>
+<span class="lineNum">    1017 </span>                :            :                 }
+<span class="lineNum">    1018 </span>                :            :         }
+<span class="lineNum">    1019 </span>                :            : 
+<span class="lineNum">    1020 </span>                :<span class="lineNoCov">          0 :         return out;</span>
+<span class="lineNum">    1021 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1022 </span>                :            : 
+<span class="lineNum">    1023 </span>                :            : #if defined(HAVE_DECL_CURLOPT_MAIL_FROM) &amp;&amp; HAVE_DECL_CURLOPT_MAIL_FROM
+<span class="lineNum">    1024 </span>                :            : /*
+<span class="lineNum">    1025 </span>                :            :  * Support functions for building an alert email.
+<span class="lineNum">    1026 </span>                :            :  */
+<span class="lineNum">    1027 </span>                :            : 
+<span class="lineNum">    1028 </span>                :            : /*
+<span class="lineNum">    1029 </span>                :            :  *  The message is read a line at a time and the newlines converted
+<span class="lineNum">    1030 </span>                :            :  *  to \r\n.  Unfortunately, RFC 822 states that bare \n and \r are
+<span class="lineNum">    1031 </span>                :            :  *  acceptable in messages and that individually they do not constitute a
+<span class="lineNum">    1032 </span>                :            :  *  line termination.  This requirement cannot be reconciled with storing
+<span class="lineNum">    1033 </span>                :            :  *  messages with Unix line terminations.  RFC 2822 rescues this situation
+<span class="lineNum">    1034 </span>                :            :  *  slightly by prohibiting lone \r and \n in messages.
+<a name="1035"><span class="lineNum">    1035 </span>                :            :  */</a>
+<span class="lineNum">    1036 </span>                :            : static void
+<span class="lineNum">    1037 </span>                :            : add_to_message(StringInfo buf, const char *newstr_in)
+<span class="lineNum">    1038 </span>                :            : {
+<span class="lineNum">    1039 </span>                :<span class="lineNoCov">          0 :         const char * newstr = newstr_in;</span>
+<span class="lineNum">    1040 </span>                :            :         char * p;
+<span class="lineNum">    1041 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (newstr == NULL)</span>
+<span class="lineNum">    1042 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1043 </span>                :            : 
+<span class="lineNum">    1044 </span>                :            :         /* Drop any leading \n characters:  Not sure what to do with them */
+<span class="lineNum">    1045 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (*newstr == '\n')</span>
+<span class="lineNum">    1046 </span>                :<span class="lineNoCov">          0 :                 newstr++;</span>
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>                :            :         /* Scan for \n, and convert to \r\n */
+<span class="lineNum">    1049 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((p = strchr(newstr,'\n')) != NULL)</span>
+<span class="lineNum">    1050 </span>                :            :         {
+<span class="lineNum">    1051 </span>                :            :                 /* Don't exceed 900 chars added to this line, so total line &lt; 1000 */
+<span class="lineNum">    1052 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (p - newstr &gt;= 900)</span>
+<span class="lineNum">    1053 </span>                :            :                 {
+<span class="lineNum">    1054 </span>                :<span class="lineNoCov">          0 :                         appendBinaryStringInfo(buf, newstr, 898);</span>
+<span class="lineNum">    1055 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, &quot;\r\n\t&quot;);</span>
+<span class="lineNum">    1056 </span>                :<span class="lineNoCov">          0 :                         newstr += 898;</span>
+<span class="lineNum">    1057 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1058 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (p - newstr &gt;=2 &amp;&amp; *(p-1) != '\r')</span>
+<span class="lineNum">    1059 </span>                :            :                 {
+<span class="lineNum">    1060 </span>                :<span class="lineNoCov">          0 :                         appendBinaryStringInfo(buf, newstr, p - newstr);</span>
+<span class="lineNum">    1061 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, &quot;\r\n\t&quot;);</span>
+<span class="lineNum">    1062 </span>                :<span class="lineNoCov">          0 :                         newstr = p+1;</span>
+<span class="lineNum">    1063 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1064 </span>                :            :                 else
+<span class="lineNum">    1065 </span>                :            :                 {
+<span class="lineNum">    1066 </span>                :<span class="lineNoCov">          0 :                         appendBinaryStringInfo(buf, newstr, p - newstr + 1);</span>
+<span class="lineNum">    1067 </span>                :<span class="lineNoCov">          0 :                         newstr = p+1;</span>
+<span class="lineNum">    1068 </span>                :            :                 }
+<span class="lineNum">    1069 </span>                :            :         }
+<span class="lineNum">    1070 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf, newstr);</span>
+<span class="lineNum">    1071 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1072"><span class="lineNum">    1072 </span>                :            : </a>
+<span class="lineNum">    1073 </span>                :            : static size_t
+<span class="lineNum">    1074 </span>                :            : messagebody_cb(void *ptr, size_t size, size_t nmemb, void *userp)
+<span class="lineNum">    1075 </span>                :            : {
+<span class="lineNum">    1076 </span>                :<span class="lineNoCov">          0 :         upload_ctx *ctx = (upload_ctx *) userp;</span>
+<span class="lineNum">    1077 </span>                :            :         size_t len;
+<span class="lineNum">    1078 </span>                :            : 
+<span class="lineNum">    1079 </span>                :<span class="lineNoCov">          0 :         len = size * nmemb;</span>
+<span class="lineNum">    1080 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((size == 0) || (nmemb == 0) || (len &lt; 1))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1081 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">    1082 </span>                :            : 
+<span class="lineNum">    1083 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &gt; ctx-&gt;body.len - ctx-&gt;consumed)</span>
+<span class="lineNum">    1084 </span>                :<span class="lineNoCov">          0 :                 len = ctx-&gt;body.len - ctx-&gt;consumed;</span>
+<span class="lineNum">    1085 </span>                :            : 
+<span class="lineNum">    1086 </span>                :<span class="lineNoCov">          0 :         memcpy(ptr, ctx-&gt;body.data + ctx-&gt;consumed, len);</span>
+<span class="lineNum">    1087 </span>                :<span class="lineNoCov">          0 :         ctx-&gt;consumed += len;</span>
+<span class="lineNum">    1088 </span>                :            : 
+<span class="lineNum">    1089 </span>                :<span class="lineNoCov">          0 :     return len;</span>
+<span class="lineNum">    1090 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1091"><span class="lineNum">    1091 </span>                :            : </a>
+<span class="lineNum">    1092 </span>                :            : static void
+<span class="lineNum">    1093 </span>                :            : build_messagebody(StringInfo buf, const GpErrorData *errorData, const char *subject,
+<span class="lineNum">    1094 </span>                :            :                 const char *email_priority)
+<span class="lineNum">    1095 </span>                :            : {
+<span class="lineNum">    1096 </span>                :            :         /* Perhaps better to use text/html ? */
+<span class="lineNum">    1097 </span>                :            : 
+<span class="lineNum">    1098 </span>                :<span class="lineNoCov">          0 :         appendStringInfo(buf, &quot;From: %s\r\n&quot;, gp_email_from);</span>
+<span class="lineNum">    1099 </span>                :<span class="lineNoCov">          0 :         appendStringInfo(buf, &quot;To: %s\r\n&quot;, gp_email_to);</span>
+<span class="lineNum">    1100 </span>                :<span class="lineNoCov">          0 :         appendStringInfo(buf, &quot;Subject: %s\r\n&quot;, subject);</span>
+<span class="lineNum">    1101 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (email_priority[0] != '\0' &amp;&amp; email_priority[0] != '3') // priority not the default?</span>
+<span class="lineNum">    1102 </span>                :<span class="lineNoCov">          0 :                 appendStringInfo(buf, &quot;X-Priority: %s&quot;, email_priority); // set a priority.  1 == highest priority, 5 lowest</span>
+<span class="lineNum">    1103 </span>                :            : 
+<span class="lineNum">    1104 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf,     &quot;MIME-Version: 1.0\r\n&quot;</span>
+<span class="lineNum">    1105 </span>                :            :                         &quot;Content-Type: text/plain;\r\n&quot;
+<span class="lineNum">    1106 </span>                :            :                         &quot;  charset=utf-8\r\n&quot;
+<span class="lineNum">    1107 </span>                :            :                         &quot;Content-Transfer-Encoding: 8bit\r\n\r\n&quot;);
+<span class="lineNum">    1108 </span>                :            : 
+<span class="lineNum">    1109 </span>                :            :         /* Lines must be &lt; 1000 bytes long for 7bit or 8bit transfer-encoding */
+<span class="lineNum">    1110 </span>                :            :         /* Perhaps use base64 encoding instead?  Or just wrap them? */
+<span class="lineNum">    1111 </span>                :            : 
+<span class="lineNum">    1112 </span>                :            :         /*
+<span class="lineNum">    1113 </span>                :            :          * How to identify which system is sending the alert?  Perhaps our
+<span class="lineNum">    1114 </span>                :            :          * hostname and port is good enough?
+<span class="lineNum">    1115 </span>                :            :          */
+<span class="lineNum">    1116 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf, &quot;Alert from GPDB system&quot;);</span>
+<span class="lineNum">    1117 </span>                :            :         {
+<span class="lineNum">    1118 </span>                :            :                 char myhostname[255];   /* gethostname usually is limited to 65 chars out, but make this big to be safe */
+<span class="lineNum">    1119 </span>                :<span class="lineNoCov">          0 :                 myhostname[0] = '\0';</span>
+<span class="lineNum">    1120 </span>                :            : 
+<span class="lineNum">    1121 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (gethostname(myhostname, sizeof(myhostname)) == 0)</span>
+<span class="lineNum">    1122 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(buf, &quot; %s on port %d&quot;, myhostname, PostPortNumber);</span>
+<span class="lineNum">    1123 </span>                :            :         }
+<span class="lineNum">    1124 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf,&quot;:\r\n\r\n&quot;);</span>
+<span class="lineNum">    1125 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;username != NULL &amp;&amp;  errorData-&gt;databasename != NULL &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1126 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 strlen(errorData-&gt;username)&gt;0 &amp;&amp; strlen(errorData-&gt;databasename)&gt;0)</span>
+<span class="lineNum">    1127 </span>                :            :         {
+<span class="lineNum">    1128 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, errorData-&gt;username);</span>
+<span class="lineNum">    1129 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;remote_host != NULL &amp;&amp; strlen(errorData-&gt;remote_host) &gt; 0)</span>
+<span class="lineNum">    1130 </span>                :            :                 {
+<span class="lineNum">    1131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (strcmp(errorData-&gt;remote_host,&quot;[local]&quot;)==0)</span>
+<span class="lineNum">    1132 </span>                :<span class="lineNoCov">          0 :                                 appendStringInfoString(buf, &quot; logged on locally from master node&quot;);</span>
+<span class="lineNum">    1133 </span>                :            :                         else
+<span class="lineNum">    1134 </span>                :<span class="lineNoCov">          0 :                                 appendStringInfo(buf, &quot; logged on from host %s&quot;, errorData-&gt;remote_host);</span>
+<span class="lineNum">    1135 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1136 </span>                :<span class="lineNoCov">          0 :                 appendStringInfo(buf, &quot; connected to database %s\r\n&quot;,</span>
+<span class="lineNum">    1137 </span>                :<span class="lineNoCov">          0 :                                         errorData-&gt;databasename);</span>
+<span class="lineNum">    1138 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1139 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;fix_fields.omit_location != 't')</span>
+<span class="lineNum">    1140 </span>                :            :         {
+<span class="lineNum">    1141 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;fix_fields.gp_segment_id != -1)</span>
+<span class="lineNum">    1142 </span>                :            :                 {
+<span class="lineNum">    1143 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(buf,&quot;Error occurred on segment %d\r\n&quot;,</span>
+<span class="lineNum">    1144 </span>                :<span class="lineNoCov">          0 :                                                          errorData-&gt;fix_fields.gp_segment_id);</span>
+<span class="lineNum">    1145 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1146 </span>                :            :                 else
+<span class="lineNum">    1147 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, &quot;Error occurred on master segment\r\n&quot;);</span>
+<span class="lineNum">    1148 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1149 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1150 </span>                :            : 
+<span class="lineNum">    1151 </span>                :<span class="lineNoCov">          0 :         appendStringInfo(buf, &quot;%s: &quot;, errorData-&gt;error_severity);</span>
+<span class="lineNum">    1152 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;sql_state != NULL &amp;&amp; pg_strnlen(errorData-&gt;sql_state,5)&gt;4 &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 strncmp(errorData-&gt;sql_state,&quot;XX100&quot;,5)!=0 &amp;&amp;</span>
+<span class="lineNum">    1154 </span>                :<span class="lineNoCov">          0 :                 strncmp(errorData-&gt;sql_state,&quot;00000&quot;,5)!=0)</span>
+<span class="lineNum">    1155 </span>                :            :         {
+<span class="lineNum">    1156 </span>                :<span class="lineNoCov">          0 :                 appendStringInfo(buf, &quot;(%s) &quot;, errorData-&gt;sql_state);</span>
+<span class="lineNum">    1157 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1158 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf, errorData-&gt;error_message);</span>
+<span class="lineNum">    1159 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1160 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1161 </span>                :            : 
+<span class="lineNum">    1162 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;error_detail != NULL &amp;&amp;strlen(errorData-&gt;error_detail) &gt; 0)</span>
+<span class="lineNum">    1163 </span>                :            :         {
+<span class="lineNum">    1164 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, _(&quot;DETAIL:  &quot;));</span>
+<span class="lineNum">    1165 </span>                :<span class="lineNoCov">          0 :                 add_to_message(buf, errorData-&gt;error_detail);</span>
+<span class="lineNum">    1166 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1167 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1168 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;error_hint != NULL &amp;&amp;strlen(errorData-&gt;error_hint) &gt; 0)</span>
+<span class="lineNum">    1169 </span>                :            :         {
+<span class="lineNum">    1170 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, _(&quot;HINT:  &quot;));</span>
+<span class="lineNum">    1171 </span>                :<span class="lineNoCov">          0 :                 add_to_message(buf, errorData-&gt;error_hint);</span>
+<span class="lineNum">    1172 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1173 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1174 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;internal_query != NULL &amp;&amp;strlen(errorData-&gt;internal_query) &gt; 0)</span>
+<span class="lineNum">    1175 </span>                :            :         {
+<span class="lineNum">    1176 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, _(&quot;QUERY:  &quot;));</span>
+<span class="lineNum">    1177 </span>                :<span class="lineNoCov">          0 :                 add_to_message(buf, errorData-&gt;internal_query);</span>
+<span class="lineNum">    1178 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1179 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1180 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;error_context != NULL &amp;&amp; strlen(errorData-&gt;error_context) &gt; 0)</span>
+<span class="lineNum">    1181 </span>                :            :         {
+<span class="lineNum">    1182 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, _(&quot;CONTEXT:  &quot;));</span>
+<span class="lineNum">    1183 </span>                :<span class="lineNoCov">          0 :                 add_to_message(buf, errorData-&gt;error_context);</span>
+<span class="lineNum">    1184 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1185 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1186 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;fix_fields.omit_location != 't')</span>
+<span class="lineNum">    1187 </span>                :            :         {
+<span class="lineNum">    1188 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;error_filename != NULL &amp;&amp; strlen(errorData-&gt;error_filename) &gt; 0)</span>
+<span class="lineNum">    1189 </span>                :            :                 {
+<span class="lineNum">    1190 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, _(&quot;LOCATION:  &quot;));</span>
+<span class="lineNum">    1191 </span>                :            : 
+<span class="lineNum">    1192 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (errorData-&gt;error_func_name &amp;&amp; strlen(errorData-&gt;error_func_name) &gt; 0)</span>
+<span class="lineNum">    1193 </span>                :<span class="lineNoCov">          0 :                                 appendStringInfo(buf, &quot;%s, &quot;, errorData-&gt;error_func_name);</span>
+<span class="lineNum">    1194 </span>                :            : 
+<span class="lineNum">    1195 </span>                :<span class="lineNoCov">          0 :                         appendStringInfo(buf, &quot;%s:%d\r\n&quot;,</span>
+<span class="lineNum">    1196 </span>                :<span class="lineNoCov">          0 :                                                          errorData-&gt;error_filename,</span>
+<span class="lineNum">    1197 </span>                :<span class="lineNoCov">          0 :                                                          errorData-&gt;fix_fields.error_fileline);</span>
+<span class="lineNum">    1198 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1199 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (errorData-&gt;stacktrace != NULL &amp;&amp; strlen(errorData-&gt;stacktrace) &gt; 0)</span>
+<span class="lineNum">    1200 </span>                :            :                 {
+<span class="lineNum">    1201 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, &quot;STACK TRACE:\r\n\t&quot;);</span>
+<span class="lineNum">    1202 </span>                :<span class="lineNoCov">          0 :                         add_to_message(buf, errorData-&gt;stacktrace);</span>
+<span class="lineNum">    1203 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1204 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1205 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1206 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (errorData-&gt;debug_query_string != NULL &amp;&amp;strlen(errorData-&gt;debug_query_string) &gt; 0)</span>
+<span class="lineNum">    1207 </span>                :            :         {
+<span class="lineNum">    1208 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, _(&quot;STATEMENT:  &quot;));</span>
+<span class="lineNum">    1209 </span>                :<span class="lineNoCov">          0 :                 add_to_message(buf, errorData-&gt;debug_query_string);</span>
+<span class="lineNum">    1210 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoString(buf, &quot;\r\n&quot;);</span>
+<span class="lineNum">    1211 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1212 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1213 </span>                :            : 
+<span class="lineNum">    1214 </span>                :            : /*
+<span class="lineNum">    1215 </span>                :            :  * Pull out just the e-mail address from a possibly human-readable string
+<span class="lineNum">    1216 </span>                :            :  * like:
+<span class="lineNum">    1217 </span>                :            :  *
+<span class="lineNum">    1218 </span>                :            :  * Full Name &lt;email@example.com&gt;
+<a name="1219"><span class="lineNum">    1219 </span>                :            :  */</a>
+<span class="lineNum">    1220 </span>                :            : static char *
+<span class="lineNum">    1221 </span>                :            : extract_email_addr(char *str)
+<span class="lineNum">    1222 </span>                :            : {
+<span class="lineNum">    1223 </span>                :            :         char       *begin;
+<span class="lineNum">    1224 </span>                :            :         char       *end;
+<span class="lineNum">    1225 </span>                :            : 
+<span class="lineNum">    1226 </span>                :<span class="lineNoCov">          0 :         begin = strchr(str, '&lt;');</span>
+<span class="lineNum">    1227 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (begin != NULL)</span>
+<span class="lineNum">    1228 </span>                :            :         {
+<span class="lineNum">    1229 </span>                :<span class="lineNoCov">          0 :                 begin++;</span>
+<span class="lineNum">    1230 </span>                :<span class="lineNoCov">          0 :                 end = strchr(begin, '&gt;');</span>
+<span class="lineNum">    1231 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (end != NULL)</span>
+<span class="lineNum">    1232 </span>                :            :                 {
+<span class="lineNum">    1233 </span>                :<span class="lineNoCov">          0 :                         int                     len = end - begin;</span>
+<span class="lineNum">    1234 </span>                :            :                         char       *email;
+<span class="lineNum">    1235 </span>                :            : 
+<span class="lineNum">    1236 </span>                :<span class="lineNoCov">          0 :                         email = palloc(len + 1);</span>
+<span class="lineNum">    1237 </span>                :<span class="lineNoCov">          0 :                         memcpy(email, begin, len);</span>
+<span class="lineNum">    1238 </span>                :<span class="lineNoCov">          0 :                         email[len] = '\0';</span>
+<span class="lineNum">    1239 </span>                :            : 
+<span class="lineNum">    1240 </span>                :<span class="lineNoCov">          0 :                         return email;</span>
+<span class="lineNum">    1241 </span>                :            :                 }
+<span class="lineNum">    1242 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1243 </span>                :<span class="lineNoCov">          0 :         return pstrdup(str);</span>
+<span class="lineNum">    1244 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="1245"><span class="lineNum">    1245 </span>                :            : </a>
+<span class="lineNum">    1246 </span>                :            : static bool
+<span class="lineNum">    1247 </span>                :            : SplitMailString(char *rawstring, char delimiter,
+<span class="lineNum">    1248 </span>                :            :                                           List **namelist)
+<span class="lineNum">    1249 </span>                :            : {
+<span class="lineNum">    1250 </span>                :<span class="lineNoCov">          0 :         char       *nextp = rawstring;</span>
+<span class="lineNum">    1251 </span>                :<span class="lineNoCov">          0 :         bool            done = false;</span>
+<span class="lineNum">    1252 </span>                :            : 
+<span class="lineNum">    1253 </span>                :<span class="lineNoCov">          0 :         *namelist = NIL;</span>
+<span class="lineNum">    1254 </span>                :            : 
+<span class="lineNum">    1255 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (isspace((unsigned char) *nextp))</span>
+<span class="lineNum">    1256 </span>                :<span class="lineNoCov">          0 :                 nextp++;                                /* skip leading whitespace */</span>
+<span class="lineNum">    1257 </span>                :            : 
+<span class="lineNum">    1258 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (*nextp == '\0')</span>
+<span class="lineNum">    1259 </span>                :<span class="lineNoCov">          0 :                 return true;                    /* allow empty string */</span>
+<span class="lineNum">    1260 </span>                :            : 
+<span class="lineNum">    1261 </span>                :            :         /* At the top of the loop, we are at start of a new address. */
+<span class="lineNum">    1262 </span>                :<span class="lineNoCov">          0 :         do</span>
+<span class="lineNum">    1263 </span>                :            :         {
+<span class="lineNum">    1264 </span>                :            :                 char       *curname;
+<span class="lineNum">    1265 </span>                :            :                 char       *endp;
+<span class="lineNum">    1266 </span>                :            : 
+<span class="lineNum">    1267 </span>                :<span class="lineNoCov">          0 :                 curname = nextp;</span>
+<span class="lineNum">    1268 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (*nextp &amp;&amp; *nextp != delimiter)</span>
+<span class="lineNum">    1269 </span>                :<span class="lineNoCov">          0 :                         nextp++;</span>
+<span class="lineNum">    1270 </span>                :<span class="lineNoCov">          0 :                 endp = nextp;</span>
+<span class="lineNum">    1271 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (curname == nextp)</span>
+<span class="lineNum">    1272 </span>                :<span class="lineNoCov">          0 :                         return false;   /* empty unquoted name not allowed */</span>
+<span class="lineNum">    1273 </span>                :            : 
+<span class="lineNum">    1274 </span>                :            : 
+<span class="lineNum">    1275 </span>                :            : 
+<span class="lineNum">    1276 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (isspace((unsigned char) *nextp))</span>
+<span class="lineNum">    1277 </span>                :<span class="lineNoCov">          0 :                         nextp++;                        /* skip trailing whitespace */</span>
+<span class="lineNum">    1278 </span>                :            : 
+<span class="lineNum">    1279 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*nextp == delimiter)</span>
+<span class="lineNum">    1280 </span>                :            :                 {
+<span class="lineNum">    1281 </span>                :<span class="lineNoCov">          0 :                         nextp++;</span>
+<span class="lineNum">    1282 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         while (isspace((unsigned char) *nextp))</span>
+<span class="lineNum">    1283 </span>                :<span class="lineNoCov">          0 :                                 nextp++;                /* skip leading whitespace for next */</span>
+<span class="lineNum">    1284 </span>                :            :                         /* we expect another name, so done remains false */
+<span class="lineNum">    1285 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1286 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (*nextp == '\0')</span>
+<span class="lineNum">    1287 </span>                :<span class="lineNoCov">          0 :                         done = true;</span>
+<span class="lineNum">    1288 </span>                :            :                 else
+<span class="lineNum">    1289 </span>                :<span class="lineNoCov">          0 :                         return false;           /* invalid syntax */</span>
+<span class="lineNum">    1290 </span>                :            : 
+<span class="lineNum">    1291 </span>                :            :                 /* Now safe to overwrite separator with a null */
+<span class="lineNum">    1292 </span>                :<span class="lineNoCov">          0 :                 *endp = '\0';</span>
+<span class="lineNum">    1293 </span>                :            : 
+<span class="lineNum">    1294 </span>                :            :                 /*
+<span class="lineNum">    1295 </span>                :            :                  * Finished isolating current name --- add it to list
+<span class="lineNum">    1296 </span>                :            :                  */
+<span class="lineNum">    1297 </span>                :<span class="lineNoCov">          0 :                 *namelist = lappend(*namelist, curname);</span>
+<span class="lineNum">    1298 </span>                :            : 
+<span class="lineNum">    1299 </span>                :            :                 /* Loop back if we didn't reach end of string */
+<span class="lineNum">    1300 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         } while (!done);</span>
+<span class="lineNum">    1301 </span>                :            : 
+<span class="lineNum">    1302 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">    1303 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1304 </span>                :            : #endif /* HAVE_DECL_CURLOPT_MAIL_FROM */
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

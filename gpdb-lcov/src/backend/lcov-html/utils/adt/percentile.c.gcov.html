@@ -1,0 +1,355 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/adt/percentile.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/adt</a> - percentile.c<span style="font-size: 80%;"> (source / <a href="percentile.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">89</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">52</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * percentile.c
+<span class="lineNum">       4 </span>                :            :  *        Support functions for inverse distribution functions.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Copyright (c) 2005-2010, Greenplum inc
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      11 </span>                :            :  */
+<span class="lineNum">      12 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;utils/datum.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : /*
+<span class="lineNum">      18 </span>                :            :  * Information for percentile functions.
+<span class="lineNum">      19 </span>                :            :  * The prev_value is only for percentile_cont, where we need to remember the
+<span class="lineNum">      20 </span>                :            :  * prior value to interpolate two values.  The target position is the
+<span class="lineNum">      21 </span>                :            :  * row position we want given the total row count and percentage.
+<span class="lineNum">      22 </span>                :            :  * The ceiled and floored target positions are rounded target positions.
+<span class="lineNum">      23 </span>                :            :  * The row number tracks the current logical row position.
+<span class="lineNum">      24 </span>                :            :  */
+<span class="lineNum">      25 </span>                :            : typedef struct
+<span class="lineNum">      26 </span>                :            : {
+<span class="lineNum">      27 </span>                :            :         Datum           prev_value;             /* the target value at the prior row */
+<span class="lineNum">      28 </span>                :            :         float8          tp;                             /* target position */
+<span class="lineNum">      29 </span>                :            :         float8          ctp;                    /* ceiled target position */
+<span class="lineNum">      30 </span>                :            :         float8          ftp;                    /* floored target position */
+<span class="lineNum">      31 </span>                :            :         int64           rn;                             /* current row number */
+<span class="lineNum">      32 </span>                :            : } PercentileInfo;
+<span class="lineNum">      33 </span>                :            : 
+<span class="lineNum">      34 </span>                :            : /*
+<span class="lineNum">      35 </span>                :            :  * transition function for percentile_cont().
+<span class="lineNum">      36 </span>                :            :  *
+<span class="lineNum">      37 </span>                :            :  * The actual arguments are:
+<span class="lineNum">      38 </span>                :            :  *              (state_value, percentage, target_value, peer_count, total_count)
+<span class="lineNum">      39 </span>                :            :  *
+<span class="lineNum">      40 </span>                :            :  * The result of percentile_cont() is the interpolated value from
+<span class="lineNum">      41 </span>                :            :  * value expressions at consecutive rows that are indicated by the
+<span class="lineNum">      42 </span>                :            :  * argument, in the order specified by the WITHIN GROUP.
+<span class="lineNum">      43 </span>                :            :  *
+<span class="lineNum">      44 </span>                :            :  * We compute these values at the first stage of this transition:
+<span class="lineNum">      45 </span>                :            :  *
+<span class="lineNum">      46 </span>                :            :  *      tp = (total_count - 1) * percentage + 1
+<span class="lineNum">      47 </span>                :            :  *      ftp = floor(tp)
+<span class="lineNum">      48 </span>                :            :  *      ctp = ceil(tp)
+<span class="lineNum">      49 </span>                :            :  *      rn0 = (current logical row position)
+<span class="lineNum">      50 </span>                :            :  *      rn1 = rn0 + peer_count
+<span class="lineNum">      51 </span>                :            :  *      tv = (target value)
+<span class="lineNum">      52 </span>                :            :  *
+<span class="lineNum">      53 </span>                :            :  * And the result is calculated as:
+<span class="lineNum">      54 </span>                :            :  *
+<span class="lineNum">      55 </span>                :            :  *      result = SUM(
+<span class="lineNum">      56 </span>                :            :  *              CASE
+<span class="lineNum">      57 </span>                :            :  *                      WHEN rn0 &lt;= ftp AND rn1 &gt; ctp THEN tv
+<span class="lineNum">      58 </span>                :            :  *                      WHEN rn0 &lt;= ftp AND rn1 &gt; ftp THEN tv * (ctp - tp)
+<span class="lineNum">      59 </span>                :            :  *                      WHEN rn0 &gt;= ctp THEN tv * (tp - ftp)
+<span class="lineNum">      60 </span>                :            :  *              END
+<span class="lineNum">      61 </span>                :            :  *      )
+<span class="lineNum">      62 </span>                :            :  *
+<span class="lineNum">      63 </span>                :            :  * Note that we use FmgrInfo's fn_extra to store the per-group information.
+<span class="lineNum">      64 </span>                :            :  * fn_extra is not initialized by the executor in the group boundaries,
+<span class="lineNum">      65 </span>                :            :  * so we clean it when the value is found.  That said, we assume we
+<span class="lineNum">      66 </span>                :            :  * always found the required value in each group, and if not, something
+<span class="lineNum">      67 </span>                :            :  * is wrong.
+<a name="68"><span class="lineNum">      68 </span>                :            :  */</a>
+<span class="lineNum">      69 </span>                :            : Datum
+<span class="lineNum">      70 </span>                :            : percentile_cont_trans(PG_FUNCTION_ARGS)
+<span class="lineNum">      71 </span>                :            : {
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :         int64                           pc = PG_GETARG_INT64(3);</span>
+<span class="lineNum">      73 </span>                :            :         int64                           rn0, rn1;
+<span class="lineNum">      74 </span>                :            :         PercentileInfo     *info;
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!PG_ARGISNULL(0))</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_DATUM(PG_GETARG_DATUM(0));</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :            :         /* Ignore NULL inputs for percentage and target value */
+<span class="lineNum">      80 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PG_ARGISNULL(1) || PG_ARGISNULL(2))</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!fcinfo-&gt;flinfo-&gt;fn_extra)</span>
+<span class="lineNum">      84 </span>                :            :         {
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :                 float8                          percentage = PG_GETARG_FLOAT8(1);</span>
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                 int64                           tc = PG_GETARG_INT64(4);</span>
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (percentage &lt; 0.0 || percentage &gt; 1.0)</span>
+<span class="lineNum">      89 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">      90 </span>                :            :                                         (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+<span class="lineNum">      91 </span>                :            :                                          errmsg(&quot;input is out of range&quot;),
+<span class="lineNum">      92 </span>                :            :                                          errhint(&quot;Argument to percentile function must be between 0.0 and 1.0.&quot;)));
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :                 info = (PercentileInfo *) MemoryContextAllocZero(</span>
+<span class="lineNum">      94 </span>                :            :                                 fcinfo-&gt;flinfo-&gt;fn_mcxt, sizeof(PercentileInfo));
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                 info-&gt;tp = (tc - 1) * percentage + 1;</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :                 info-&gt;ftp = floor(info-&gt;tp);</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :                 info-&gt;ctp = ceil(info-&gt;tp);</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                 info-&gt;rn = 1;</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :                 fcinfo-&gt;flinfo-&gt;fn_extra = info;</span>
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     101 </span>                :            :         else
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                 info = (PercentileInfo *) fcinfo-&gt;flinfo-&gt;fn_extra;</span>
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :         rn0 = info-&gt;rn;</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :         rn1 = rn0 + pc;</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         info-&gt;rn += pc;</span>
+<span class="lineNum">     107 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rn0 &lt;= info-&gt;ftp &amp;&amp; rn1 &gt; info-&gt;ctp)</span>
+<span class="lineNum">     108 </span>                :            :         {
+<span class="lineNum">     109 </span>                :            :                 /* Clean up, so the next group can see NULL for fn_extra */
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :                 pfree(info);</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                 fcinfo-&gt;flinfo-&gt;fn_extra = NULL;</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_DATUM(PG_GETARG_DATUM(2));</span>
+<span class="lineNum">     114 </span>                :            :         }
+<span class="lineNum">     115 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (rn0 &lt;= info-&gt;ftp &amp;&amp; rn1 &gt; info-&gt;ftp)</span>
+<span class="lineNum">     116 </span>                :            :         {
+<span class="lineNum">     117 </span>                :            :                 Oid                     resulttype;
+<span class="lineNum">     118 </span>                :            :                 bool            byval;
+<span class="lineNum">     119 </span>                :            :                 int16           len;
+<span class="lineNum">     120 </span>                :            :                 MemoryContext oldcontext;
+<span class="lineNum">     121 </span>                :            : 
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :                 resulttype = get_fn_expr_rettype(fcinfo-&gt;flinfo);</span>
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :                 get_typlenbyval(resulttype, &amp;len, &amp;byval);</span>
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                 oldcontext = MemoryContextSwitchTo(fcinfo-&gt;flinfo-&gt;fn_mcxt);</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                 info-&gt;prev_value = datumCopy(PG_GETARG_DATUM(2), byval, len);</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :                 MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     129 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (rn0 &gt;= info-&gt;ctp)</span>
+<span class="lineNum">     130 </span>                :            :         {
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                 Datum           prev = info-&gt;prev_value;</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                 Datum           tv = PG_GETARG_DATUM(2);</span>
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                 float8          tp = info-&gt;tp;</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                 float8          ctp = info-&gt;ctp;</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                 float8          ftp = info-&gt;ftp;</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                 Oid                     resulttype = get_fn_expr_rettype(fcinfo-&gt;flinfo);</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :            :                 /* Clean up, so the next group can see NULL for fn_extra */
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                 pfree(info);</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                 fcinfo-&gt;flinfo-&gt;fn_extra = NULL;</span>
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (resulttype == FLOAT8OID)</span>
+<span class="lineNum">     143 </span>                :            :                 {
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_FLOAT8(DatumGetFloat8(prev) * (ctp - tp) +</span>
+<span class="lineNum">     145 </span>                :            :                                                                 DatumGetFloat8(tv) * (tp - ftp));
+<span class="lineNum">     146 </span>                :            :                 }
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (resulttype == TIMESTAMPOID)</span>
+<span class="lineNum">     148 </span>                :            :                 {
+<span class="lineNum">     149 </span>                :            :                         Datum   interval;
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :                         interval = DirectFunctionCall2(timestamp_mi, tv, prev);</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                         interval = DirectFunctionCall2(interval_mul, interval,</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                                                                                    Float8GetDatum(tp - ftp));</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_DATUM(DirectFunctionCall2(timestamp_pl_interval,</span>
+<span class="lineNum">     155 </span>                :            :                                                                 prev, interval));
+<span class="lineNum">     156 </span>                :            :                 }
+<span class="lineNum">     157 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (resulttype == TIMESTAMPTZOID)</span>
+<span class="lineNum">     158 </span>                :            :                 {
+<span class="lineNum">     159 </span>                :            :                         Datum   interval;
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :                         interval = DirectFunctionCall2(timestamp_mi, tv, prev);</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                         interval = DirectFunctionCall2(interval_mul, interval,</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                                                                                    Float8GetDatum(tp - ftp));</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_DATUM(DirectFunctionCall2(timestamptz_pl_interval,</span>
+<span class="lineNum">     165 </span>                :            :                                                                 prev, interval));
+<span class="lineNum">     166 </span>                :            :                 }
+<span class="lineNum">     167 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (resulttype == INTERVALOID)</span>
+<span class="lineNum">     168 </span>                :            :                 {
+<span class="lineNum">     169 </span>                :            :                         Datum   val1, val2;
+<span class="lineNum">     170 </span>                :            : 
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                         val1 = DirectFunctionCall2(interval_mul, prev, Float8GetDatum(ctp - tp));</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :                         val2 = DirectFunctionCall2(interval_mul, tv, Float8GetDatum(tp - ftp));</span>
+<span class="lineNum">     173 </span>                :            : 
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_DATUM(DirectFunctionCall2(interval_pl, val1, val2));</span>
+<span class="lineNum">     175 </span>                :            :                 }
+<span class="lineNum">     176 </span>                :            :                 else /* Should not happen. */
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;unexpected result type: %d&quot;, (int) resulttype);</span>
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_NULL();</span>
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     182 </span>                :            : 
+<span class="lineNum">     183 </span>                :            : /*
+<span class="lineNum">     184 </span>                :            :  * transition function for percentile_disc().
+<span class="lineNum">     185 </span>                :            :  *
+<span class="lineNum">     186 </span>                :            :  * The actual arguments are:
+<span class="lineNum">     187 </span>                :            :  *              (state_value, percentage, target_value, peer_count, total_count)
+<span class="lineNum">     188 </span>                :            :  *
+<span class="lineNum">     189 </span>                :            :  * The result of percentile_disc() is the the first value whose position
+<span class="lineNum">     190 </span>                :            :  * in the cumulative distribution of values, specified by the WITHIN GROUP
+<span class="lineNum">     191 </span>                :            :  * clause, is equal to or greater than the percentage specified.  And
+<span class="lineNum">     192 </span>                :            :  * the definition of the cumulative distribution, i.e. CUME_DIST(), is
+<span class="lineNum">     193 </span>                :            :  * following.
+<span class="lineNum">     194 </span>                :            :  *
+<span class="lineNum">     195 </span>                :            :  *      count(*) OVER (ORDER BY tv) / count(*) OVER ()
+<span class="lineNum">     196 </span>                :            :  *
+<span class="lineNum">     197 </span>                :            :  * Let accum_count be the numerator and total_count be the denominator.
+<span class="lineNum">     198 </span>                :            :  * Let p be the percentage given as the argument.  Now, the result of
+<span class="lineNum">     199 </span>                :            :  * percentile_disc() is at the first row position that satisfies
+<span class="lineNum">     200 </span>                :            :  *
+<span class="lineNum">     201 </span>                :            :  *      p &gt;= accum_count / total_count
+<span class="lineNum">     202 </span>                :            :  *
+<span class="lineNum">     203 </span>                :            :  * Converting this to
+<span class="lineNum">     204 </span>                :            :  *
+<span class="lineNum">     205 </span>                :            :  *      p * total_count &gt;= accum_count
+<span class="lineNum">     206 </span>                :            :  *
+<span class="lineNum">     207 </span>                :            :  * and because the left hand side is fraction row position, we take ceil
+<span class="lineNum">     208 </span>                :            :  *
+<span class="lineNum">     209 </span>                :            :  *      ceil(p * total_count)
+<span class="lineNum">     210 </span>                :            :  *
+<span class="lineNum">     211 </span>                :            :  * This is the row position where the result is at.
+<a name="212"><span class="lineNum">     212 </span>                :            :  */</a>
+<span class="lineNum">     213 </span>                :            : Datum
+<span class="lineNum">     214 </span>                :            : percentile_disc_trans(PG_FUNCTION_ARGS)
+<span class="lineNum">     215 </span>                :            : {
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         int64                           pc = PG_GETARG_INT64(3);</span>
+<span class="lineNum">     217 </span>                :            :         int64                           rn0, rn1;
+<span class="lineNum">     218 </span>                :            :         PercentileInfo     *info;
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!PG_ARGISNULL(0))</span>
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_DATUM(PG_GETARG_DATUM(0));</span>
+<span class="lineNum">     222 </span>                :            : 
+<span class="lineNum">     223 </span>                :            :         /* Ignore NULL inputs for percentage and target value */
+<span class="lineNum">     224 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PG_ARGISNULL(1) || PG_ARGISNULL(2))</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!fcinfo-&gt;flinfo-&gt;fn_extra)</span>
+<span class="lineNum">     228 </span>                :            :         {
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :                 float8                          percentage = PG_GETARG_FLOAT8(1);</span>
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                 int64                           tc = PG_GETARG_INT64(4);</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (percentage &lt; 0.0 || percentage &gt; 1.0)</span>
+<span class="lineNum">     233 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     234 </span>                :            :                                         (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+<span class="lineNum">     235 </span>                :            :                                          errmsg(&quot;input is out of range&quot;),
+<span class="lineNum">     236 </span>                :            :                                          errhint(&quot;Argument to percentile function must be between 0.0 and 1.0.&quot;)));
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :                 info = (PercentileInfo *) MemoryContextAllocZero(</span>
+<span class="lineNum">     238 </span>                :            :                                 fcinfo-&gt;flinfo-&gt;fn_mcxt, sizeof(PercentileInfo));
+<span class="lineNum">     239 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (percentage == 0.0)</span>
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                         info-&gt;tp = 1.0;</span>
+<span class="lineNum">     241 </span>                :            :                 else
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                         info-&gt;tp = ceil(tc * percentage);</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 info-&gt;ctp = info-&gt;ftp = info-&gt;tp;</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 info-&gt;rn = 1;</span>
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                 fcinfo-&gt;flinfo-&gt;fn_extra = info;</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     247 </span>                :            :         else
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                 info = (PercentileInfo *) fcinfo-&gt;flinfo-&gt;fn_extra;</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :         rn0 = info-&gt;rn;</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :         rn1 = rn0 + pc;</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :         info-&gt;rn += pc;</span>
+<span class="lineNum">     253 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rn0 &lt;= info-&gt;tp &amp;&amp; rn1 &gt; info-&gt;tp)</span>
+<span class="lineNum">     254 </span>                :            :         {
+<span class="lineNum">     255 </span>                :            :                 /* Clean up, so the next group can see NULL for fn_extra */
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                 pfree(info);</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                 fcinfo-&gt;flinfo-&gt;fn_extra = NULL;</span>
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_DATUM(PG_GETARG_DATUM(2));</span>
+<span class="lineNum">     260 </span>                :            :         }
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_NULL();</span>
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

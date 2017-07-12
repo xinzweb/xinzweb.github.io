@@ -1,0 +1,1191 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/resscheduler/resscheduler.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/resscheduler</a> - resscheduler.c<span style="font-size: 80%;"> (source / <a href="resscheduler.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntry">327</td>
+            <td class="headerCovTableEntryLo">6.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntryLo">21.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">228</td>
+            <td class="headerCovTableEntryLo">1.3 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * resscheduler.c
+<span class="lineNum">       4 </span>                :            :  *        POSTGRES resource scheduling management code.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Copyright (c) 2006-2010, Greenplum inc.
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       9 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            : -------------------------------------------------------------------------
+<span class="lineNum">      13 </span>                :            :  */
+<span class="lineNum">      14 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      15 </span>                :            : 
+<span class="lineNum">      16 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;catalog/indexing.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;catalog/pg_authid.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;catalog/pg_resqueue.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;catalog/pg_tablespace.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;cdb/cdbllize.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;cdb/memquota.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;executor/executor.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;nodes/print.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;optimizer/planner.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;rewrite/rewriteHandler.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;storage/proc.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;tcop/pquery.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;tcop/utility.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;utils/fmgroids.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;utils/resscheduler.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : /*
+<span class="lineNum">      43 </span>                :            :  * GUC variables.
+<span class="lineNum">      44 </span>                :            :  */
+<span class="lineNum">      45 </span>                :            : int             MaxResourceQueues;                                              /* Max # of queues. */
+<span class="lineNum">      46 </span>                :            : int             MaxResourcePortalsPerXact;                              /* Max # tracked portals -
+<span class="lineNum">      47 </span>                :            :                                                                                                  * per backend . */
+<span class="lineNum">      48 </span>                :            : bool    ResourceSelectOnly;                                             /* Only lock SELECT/DECLARE? */
+<span class="lineNum">      49 </span>                :            : bool    ResourceCleanupIdleGangs;                               /* Cleanup idle gangs? */
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : /*
+<span class="lineNum">      53 </span>                :            :  * Global variables
+<span class="lineNum">      54 </span>                :            :  */
+<span class="lineNum">      55 </span>                :            : ResSchedulerData        *ResScheduler;  /* Resource Scheduler (shared) data .*/
+<span class="lineNum">      56 </span>                :            : Oid                             MyQueueId;                      /* resource queue for current role. */
+<span class="lineNum">      57 </span>                :            : static uint32   portalId = 0;           /* id of portal, for tracking cursors. */
+<span class="lineNum">      58 </span>                :            : static int32    numHoldPortals = 0;     /* # of holdable cursors tracked. */
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :            : /*
+<span class="lineNum">      61 </span>                :            :  * ResSchedulerShmemSize -- estimate size the schedular structures will need in
+<span class="lineNum">      62 </span>                :            :  *      shared memory.
+<span class="lineNum">      63 </span>                :            :  *
+<a name="64"><span class="lineNum">      64 </span>                :            :  */</a>
+<span class="lineNum">      65 </span>                :            : Size
+<span class="lineNum">      66 </span>                :            : ResSchedulerShmemSize(void)
+<span class="lineNum">      67 </span>                :            : {
+<span class="lineNum">      68 </span>                :            :         Size            size;
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            :         /* The hash of queues.*/
+<span class="lineNum">      71 </span>                :<span class="lineCov">         24 :         size = hash_estimate_size(MaxResourceQueues, sizeof(ResQueueData));</span>
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            :         /* The scheduler structure. */
+<span class="lineNum">      74 </span>                :<span class="lineCov">         24 :         size = add_size(size, sizeof(ResSchedulerData));</span>
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            :         /* Add a safety margin */
+<span class="lineNum">      77 </span>                :<span class="lineCov">         24 :         size = add_size(size, size / 10);</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :<span class="lineCov">         24 :         return size;</span>
+<span class="lineNum">      81 </span>                :            : }
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            : /*
+<span class="lineNum">      85 </span>                :            :  * ResPortalIncrementShmemSize -- Estimate the size of the increment hash.
+<span class="lineNum">      86 </span>                :            :  *
+<span class="lineNum">      87 </span>                :            :  * Notes
+<span class="lineNum">      88 </span>                :            :  *      We allow one extra slot for unnamed portals, as it is simpler to not
+<span class="lineNum">      89 </span>                :            :  *      count them at all.
+<a name="90"><span class="lineNum">      90 </span>                :            :  */</a>
+<span class="lineNum">      91 </span>                :            : Size 
+<span class="lineNum">      92 </span>                :            : ResPortalIncrementShmemSize(void)
+<span class="lineNum">      93 </span>                :            : {
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            :         Size    size;
+<span class="lineNum">      96 </span>                :<span class="lineCov">         24 :         long    max_table_size = (MaxResourcePortalsPerXact + 1) * MaxBackends;</span>
+<span class="lineNum">      97 </span>                :            : 
+<span class="lineNum">      98 </span>                :<span class="lineCov">         24 :         size = hash_estimate_size(max_table_size, sizeof(ResPortalIncrement));</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            :         /* Add a safety margin */
+<span class="lineNum">     101 </span>                :<span class="lineCov">         24 :         size = add_size(size, size / 10);</span>
+<span class="lineNum">     102 </span>                :            : 
+<span class="lineNum">     103 </span>                :<span class="lineCov">         24 :         return size;</span>
+<span class="lineNum">     104 </span>                :            : }
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>                :            : 
+<span class="lineNum">     107 </span>                :            : /*
+<span class="lineNum">     108 </span>                :            :  * InitResScheduler -- initialize the schedular queues hash in shared memory.
+<span class="lineNum">     109 </span>                :            :  *
+<span class="lineNum">     110 </span>                :            :  * The queuek hash table has no data in it as yet (InitResQueues cannot be 
+<span class="lineNum">     111 </span>                :            :  * called until catalog access is available.
+<span class="lineNum">     112 </span>                :            :  *
+<a name="113"><span class="lineNum">     113 </span>                :            :  */</a>
+<span class="lineNum">     114 </span>                :            : void
+<span class="lineNum">     115 </span>                :            : InitResScheduler(void)
+<span class="lineNum">     116 </span>                :            : {
+<span class="lineNum">     117 </span>                :            :         bool            found;
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :            :         /* Create the scheduler structure. */
+<span class="lineNum">     120 </span>                :<span class="lineCov">         24 :         ResScheduler = (ResSchedulerData *)</span>
+<span class="lineNum">     121 </span>                :<span class="lineCov">         24 :                 ShmemInitStruct(&quot;Resource Scheduler Data&quot;,</span>
+<span class="lineNum">     122 </span>                :            :                                                 sizeof(ResSchedulerData),
+<span class="lineNum">     123 </span>                :            :                                                 &amp;found);
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>                :            :         /* Specify that we have no initialized queues yet. */
+<span class="lineNum">     126 </span>                :<span class="lineCov">         24 :         ResScheduler-&gt;num_queues = 0;</span>
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>]:<span class="lineCov">         24 :         if (found)</span>
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :                 return;                 /* We are already initialized. */</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :            :         /* Create the resource queue hash (empty at this point). */
+<span class="lineNum">     132 </span>                :<span class="lineCov">         24 :         found = ResQueueHashTableInit();</span>
+<span class="lineNum">     133 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>]:<span class="lineCov">         24 :         if (!found)</span>
+<span class="lineNum">     134 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     135 </span>                :            :                                 (errcode(ERRCODE_OUT_OF_MEMORY),
+<span class="lineNum">     136 </span>                :            :                                  errmsg(&quot;not enough shared memory for resource scheduler&quot;)));
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :<span class="lineCov">         24 :         elog(DEBUG1, &quot;initialized resource scheduler&quot;);</span>
+<span class="lineNum">     139 </span>                :            :         
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :<span class="lineCov">         24 :         return;</span>
+<span class="lineNum">     142 </span>                :<span class="lineCov">         24 : }</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :            : 
+<span class="lineNum">     145 </span>                :            : /*
+<span class="lineNum">     146 </span>                :            :  * InitResPortalIncrementHash - Initialize the portal increment hash.
+<span class="lineNum">     147 </span>                :            :  *
+<span class="lineNum">     148 </span>                :            :  * Notes:
+<span class="lineNum">     149 </span>                :            :  *      Simply calls the internal initialization function.
+<a name="150"><span class="lineNum">     150 </span>                :            :  */</a>
+<span class="lineNum">     151 </span>                :            : void
+<span class="lineNum">     152 </span>                :            : InitResPortalIncrementHash(void)
+<span class="lineNum">     153 </span>                :            : {
+<span class="lineNum">     154 </span>                :            :         bool    result;
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :<span class="lineCov">         24 :         result = ResPortalIncrementHashTableInit();</span>
+<span class="lineNum">     158 </span>                :            : 
+<span class="lineNum">     159 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 24 times"> + </span>]:<span class="lineCov">         24 :         if (!result)</span>
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                 elog(FATAL, &quot;could not initialize portal increment hash&quot;);</span>
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>                :<span class="lineCov">         24 :         elog(DEBUG1, &quot;initialized portal increment hash&quot;);</span>
+<span class="lineNum">     163 </span>                :<span class="lineCov">         24 : }</span>
+<span class="lineNum">     164 </span>                :            : 
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :            : /*
+<span class="lineNum">     167 </span>                :            :  * InitResQueues -- initialize the resource queues in shared memory. Note this
+<span class="lineNum">     168 </span>                :            :  * can only be done after enough setup has been done. This uses
+<span class="lineNum">     169 </span>                :            :  * heap_open etc which in turn requires shared memory to be set up.
+<span class="lineNum">     170 </span>                :            :  */
+<a name="171"><span class="lineNum">     171 </span>                :            : </a>
+<span class="lineNum">     172 </span>                :            : void 
+<span class="lineNum">     173 </span>                :            : InitResQueues(void)
+<span class="lineNum">     174 </span>                :            : {
+<span class="lineNum">     175 </span>                :            :         HeapTuple                       tuple;
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :         int                                     numQueues = 0;</span>
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :         bool                            queuesok = true;</span>
+<span class="lineNum">     178 </span>                :            :         SysScanDesc sscan;
+<span class="lineNum">     179 </span>                :            :         
+<span class="lineNum">     180 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ResScheduler);</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :            :         /*
+<span class="lineNum">     183 </span>                :            :          * Need a resource owner to keep the heapam code happy.
+<span class="lineNum">     184 </span>                :            :          */
+<span class="lineNum">     185 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(CurrentResourceOwner == NULL);</span>
+<span class="lineNum">     186 </span>                :            : 
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         ResourceOwner owner = ResourceOwnerCreate(NULL, &quot;InitQueues&quot;);</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :         CurrentResourceOwner = owner;</span>
+<span class="lineNum">     189 </span>                :            :         
+<span class="lineNum">     190 </span>                :            :         /**
+<span class="lineNum">     191 </span>                :            :          * The resqueue shared mem initialization must be serialized. Only the first session
+<span class="lineNum">     192 </span>                :            :          * should do the init.
+<span class="lineNum">     193 </span>                :            :          * Serialization is done the ResQueueLock LW_EXCLUSIVE. However, we must obtain all DB
+<span class="lineNum">     194 </span>                :            :          * lock before obtaining LWlock.
+<span class="lineNum">     195 </span>                :            :          * So, we must have obtained ResQueueRelationId and ResQueueCapabilityRelationId lock
+<span class="lineNum">     196 </span>                :            :          * first.
+<span class="lineNum">     197 </span>                :            :          */
+<span class="lineNum">     198 </span>                :            :         /* XXX XXX: should this be rowexclusive ? */
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         Relation relResqueue = heap_open(ResQueueRelationId, AccessShareLock);</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :         LockRelationOid(ResQueueCapabilityRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ResScheduler-&gt;num_queues &gt; 0)</span>
+<span class="lineNum">     204 </span>                :            :         {
+<span class="lineNum">     205 </span>                :            :                 /* Hash table has already been loaded */
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(ResQueueLock);</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 UnlockRelationOid(ResQueueCapabilityRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                 heap_close(relResqueue, AccessShareLock);</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                 CurrentResourceOwner = NULL;</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                 ResourceOwnerDelete(owner);</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     212 </span>                :            :         }
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :         sscan = systable_beginscan(relResqueue, InvalidOid, false, SnapshotNow, 0, NULL);</span>
+<span class="lineNum">     215 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (HeapTupleIsValid(tuple = systable_getnext(sscan)))</span>
+<span class="lineNum">     216 </span>                :            :         {
+<span class="lineNum">     217 </span>                :            :                 Form_pg_resqueue        queueform;
+<span class="lineNum">     218 </span>                :            :                 Oid                                     queueid;
+<span class="lineNum">     219 </span>                :            :                 bool                            overcommit;
+<span class="lineNum">     220 </span>                :            :                 float4                          ignorelimit;
+<span class="lineNum">     221 </span>                :            :                 Cost                            thresholds[NUM_RES_LIMIT_TYPES];
+<span class="lineNum">     222 </span>                :            :                 char                            *queuename;
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :                 numQueues++;</span>
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :                 queueform = (Form_pg_resqueue) GETSTRUCT(tuple);</span>
+<span class="lineNum">     227 </span>                :            : 
+<span class="lineNum">     228 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 queueid = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :                 queuename = NameStr(queueform-&gt;rsqname);</span>
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                 thresholds[RES_COUNT_LIMIT] = queueform-&gt;rsqcountlimit;</span>
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :                 thresholds[RES_COST_LIMIT] = queueform-&gt;rsqcostlimit;</span>
+<span class="lineNum">     232 </span>                :            : 
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :                 thresholds[RES_MEMORY_LIMIT] = ResourceQueueGetMemoryLimit(queueid);</span>
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :                 overcommit = queueform-&gt;rsqovercommit;</span>
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :                 ignorelimit = queueform-&gt;rsqignorecostlimit;</span>
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                 queuesok = ResCreateQueue(queueid, thresholds, overcommit, ignorelimit);</span>
+<span class="lineNum">     237 </span>                :            : 
+<span class="lineNum">     238 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!queuesok)</span>
+<span class="lineNum">     239 </span>                :            :                 {
+<span class="lineNum">     240 </span>                :            :                         /** Break out of loop. Close relations, relinquish LWLock and then error out */ 
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     242 </span>                :            :                 }
+<span class="lineNum">     243 </span>                :            :         }
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :         systable_endscan(sscan);</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(ResQueueLock);</span>
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :         UnlockRelationOid(ResQueueCapabilityRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :         heap_close(relResqueue, AccessShareLock);</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!queuesok)</span>
+<span class="lineNum">     251 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(PANIC,</span>
+<span class="lineNum">     252 </span>                :            :                         (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+<span class="lineNum">     253 </span>                :            :                          errmsg(&quot;insufficient resource queues available&quot;),
+<span class="lineNum">     254 </span>                :            :                 errhint(&quot;Increase max_resource_queues to %d.&quot;, numQueues)));
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :         elog(LOG,&quot;initialized %d resource queues&quot;, numQueues);</span>
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :         CurrentResourceOwner = NULL;</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :         ResourceOwnerDelete(owner);</span>
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>                :            : 
+<span class="lineNum">     266 </span>                :            : /*
+<span class="lineNum">     267 </span>                :            :  * ResCreateQueue -- initialize the elements for a resource queue.
+<span class="lineNum">     268 </span>                :            :  *
+<span class="lineNum">     269 </span>                :            :  * Notes:
+<span class="lineNum">     270 </span>                :            :  *      It is expected that the appropriate lightweight lock is held before
+<span class="lineNum">     271 </span>                :            :  *      calling this - unless we are the startup process.
+<a name="272"><span class="lineNum">     272 </span>                :            :  */</a>
+<span class="lineNum">     273 </span>                :            : bool
+<span class="lineNum">     274 </span>                :            : ResCreateQueue(Oid queueid, Cost limits[NUM_RES_LIMIT_TYPES], bool overcommit,
+<span class="lineNum">     275 </span>                :            :                            float4 ignorelimit)
+<span class="lineNum">     276 </span>                :            : {
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>                :            :         ResQueue                queue;
+<span class="lineNum">     279 </span>                :            :         int                             i;
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(LWLockHeldExclusiveByMe(ResQueueLock));</span>
+<span class="lineNum">     282 </span>                :            :         
+<span class="lineNum">     283 </span>                :            :         /* If the new queue pointer is NULL, then we are out of queueus. */
+<span class="lineNum">     284 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ResScheduler-&gt;num_queues &gt;= MaxResourceQueues)</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            :         /**
+<span class="lineNum">     288 </span>                :            :          * Has an entry for this 
+<span class="lineNum">     289 </span>                :            :          */
+<span class="lineNum">     290 </span>                :            :         
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :         queue = ResQueueHashNew(queueid);</span>
+<span class="lineNum">     292 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(queue != NULL);</span>
+<span class="lineNum">     293 </span>                :            :         
+<span class="lineNum">     294 </span>                :            :         /* Set queue oid and offset in the schedular array */
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         queue-&gt;queueid = queueid;</span>
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :            :         /* Set the number of limits 0 initially. */
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         queue-&gt;num_limits = 0;</span>
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :            :         /* Set overcommit.*/
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :         queue-&gt;overcommit = overcommit;</span>
+<span class="lineNum">     302 </span>                :            : 
+<span class="lineNum">     303 </span>                :            :         /* Set ignore cost limit. */
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         queue-&gt;ignorecostlimit = ignorelimit;</span>
+<span class="lineNum">     305 </span>                :            : 
+<span class="lineNum">     306 </span>                :            :         /* Now run through all the possible limit types.*/
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0 ; i &lt; NUM_RES_LIMIT_TYPES; i++)</span>
+<span class="lineNum">     308 </span>                :            :         {
+<span class="lineNum">     309 </span>                :            :                 /*
+<span class="lineNum">     310 </span>                :            :                  * Specific initializations for the limit types (the current two are
+<span class="lineNum">     311 </span>                :            :                  * in fact the same).
+<span class="lineNum">     312 </span>                :            :                  */
+<span class="lineNum">     313 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 switch (i)</span>
+<span class="lineNum">     314 </span>                :            :                 {
+<span class="lineNum">     315 </span>                :            :                         case RES_COUNT_LIMIT:
+<span class="lineNum">     316 </span>                :            :                         case RES_COST_LIMIT:
+<span class="lineNum">     317 </span>                :            :                         case RES_MEMORY_LIMIT:
+<span class="lineNum">     318 </span>                :            :                                 {
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                                         queue-&gt;num_limits++;</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                                         queue-&gt;limits[i].type = i;</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :                                         queue-&gt;limits[i].threshold_value = limits[i];</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :                                         queue-&gt;limits[i].current_value = 0;</span>
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :                                         queue-&gt;limits[i].threshold_is_max = true;</span>
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     325 </span>                :            :                                 }
+<span class="lineNum">     326 </span>                :            :                         default:
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :                                 elog(ERROR, &quot;unknown resource limit type %d&quot;, i);</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     329 </span>                :            :                 }
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :            : 
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :         ResScheduler-&gt;num_queues++;</span>
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :            : /*
+<span class="lineNum">     339 </span>                :            :  * ResAlterQueue -- Change thresholds, overcommit for a resource queue.
+<span class="lineNum">     340 </span>                :            :  *
+<span class="lineNum">     341 </span>                :            :  * Notes:
+<span class="lineNum">     342 </span>                :            :  *      It is expected that the appropriate lightweight lock is held before
+<span class="lineNum">     343 </span>                :            :  *      calling this.
+<a name="344"><span class="lineNum">     344 </span>                :            :  */</a>
+<span class="lineNum">     345 </span>                :            : ResAlterQueueResult
+<span class="lineNum">     346 </span>                :            : ResAlterQueue(Oid queueid, Cost limits[NUM_RES_LIMIT_TYPES], bool overcommit,
+<span class="lineNum">     347 </span>                :            :                           float4 ignorelimit)
+<span class="lineNum">     348 </span>                :            : {
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :         ResQueue                queue = ResQueueHashFind(queueid);</span>
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 :         bool                    result = ALTERQUEUE_OK;</span>
+<span class="lineNum">     352 </span>                :            :         int                             i;
+<span class="lineNum">     353 </span>                :            :         
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :            :         /* Handed an Oid for something other than a queue, bail out! */
+<span class="lineNum">     356 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (queue == NULL)</span>
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :                 return ALTERQUEUE_ERROR;</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            :         /* 
+<span class="lineNum">     361 </span>                :            :          * Now run through all the possible limit types, checking all the
+<span class="lineNum">     362 </span>                :            :          * intended changes are ok.
+<span class="lineNum">     363 </span>                :            :          */
+<span class="lineNum">     364 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0 ; i &lt; NUM_RES_LIMIT_TYPES; i++)</span>
+<span class="lineNum">     365 </span>                :            :         {
+<span class="lineNum">     366 </span>                :            :                 /* Don't sanity check thresholds if that are about to be disabled. */
+<span class="lineNum">     367 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (limits[i] == INVALID_RES_LIMIT_THRESHOLD)</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     369 </span>                :            : 
+<span class="lineNum">     370 </span>                :            :                 /*
+<span class="lineNum">     371 </span>                :            :                  * MPP-4340:
+<span class="lineNum">     372 </span>                :            :                  * The goal of the resource queues is to allow us to throttle work
+<span class="lineNum">     373 </span>                :            :                  * onto the cluster: a key requirement is that given a queue we be able to
+<span class="lineNum">     374 </span>                :            :                  * change the limit values -- especially in a situation where we're already
+<span class="lineNum">     375 </span>                :            :                  * overloading the system, we'd like to be able to drop the queue limit.
+<span class="lineNum">     376 </span>                :            :                  *
+<span class="lineNum">     377 </span>                :            :                  * The original sanity checks here disallowed modifications which might
+<span class="lineNum">     378 </span>                :            :                  * reduce the threshold. To throttle the system for better performance,
+<span class="lineNum">     379 </span>                :            :                  * work had to get cancelled. That's an unacceptable limitation; so
+<span class="lineNum">     380 </span>                :            :                  * now we allow the queues to be changed.
+<span class="lineNum">     381 </span>                :            :                  *
+<span class="lineNum">     382 </span>                :            :                  * Overcommit is a much more serious type of change.
+<span class="lineNum">     383 </span>                :            :                  *
+<span class="lineNum">     384 </span>                :            :                  * For overcommitable limits we need to ensure the queue is not in 
+<span class="lineNum">     385 </span>                :            :                  * an overcommited state if we about to turn overcommit off.
+<span class="lineNum">     386 </span>                :            :                  */
+<span class="lineNum">     387 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 switch (i)</span>
+<span class="lineNum">     388 </span>                :            :                 {
+<span class="lineNum">     389 </span>                :            :                         case RES_COUNT_LIMIT:
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     391 </span>                :            : 
+<span class="lineNum">     392 </span>                :            :                         case RES_COST_LIMIT:
+<span class="lineNum">     393 </span>                :            :                         {
+<span class="lineNum">     394 </span>                :            :                                 /* 
+<span class="lineNum">     395 </span>                :            :                                  * Don't turn overcommit off if queue could be overcommitted.
+<span class="lineNum">     396 </span>                :            :                                  * We err on the side of caution in this case and demand that
+<span class="lineNum">     397 </span>                :            :                                  * the queue is idle - we don't want to leave a query waiting 
+<span class="lineNum">     398 </span>                :            :                                  * forever in the wait queue. We use the same roundoff limit
+<span class="lineNum">     399 </span>                :            :                                  * value (0.1) as ResLockCheckLimit does.
+<span class="lineNum">     400 </span>                :            :                                  */
+<span class="lineNum">     401 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!overcommit &amp;&amp; queue-&gt;overcommit &amp;&amp; </span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :                                         (queue-&gt;limits[i].current_value &gt; 0.1))</span>
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                                         result = ALTERQUEUE_OVERCOMMITTED;</span>
+<span class="lineNum">     404 </span>                :            :                         }
+<span class="lineNum">     405 </span>                :            :                         
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     407 </span>                :            :                         
+<span class="lineNum">     408 </span>                :            :                         case RES_MEMORY_LIMIT:
+<span class="lineNum">     409 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     410 </span>                :            :                 }
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     412 </span>                :            : 
+<span class="lineNum">     413 </span>                :            :         /*
+<span class="lineNum">     414 </span>                :            :          * If threshold and overcommit alterations are all ok, do the the changes.
+<span class="lineNum">     415 </span>                :            :          */
+<span class="lineNum">     416 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == ALTERQUEUE_OK)</span>
+<span class="lineNum">     417 </span>                :            :         {
+<span class="lineNum">     418 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = 0 ; i &lt; NUM_RES_LIMIT_TYPES; i++)</span>
+<span class="lineNum">     419 </span>                :            :                 {
+<span class="lineNum">     420 </span>                :            :                         /*
+<span class="lineNum">     421 </span>                :            :                          * Assign the new thresholds.
+<span class="lineNum">     422 </span>                :            :                          */
+<span class="lineNum">     423 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         switch (i)</span>
+<span class="lineNum">     424 </span>                :            :                         {
+<span class="lineNum">     425 </span>                :            :                                 case RES_COUNT_LIMIT:
+<span class="lineNum">     426 </span>                :            :                                 case RES_COST_LIMIT:
+<span class="lineNum">     427 </span>                :            :                                 case RES_MEMORY_LIMIT:
+<span class="lineNum">     428 </span>                :            :                                 {
+<span class="lineNum">     429 </span>                :            :                                         
+<span class="lineNum">     430 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (queue-&gt;limits[i].threshold_value != limits[i])</span>
+<span class="lineNum">     431 </span>                :<span class="lineNoCov">          0 :                                                 queue-&gt;limits[i].threshold_value = limits[i];</span>
+<span class="lineNum">     432 </span>                :            :                                 }
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     434 </span>                :            :                         }
+<span class="lineNum">     435 </span>                :            :         
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     437 </span>                :            : 
+<span class="lineNum">     438 </span>                :            :                 /* Set overcommit if that has changed. */
+<span class="lineNum">     439 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (queue-&gt;overcommit != overcommit)</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                         queue-&gt;overcommit = overcommit;</span>
+<span class="lineNum">     441 </span>                :            : 
+<span class="lineNum">     442 </span>                :            :                 /* Set ignore cost limit if that has changed. */
+<span class="lineNum">     443 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (queue-&gt;ignorecostlimit != ignorelimit)</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                         queue-&gt;ignorecostlimit = ignorelimit;</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     446 </span>                :            :         
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     449 </span>                :            : 
+<span class="lineNum">     450 </span>                :            : 
+<span class="lineNum">     451 </span>                :            : /*
+<span class="lineNum">     452 </span>                :            :  * ResDestroyQueue -- destroy a resource queue.
+<span class="lineNum">     453 </span>                :            :  *
+<span class="lineNum">     454 </span>                :            :  * Notes:
+<span class="lineNum">     455 </span>                :            :  *      It is expected that the appropriate lightweight lock is held before
+<span class="lineNum">     456 </span>                :            :  *      calling this.
+<a name="457"><span class="lineNum">     457 </span>                :            :  */</a>
+<span class="lineNum">     458 </span>                :            : bool
+<span class="lineNum">     459 </span>                :            : ResDestroyQueue(Oid queueid)
+<span class="lineNum">     460 </span>                :            : {
+<span class="lineNum">     461 </span>                :            : 
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :         ResQueue                queue = ResQueueHashFind(queueid);</span>
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :         bool                    allzero = true;</span>
+<span class="lineNum">     464 </span>                :            :         bool                    result;
+<span class="lineNum">     465 </span>                :            :         int                             i;
+<span class="lineNum">     466 </span>                :            :         
+<span class="lineNum">     467 </span>                :            : 
+<span class="lineNum">     468 </span>                :            :         /* Handed an Oid for something other than a queue, bail out! */
+<span class="lineNum">     469 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (queue == NULL)</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>                :            : 
+<span class="lineNum">     473 </span>                :            :         /* 
+<span class="lineNum">     474 </span>                :            :          * Now run through all the possible limit types, checking all the
+<span class="lineNum">     475 </span>                :            :          * current counters are zero.
+<span class="lineNum">     476 </span>                :            :          */
+<span class="lineNum">     477 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0 ; i &lt; NUM_RES_LIMIT_TYPES; i++)</span>
+<span class="lineNum">     478 </span>                :            :         {
+<span class="lineNum">     479 </span>                :            :                 /*
+<span class="lineNum">     480 </span>                :            :                  * Specific checks for the limit types (the current two are
+<span class="lineNum">     481 </span>                :            :                  * in fact the same).
+<span class="lineNum">     482 </span>                :            :                  */
+<span class="lineNum">     483 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 switch (i)</span>
+<span class="lineNum">     484 </span>                :            :                 {
+<span class="lineNum">     485 </span>                :            :                         case RES_COUNT_LIMIT:
+<span class="lineNum">     486 </span>                :            :                         case RES_COST_LIMIT:
+<span class="lineNum">     487 </span>                :            :                         case RES_MEMORY_LIMIT:
+<span class="lineNum">     488 </span>                :            :                         {
+<span class="lineNum">     489 </span>                :            :                                 
+<span class="lineNum">     490 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (queue-&gt;limits[i].current_value != 0)</span>
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :                                         allzero = false;</span>
+<span class="lineNum">     492 </span>                :            :                         }
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     494 </span>                :            :                 }
+<span class="lineNum">     495 </span>                :            : 
+<span class="lineNum">     496 </span>                :            : 
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     498 </span>                :            : 
+<span class="lineNum">     499 </span>                :            :         /*
+<span class="lineNum">     500 </span>                :            :          * No non-zero current values for the queue, are able to destroy it.
+<span class="lineNum">     501 </span>                :            :          *
+<span class="lineNum">     502 </span>                :            :          * Some care is needed, as this leaves the possibility of a connected
+<span class="lineNum">     503 </span>                :            :          * user still using this queue via a ALTER ROLE ... RESOURCE QUEUE while
+<span class="lineNum">     504 </span>                :            :          * he is connected. However this is no worse than being able to DROP a 
+<span class="lineNum">     505 </span>                :            :          * ROLE that is corrently connected!
+<span class="lineNum">     506 </span>                :            :          */
+<span class="lineNum">     507 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (allzero)</span>
+<span class="lineNum">     508 </span>                :            :         {
+<span class="lineNum">     509 </span>                :<span class="lineNoCov">          0 :                 result = ResQueueHashRemove(queueid);</span>
+<span class="lineNum">     510 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (result)</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                         ResScheduler-&gt;num_queues--;</span>
+<span class="lineNum">     512 </span>                :            : 
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :                 return result;</span>
+<span class="lineNum">     514 </span>                :            :         }
+<span class="lineNum">     515 </span>                :            :         else
+<span class="lineNum">     516 </span>                :            :         {
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     518 </span>                :            :         }
+<span class="lineNum">     519 </span>                :            :         
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     521 </span>                :            : 
+<span class="lineNum">     522 </span>                :            : /*
+<span class="lineNum">     523 </span>                :            :  * ResLockPortal -- get a resource lock for Portal execution.
+<span class="lineNum">     524 </span>                :            :  *
+<span class="lineNum">     525 </span>                :            :  * Returns:
+<span class="lineNum">     526 </span>                :            :  *      true if the lock has been taken
+<span class="lineNum">     527 </span>                :            :  *      false if the lock has been skipped.
+<a name="528"><span class="lineNum">     528 </span>                :            :  */</a>
+<span class="lineNum">     529 </span>                :            : bool
+<span class="lineNum">     530 </span>                :            : ResLockPortal(Portal portal, QueryDesc *qDesc)
+<span class="lineNum">     531 </span>                :            : {
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :         bool            returnReleaseOk = false;        /* Release resource lock? */</span>
+<span class="lineNum">     533 </span>                :            :         bool            takeLock;                                       /* Take resource lock? */
+<span class="lineNum">     534 </span>                :            :         LOCKTAG         tag;
+<span class="lineNum">     535 </span>                :            :         Oid                     queueid;
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :         int32           lockResult = 0;</span>
+<span class="lineNum">     537 </span>                :            :         ResPortalIncrement      incData;
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :         Plan *plan = NULL;</span>
+<span class="lineNum">     539 </span>                :            : 
+<span class="lineNum">     540 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(qDesc);</span>
+<span class="lineNum">     541 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(qDesc-&gt;plannedstmt);</span>
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :<span class="lineNoCov">          0 :         plan = qDesc-&gt;plannedstmt-&gt;planTree;</span>
+<span class="lineNum">     544 </span>                :            : 
+<span class="lineNum">     545 </span>                :<span class="lineNoCov">          0 :         queueid = portal-&gt;queueId;</span>
+<span class="lineNum">     546 </span>                :            : 
+<span class="lineNum">     547 </span>                :            :         /* 
+<span class="lineNum">     548 </span>                :            :          * Check we have a valid queue before going any further.
+<span class="lineNum">     549 </span>                :            :          */
+<span class="lineNum">     550 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (queueid != InvalidOid)</span>
+<span class="lineNum">     551 </span>                :            :         {
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>                :            :                 /*
+<span class="lineNum">     554 </span>                :            :                  * Check the source tag to see if the original statement is suitable for
+<span class="lineNum">     555 </span>                :            :                  * locking. 
+<span class="lineNum">     556 </span>                :            :                  */
+<span class="lineNum">     557 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :                 switch (portal-&gt;sourceTag)</span>
+<span class="lineNum">         </span>         <span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     558 </span>                :            :                 {
+<span class="lineNum">     559 </span>                :            : 
+<span class="lineNum">     560 </span>                :            :                         /*
+<span class="lineNum">     561 </span>                :            :                          * For INSERT/UPDATE/DELETE Skip if we have specified only SELECT,
+<span class="lineNum">     562 </span>                :            :                          * otherwise drop through to handle like a SELECT.
+<span class="lineNum">     563 </span>                :            :                          */
+<span class="lineNum">     564 </span>                :            :                         case T_InsertStmt:
+<span class="lineNum">     565 </span>                :            :                         case T_DeleteStmt:
+<span class="lineNum">     566 </span>                :            :                         case T_UpdateStmt:
+<span class="lineNum">     567 </span>                :            :                         {
+<span class="lineNum">     568 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (ResourceSelectOnly)</span>
+<span class="lineNum">     569 </span>                :            :                                 {
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :                                         takeLock = false;</span>
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                                         returnReleaseOk = false;</span>
+<span class="lineNum">     572 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     573 </span>                :            :                                 }
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     575 </span>                :            : 
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>                :            :                         case T_SelectStmt:
+<span class="lineNum">     578 </span>                :            :                         {
+<span class="lineNum">     579 </span>                :            :                                 /*
+<span class="lineNum">     580 </span>                :            :                                  * Setup the resource portal increments, ready to be added.
+<span class="lineNum">     581 </span>                :            :                                  */
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                                 incData.pid = MyProc-&gt;pid;</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                                 incData.portalId = portal-&gt;portalId;</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                                 incData.increments[RES_COUNT_LIMIT] = 1;</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                                 incData.increments[RES_COST_LIMIT] = ceil(plan-&gt;total_cost);</span>
+<span class="lineNum">     586 </span>                :            : 
+<span class="lineNum">     587 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)</span>
+<span class="lineNum">     588 </span>                :            :                                 {
+<span class="lineNum">     589 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_AUTO ||</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     590 </span>                :            :                                                    gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_EAGER_FREE);
+<span class="lineNum">     591 </span>                :            :                                         
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                                         uint64 queryMemory = qDesc-&gt;plannedstmt-&gt;query_mem;</span>
+<span class="lineNum">     593 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(queryMemory &gt; 0);</span>
+<span class="lineNum">     594 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (gp_log_resqueue_memory)</span>
+<span class="lineNum">     595 </span>                :            :                                         {
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :                                                 elog(gp_resqueue_memory_log_level, &quot;query requested %.0fKB&quot;, (double) queryMemory / 1024.0);</span>
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :                                         }                                       </span>
+<span class="lineNum">     598 </span>                :            :                                         
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                                         incData.increments[RES_MEMORY_LIMIT] = (Cost) queryMemory;</span>
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     601 </span>                :            :                                 else 
+<span class="lineNum">     602 </span>                :            :                                 {
+<span class="lineNum">     603 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_NONE);</span>
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :                                         incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;                              </span>
+<span class="lineNum">     605 </span>                :            :                                 }
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                                 takeLock = true;</span>
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :                                 returnReleaseOk = true;</span>
+<span class="lineNum">     608 </span>                :            :                         }
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     610 </span>                :            :         
+<span class="lineNum">     611 </span>                :            :                         /*
+<span class="lineNum">     612 </span>                :            :                          * We are declaring a cursor - do the same as T_SelectStmt, but
+<span class="lineNum">     613 </span>                :            :                          * need to additionally consider setting the isHold option.
+<span class="lineNum">     614 </span>                :            :                          */
+<span class="lineNum">     615 </span>                :            :                         case T_DeclareCursorStmt:
+<span class="lineNum">     616 </span>                :            :                         {
+<span class="lineNum">     617 </span>                :            :                                 /*
+<span class="lineNum">     618 </span>                :            :                                  * Setup the resource portal increments, ready to be added.
+<span class="lineNum">     619 </span>                :            :                                  */
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 :                                 incData.pid = MyProc-&gt;pid;</span>
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :                                 incData.portalId = portal-&gt;portalId;</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                                 incData.increments[RES_COUNT_LIMIT] = 1;</span>
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :                                 incData.increments[RES_COST_LIMIT] = ceil(plan-&gt;total_cost);</span>
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :                                 incData.isHold = portal-&gt;cursorOptions &amp; CURSOR_OPT_HOLD;</span>
+<span class="lineNum">     625 </span>                :            : 
+<span class="lineNum">     626 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (gp_resqueue_memory_policy != RESQUEUE_MEMORY_POLICY_NONE)</span>
+<span class="lineNum">     627 </span>                :            :                                 {
+<span class="lineNum">     628 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_AUTO ||</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     629 </span>                :            :                                                    gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_EAGER_FREE);
+<span class="lineNum">     630 </span>                :            :                                         
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :                                         uint64 queryMemory = qDesc-&gt;plannedstmt-&gt;query_mem;</span>
+<span class="lineNum">     632 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(queryMemory &gt; 0);</span>
+<span class="lineNum">     633 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (gp_log_resqueue_memory)</span>
+<span class="lineNum">     634 </span>                :            :                                         {
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                                                 elog(NOTICE, &quot;query requested %.0fKB&quot;, (double) queryMemory / 1024.0);</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :                                         incData.increments[RES_MEMORY_LIMIT] = (Cost) queryMemory;</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     640 </span>                :            :                                 else 
+<span class="lineNum">     641 </span>                :            :                                 {
+<span class="lineNum">     642 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(gp_resqueue_memory_policy == RESQUEUE_MEMORY_POLICY_NONE);</span>
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :                                         incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;                              </span>
+<span class="lineNum">     644 </span>                :            :                                 }
+<span class="lineNum">     645 </span>                :            : 
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :                                 takeLock = true;</span>
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :                                 returnReleaseOk = true;</span>
+<span class="lineNum">     648 </span>                :            :                         }
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     650 </span>                :            :         
+<span class="lineNum">     651 </span>                :            :                         /*
+<span class="lineNum">     652 </span>                :            :                          * We do not want to lock any of these query types.
+<span class="lineNum">     653 </span>                :            :                          */
+<span class="lineNum">     654 </span>                :            :                         default:
+<span class="lineNum">     655 </span>                :            :                         {
+<span class="lineNum">     656 </span>                :            :         
+<span class="lineNum">     657 </span>                :<span class="lineNoCov">          0 :                                 takeLock = false;</span>
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 :                                 returnReleaseOk = false;</span>
+<span class="lineNum">     659 </span>                :            :                         }
+<span class="lineNum">     660 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     661 </span>                :            :         
+<span class="lineNum">     662 </span>                :            :                 }
+<span class="lineNum">     663 </span>                :            :         
+<span class="lineNum">     664 </span>                :            :         
+<span class="lineNum">     665 </span>                :            :                 /*
+<span class="lineNum">     666 </span>                :            :                  * Get the resource lock.
+<span class="lineNum">     667 </span>                :            :                  */
+<span class="lineNum">     668 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (takeLock)</span>
+<span class="lineNum">     669 </span>                :            :                 {
+<span class="lineNum">     670 </span>                :            : #ifdef RESLOCK_DEBUG
+<span class="lineNum">     671 </span>                :            :                         elog(DEBUG1, &quot;acquire resource lock for queue %u (portal %u)&quot;, 
+<span class="lineNum">     672 </span>                :            :                                         queueid, portal-&gt;portalId);
+<span class="lineNum">     673 </span>                :            : #endif
+<span class="lineNum">     674 </span>                :<span class="lineNoCov">          0 :                         SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);</span>
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         PG_TRY();</span>
+<span class="lineNum">     677 </span>                :            :                         {
+<span class="lineNum">     678 </span>                :<span class="lineNoCov">          0 :                                 lockResult = ResLockAcquire(&amp;tag, &amp;incData);</span>
+<span class="lineNum">     679 </span>                :            :                         }
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                         PG_CATCH();</span>
+<span class="lineNum">     681 </span>                :            :                         {
+<span class="lineNum">     682 </span>                :            :                                 /* 
+<span class="lineNum">     683 </span>                :            :                                  * We might have been waiting for a resource queue lock when we get 
+<span class="lineNum">     684 </span>                :            :                                  * here. Calling ResLockRelease without calling ResLockWaitCancel will 
+<span class="lineNum">     685 </span>                :            :                                  * cause the locallock to be cleaned up, but will leave the global
+<span class="lineNum">     686 </span>                :            :                                  * variable lockAwaited still pointing to the locallock hash 
+<span class="lineNum">     687 </span>                :            :                                  * entry.
+<span class="lineNum">     688 </span>                :            :                                  */
+<span class="lineNum">     689 </span>                :<span class="lineNoCov">          0 :                                 ResLockWaitCancel();</span>
+<span class="lineNum">     690 </span>                :            :                 
+<span class="lineNum">     691 </span>                :            :                                 /* Change status to no longer waiting for lock */
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :                                 pgstat_report_waiting(PGBE_WAITING_NONE);</span>
+<span class="lineNum">     693 </span>                :            : 
+<span class="lineNum">     694 </span>                :            :                                 /* If we had acquired the resource queue lock, release it and clean up */       
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :                                 ResLockRelease(&amp;tag, portal-&gt;portalId);</span>
+<span class="lineNum">     696 </span>                :            : 
+<span class="lineNum">     697 </span>                :            :                                 /*
+<span class="lineNum">     698 </span>                :            :                                  * Perfmon related stuff: clean up if we got cancelled
+<span class="lineNum">     699 </span>                :            :                                  * while waiting.
+<span class="lineNum">     700 </span>                :            :                                  */
+<span class="lineNum">     701 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (gp_enable_gpperfmon &amp;&amp; qDesc-&gt;gpmon_pkt)</span>
+<span class="lineNum">     702 </span>                :            :                                 {                       
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :                                         gpmon_qlog_query_error(qDesc-&gt;gpmon_pkt);</span>
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                                         pfree(qDesc-&gt;gpmon_pkt);</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                                         qDesc-&gt;gpmon_pkt = NULL;</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     707 </span>                :            : 
+<span class="lineNum">     708 </span>                :<span class="lineNoCov">          0 :                                 portal-&gt;queueId = InvalidOid;</span>
+<span class="lineNum">     709 </span>                :<span class="lineNoCov">          0 :                                 portal-&gt;portalId = INVALID_PORTALID;</span>
+<span class="lineNum">     710 </span>                :            : 
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :                                 PG_RE_THROW();</span>
+<span class="lineNum">     712 </span>                :            :                         }
+<span class="lineNum">     713 </span>                :<span class="lineNoCov">          0 :                         PG_END_TRY();</span>
+<span class="lineNum">     714 </span>                :            : 
+<span class="lineNum">     715 </span>                :            :                         /* 
+<span class="lineNum">     716 </span>                :            :                          * See if query was too small to bother locking at all, i.e had
+<span class="lineNum">     717 </span>                :            :                          * cost smaller than the ignore cost threshold for the queue.
+<span class="lineNum">     718 </span>                :            :                          */
+<span class="lineNum">     719 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (lockResult == LOCKACQUIRE_NOT_AVAIL)</span>
+<span class="lineNum">     720 </span>                :            :                         {
+<span class="lineNum">     721 </span>                :            : #ifdef RESLOCK_DEBUG
+<span class="lineNum">     722 </span>                :            :                                 elog(DEBUG1, &quot;cancel resource lock for queue %u (portal %u)&quot;, 
+<span class="lineNum">     723 </span>                :            :                                                 queueid, portal-&gt;portalId);
+<span class="lineNum">     724 </span>                :            : #endif
+<span class="lineNum">     725 </span>                :            :                                 /* 
+<span class="lineNum">     726 </span>                :            :                                  * Reset portalId and queueid for this portal so the queue
+<span class="lineNum">     727 </span>                :            :                                  * and increment accounting tests continue to work properly.
+<span class="lineNum">     728 </span>                :            :                                  */
+<span class="lineNum">     729 </span>                :<span class="lineNoCov">          0 :                                 portal-&gt;queueId = InvalidOid;</span>
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                                 portal-&gt;portalId = INVALID_PORTALID;</span>
+<span class="lineNum">     731 </span>                :<span class="lineNoCov">          0 :                                 returnReleaseOk = false;</span>
+<span class="lineNum">     732 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     733 </span>                :            : 
+<span class="lineNum">     734 </span>                :            :                         /* Count holdable cursors (if we are locking this one) .*/
+<span class="lineNum">     735 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (portal-&gt;cursorOptions &amp; CURSOR_OPT_HOLD &amp;&amp; returnReleaseOk)</span>
+<span class="lineNum">     736 </span>                :<span class="lineNoCov">          0 :                                 numHoldPortals++;</span>
+<span class="lineNum">     737 </span>                :            : 
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     739 </span>                :            : 
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     741 </span>                :<span class="lineNoCov">          0 :         return returnReleaseOk;</span>
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            : }
+<span class="lineNum">     744 </span>                :            : 
+<span class="lineNum">     745 </span>                :            : /* This function is a simple version of ResLockPortal, which is used specially
+<span class="lineNum">     746 </span>                :            :  * for utility statements; the main logic is same as ResLockPortal, but remove
+<a name="747"><span class="lineNum">     747 </span>                :            :  * some unnecessary lines and make some tiny adjustments for utility stmts */</a>
+<span class="lineNum">     748 </span>                :            : bool
+<span class="lineNum">     749 </span>                :            : ResLockUtilityPortal(Portal portal, float4 ignoreCostLimit)
+<span class="lineNum">     750 </span>                :            : {
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :         bool returnReleaseOk = false;</span>
+<span class="lineNum">     752 </span>                :            :         LOCKTAG         tag;
+<span class="lineNum">     753 </span>                :            :         Oid                     queueid;
+<span class="lineNum">     754 </span>                :<span class="lineNoCov">          0 :         int32           lockResult = 0;</span>
+<span class="lineNum">     755 </span>                :            :         ResPortalIncrement      incData;
+<span class="lineNum">     756 </span>                :            : 
+<span class="lineNum">     757 </span>                :<span class="lineNoCov">          0 :         queueid = portal-&gt;queueId;</span>
+<span class="lineNum">     758 </span>                :            : 
+<span class="lineNum">     759 </span>                :            :         /*
+<span class="lineNum">     760 </span>                :            :          * Check we have a valid queue before going any further.
+<span class="lineNum">     761 </span>                :            :          */
+<span class="lineNum">     762 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (queueid != InvalidOid)</span>
+<span class="lineNum">     763 </span>                :            :         {
+<span class="lineNum">     764 </span>                :            :                 /*
+<span class="lineNum">     765 </span>                :            :                  * Setup the resource portal increments, ready to be added.
+<span class="lineNum">     766 </span>                :            :                  */
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :                 incData.pid = MyProc-&gt;pid;</span>
+<span class="lineNum">     768 </span>                :<span class="lineNoCov">          0 :                 incData.portalId = portal-&gt;portalId;</span>
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :                 incData.increments[RES_COUNT_LIMIT] = 1;</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                 incData.increments[RES_COST_LIMIT] = ignoreCostLimit;</span>
+<span class="lineNum">     771 </span>                :<span class="lineNoCov">          0 :                 incData.increments[RES_MEMORY_LIMIT] = (Cost) 0.0;</span>
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                 returnReleaseOk = true;</span>
+<span class="lineNum">     773 </span>                :            : 
+<span class="lineNum">     774 </span>                :            :                 /*
+<span class="lineNum">     775 </span>                :            :                  * Get the resource lock.
+<span class="lineNum">     776 </span>                :            :                  */
+<span class="lineNum">     777 </span>                :            : #ifdef RESLOCK_DEBUG
+<span class="lineNum">     778 </span>                :            :                 elog(DEBUG1, &quot;acquire resource lock for queue %u (portal %u)&quot;,
+<span class="lineNum">     779 </span>                :            :                                 queueid, portal-&gt;portalId);
+<span class="lineNum">     780 </span>                :            : #endif
+<span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 :                 SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);</span>
+<span class="lineNum">     782 </span>                :            : 
+<span class="lineNum">     783 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 PG_TRY();</span>
+<span class="lineNum">     784 </span>                :            :                 {
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :                         lockResult = ResLockAcquire(&amp;tag, &amp;incData);</span>
+<span class="lineNum">     786 </span>                :            :                 }
+<span class="lineNum">     787 </span>                :<span class="lineNoCov">          0 :                 PG_CATCH();</span>
+<span class="lineNum">     788 </span>                :            :                 {
+<span class="lineNum">     789 </span>                :            :                         /*
+<span class="lineNum">     790 </span>                :            :                          * We might have been waiting for a resource queue lock when we get
+<span class="lineNum">     791 </span>                :            :                          * here. Calling ResLockRelease without calling ResLockWaitCancel will
+<span class="lineNum">     792 </span>                :            :                          * cause the locallock to be cleaned up, but will leave the global
+<span class="lineNum">     793 </span>                :            :                          * variable lockAwaited still pointing to the locallock hash
+<span class="lineNum">     794 </span>                :            :                          * entry.
+<span class="lineNum">     795 </span>                :            :                          */
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :                         ResLockWaitCancel();</span>
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>                :            :                         /* Change status to no longer waiting for lock */
+<span class="lineNum">     799 </span>                :<span class="lineNoCov">          0 :                         pgstat_report_waiting(PGBE_WAITING_NONE);</span>
+<span class="lineNum">     800 </span>                :            : 
+<span class="lineNum">     801 </span>                :            :                         /* If we had acquired the resource queue lock, release it and clean up */
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 :                         ResLockRelease(&amp;tag, portal-&gt;portalId);</span>
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>                :            :                         /*
+<span class="lineNum">     805 </span>                :            :                          * Perfmon related stuff: clean up if we got cancelled
+<span class="lineNum">     806 </span>                :            :                          * while waiting.
+<span class="lineNum">     807 </span>                :            :                          */
+<span class="lineNum">     808 </span>                :            : 
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :                         portal-&gt;queueId = InvalidOid;</span>
+<span class="lineNum">     810 </span>                :<span class="lineNoCov">          0 :                         portal-&gt;portalId = INVALID_PORTALID;</span>
+<span class="lineNum">     811 </span>                :            : 
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :                         PG_RE_THROW();</span>
+<span class="lineNum">     813 </span>                :            :                 }
+<span class="lineNum">     814 </span>                :<span class="lineNoCov">          0 :                 PG_END_TRY();</span>
+<span class="lineNum">     815 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     816 </span>                :<span class="lineNoCov">          0 :         return returnReleaseOk;</span>
+<span class="lineNum">     817 </span>                :            : }
+<span class="lineNum">     818 </span>                :            : 
+<span class="lineNum">     819 </span>                :            : /*
+<span class="lineNum">     820 </span>                :            :  * ResUnLockPortal -- release a resource lock for a portal.
+<a name="821"><span class="lineNum">     821 </span>                :            :  */</a>
+<span class="lineNum">     822 </span>                :            : void
+<span class="lineNum">     823 </span>                :            : ResUnLockPortal(Portal portal)
+<span class="lineNum">     824 </span>                :            : {
+<span class="lineNum">     825 </span>                :            :         LOCKTAG                                 tag;
+<span class="lineNum">     826 </span>                :            :         Oid                                             queueid;
+<span class="lineNum">     827 </span>                :            : 
+<span class="lineNum">     828 </span>                :<span class="lineNoCov">          0 :         queueid = portal-&gt;queueId;</span>
+<span class="lineNum">     829 </span>                :            : 
+<span class="lineNum">     830 </span>                :            :         /* 
+<span class="lineNum">     831 </span>                :            :          * Check we have a valid queue before going any further.
+<span class="lineNum">     832 </span>                :            :          */
+<span class="lineNum">     833 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (queueid != InvalidOid)</span>
+<span class="lineNum">     834 </span>                :            :         {
+<span class="lineNum">     835 </span>                :            : #ifdef RESLOCK_DEBUG
+<span class="lineNum">     836 </span>                :            :                 elog(DEBUG1, &quot;release resource lock for queue %u (portal %u)&quot;, 
+<span class="lineNum">     837 </span>                :            :                          queueid, portal-&gt;portalId);
+<span class="lineNum">     838 </span>                :            : #endif
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                 SET_LOCKTAG_RESOURCE_QUEUE(tag, queueid);</span>
+<span class="lineNum">     840 </span>                :            : 
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :                 ResLockRelease(&amp;tag, portal-&gt;portalId);</span>
+<span class="lineNum">     842 </span>                :            : 
+<span class="lineNum">     843 </span>                :            :                 /* Count holdable cursors.*/
+<span class="lineNum">     844 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (portal-&gt;cursorOptions &amp; CURSOR_OPT_HOLD)</span>
+<span class="lineNum">     845 </span>                :            :                 {
+<span class="lineNum">     846 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(numHoldPortals &gt; 0);</span>
+<span class="lineNum">     847 </span>                :<span class="lineNoCov">          0 :                         numHoldPortals--;</span>
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     849 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>                :<span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     852 </span>                :            : }
+<span class="lineNum">     853 </span>                :            : 
+<span class="lineNum">     854 </span>                :            : 
+<span class="lineNum">     855 </span>                :            : /*
+<span class="lineNum">     856 </span>                :            :  * GetResQueueForRole -- determine what resource queue a role is going to use.
+<span class="lineNum">     857 </span>                :            :  *
+<span class="lineNum">     858 </span>                :            :  * Notes
+<span class="lineNum">     859 </span>                :            :  *      This could be called for each of ResLockPortal and ResUnLockPortal, but we 
+<span class="lineNum">     860 </span>                :            :  *      can eliminate a relation open and lock if it is cached.
+<a name="861"><span class="lineNum">     861 </span>                :            :  */</a>
+<span class="lineNum">     862 </span>                :            : Oid     
+<span class="lineNum">     863 </span>                :            : GetResQueueForRole(Oid roleid)
+<span class="lineNum">     864 </span>                :            : {
+<span class="lineNum">     865 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     866 </span>                :            :         bool            isnull;
+<span class="lineNum">     867 </span>                :            :         Oid                     queueid;
+<span class="lineNum">     868 </span>                :            : 
+<span class="lineNum">     869 </span>                :<span class="lineNoCov">          0 :         tuple = SearchSysCache1(AUTHOID, ObjectIdGetDatum(roleid));</span>
+<span class="lineNum">     870 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!tuple)</span>
+<span class="lineNum">     871 </span>                :<span class="lineNoCov">          0 :                 return DEFAULTRESQUEUE_OID; /* role not found */</span>
+<span class="lineNum">     872 </span>                :            : 
+<span class="lineNum">     873 </span>                :<span class="lineNoCov">          0 :         queueid = SysCacheGetAttr(AUTHOID, tuple, Anum_pg_authid_rolresqueue, &amp;isnull);</span>
+<span class="lineNum">     874 </span>                :            : 
+<span class="lineNum">     875 </span>                :            :         /* MPP-6926: use default queue if none specified */
+<span class="lineNum">     876 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(queueid) || isnull)</span>
+<span class="lineNum">     877 </span>                :<span class="lineNoCov">          0 :                 queueid = DEFAULTRESQUEUE_OID;</span>
+<span class="lineNum">     878 </span>                :            : 
+<span class="lineNum">     879 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tuple);</span>
+<span class="lineNum">     880 </span>                :            : 
+<span class="lineNum">     881 </span>                :<span class="lineNoCov">          0 :         return queueid;</span>
+<span class="lineNum">     882 </span>                :            :         
+<span class="lineNum">     883 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     884 </span>                :            : 
+<span class="lineNum">     885 </span>                :            : 
+<span class="lineNum">     886 </span>                :            : /*
+<span class="lineNum">     887 </span>                :            :  * SetResQueueId -- set the cached value for the current resource queue.
+<span class="lineNum">     888 </span>                :            :  *
+<span class="lineNum">     889 </span>                :            :  * Notes
+<span class="lineNum">     890 </span>                :            :  *      Needs to be called at session initialization and after (or in) SET ROLE.
+<a name="891"><span class="lineNum">     891 </span>                :            :  */</a>
+<span class="lineNum">     892 </span>                :            : void
+<span class="lineNum">     893 </span>                :            : SetResQueueId(void)
+<span class="lineNum">     894 </span>                :            : {
+<span class="lineNum">     895 </span>                :            :         /* to cave the code of cache part, we provide a resource owner here if no
+<span class="lineNum">     896 </span>                :            :          * existing */
+<span class="lineNum">     897 </span>                :<span class="lineNoCov">          0 :         ResourceOwner owner = NULL;</span>
+<span class="lineNum">     898 </span>                :            : 
+<span class="lineNum">     899 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (CurrentResourceOwner == NULL)</span>
+<span class="lineNum">     900 </span>                :            :         {
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                 owner = ResourceOwnerCreate(NULL, &quot;SetResQueueId&quot;);</span>
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :                 CurrentResourceOwner = owner;</span>
+<span class="lineNum">     903 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     904 </span>                :            : 
+<span class="lineNum">     905 </span>                :<span class="lineNoCov">          0 :         MyQueueId = GetResQueueForRole(GetUserId());</span>
+<span class="lineNum">     906 </span>                :            : 
+<span class="lineNum">     907 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (owner)</span>
+<span class="lineNum">     908 </span>                :            :         {
+<span class="lineNum">     909 </span>                :<span class="lineNoCov">          0 :                 CurrentResourceOwner = NULL;</span>
+<span class="lineNum">     910 </span>                :<span class="lineNoCov">          0 :                 ResourceOwnerDelete(owner);</span>
+<span class="lineNum">     911 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     912 </span>                :            : 
+<span class="lineNum">     913 </span>                :<span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     914 </span>                :            : }
+<span class="lineNum">     915 </span>                :            : 
+<span class="lineNum">     916 </span>                :            : 
+<span class="lineNum">     917 </span>                :            : /*
+<span class="lineNum">     918 </span>                :            :  * GetResQueueId -- return the current cached value for the resource queue.
+<a name="919"><span class="lineNum">     919 </span>                :            :  */</a>
+<span class="lineNum">     920 </span>                :            : Oid
+<span class="lineNum">     921 </span>                :            : GetResQueueId(void)
+<span class="lineNum">     922 </span>                :            : {
+<span class="lineNum">     923 </span>                :<span class="lineNoCov">          0 :         return MyQueueId;</span>
+<span class="lineNum">     924 </span>                :            : }
+<span class="lineNum">     925 </span>                :            : 
+<span class="lineNum">     926 </span>                :            : 
+<span class="lineNum">     927 </span>                :            : /*
+<span class="lineNum">     928 </span>                :            :  * ResQueueIdForName -- Return the Oid for a resource queue name
+<span class="lineNum">     929 </span>                :            :  *
+<span class="lineNum">     930 </span>                :            :  * Notes:
+<span class="lineNum">     931 </span>                :            :  *      Used by the various admin commands to convert a user supplied queue name
+<span class="lineNum">     932 </span>                :            :  *      to Oid.
+<a name="933"><span class="lineNum">     933 </span>                :            :  */</a>
+<span class="lineNum">     934 </span>                :            : Oid
+<span class="lineNum">     935 </span>                :            : GetResQueueIdForName(char       *name)
+<span class="lineNum">     936 </span>                :            : {
+<span class="lineNum">     937 </span>                :            :         Relation        rel;
+<span class="lineNum">     938 </span>                :            :         ScanKeyData scankey;
+<span class="lineNum">     939 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     940 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     941 </span>                :            :         Oid                     queueid;
+<span class="lineNum">     942 </span>                :            : 
+<span class="lineNum">     943 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ResQueueRelationId, AccessShareLock);</span>
+<span class="lineNum">     944 </span>                :            : 
+<span class="lineNum">     945 </span>                :            :         /* SELECT oid FROM pg_resqueue WHERE rsqname = :1 */
+<span class="lineNum">     946 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;scankey,</span>
+<span class="lineNum">     947 </span>                :            :                                 Anum_pg_resqueue_rsqname,
+<span class="lineNum">     948 </span>                :            :                                 BTEqualStrategyNumber, F_NAMEEQ,
+<span class="lineNum">     949 </span>                :<span class="lineNoCov">          0 :                                 CStringGetDatum(name));</span>
+<span class="lineNum">     950 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, ResQueueRsqnameIndexId, true,</span>
+<span class="lineNum">     951 </span>                :            :                                                           SnapshotNow, 1, &amp;scankey);
+<span class="lineNum">     952 </span>                :            : 
+<span class="lineNum">     953 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     954 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (tuple)</span>
+<span class="lineNum">     955 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 queueid = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     956 </span>                :            :         else
+<span class="lineNum">     957 </span>                :<span class="lineNoCov">          0 :                 queueid = InvalidOid;</span>
+<span class="lineNum">     958 </span>                :            : 
+<span class="lineNum">     959 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     960 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, AccessShareLock);</span>
+<span class="lineNum">     961 </span>                :            : 
+<span class="lineNum">     962 </span>                :<span class="lineNoCov">          0 :         return queueid;</span>
+<span class="lineNum">     963 </span>                :            : }
+<span class="lineNum">     964 </span>                :            : 
+<span class="lineNum">     965 </span>                :            : 
+<span class="lineNum">     966 </span>                :            : /*
+<span class="lineNum">     967 </span>                :            :  * ResCreatePortalId -- return an id for a portal
+<span class="lineNum">     968 </span>                :            :  *
+<span class="lineNum">     969 </span>                :            :  * Notes
+<span class="lineNum">     970 </span>                :            :  *      We return a new id for any named portal, but zero for an un-named one. 
+<span class="lineNum">     971 </span>                :            :  *      This is because we use the id to track cursors, and there can only be one
+<span class="lineNum">     972 </span>                :            :  *      un-named portal active.
+<a name="973"><span class="lineNum">     973 </span>                :            :  */</a>
+<span class="lineNum">     974 </span>                :            : uint32
+<span class="lineNum">     975 </span>                :            : ResCreatePortalId(const char *name)
+<span class="lineNum">     976 </span>                :            : {
+<span class="lineNum">     977 </span>                :            : 
+<span class="lineNum">     978 </span>                :            :         uint32                          id;
+<span class="lineNum">     979 </span>                :            :         ResPortalTag            portalTag;
+<span class="lineNum">     980 </span>                :<span class="lineNoCov">          0 :         bool                            found = false;</span>
+<span class="lineNum">     981 </span>                :            : 
+<span class="lineNum">     982 </span>                :            :         /* Unnamed portal. */
+<span class="lineNum">     983 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (name[0] == '\0')</span>
+<span class="lineNum">     984 </span>                :            :         {
+<span class="lineNum">     985 </span>                :<span class="lineNoCov">          0 :                 id = 0;</span>
+<span class="lineNum">     986 </span>                :<span class="lineNoCov">          0 :                 return id;</span>
+<span class="lineNum">     987 </span>                :            :         }
+<span class="lineNum">     988 </span>                :            : 
+<span class="lineNum">     989 </span>                :            : 
+<span class="lineNum">     990 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">     991 </span>                :            : 
+<span class="lineNum">     992 </span>                :            :         /* 
+<span class="lineNum">     993 </span>                :            :          * Named portal.
+<span class="lineNum">     994 </span>                :            :          * Search for a id we can re-use from a closed portal - we want to do this
+<span class="lineNum">     995 </span>                :            :          * so we can have MaxResourcePortalsPerXact *open* tracked (named) portals 
+<span class="lineNum">     996 </span>                :            :          * in a transaction.
+<span class="lineNum">     997 </span>                :            :          */
+<span class="lineNum">     998 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (id = 1; id &lt;= portalId; id++)</span>
+<span class="lineNum">     999 </span>                :            :         {
+<span class="lineNum">    1000 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MemSet(&amp;portalTag, 0, sizeof(ResPortalTag));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">    1001 </span>                :<span class="lineNoCov">          0 :                 portalTag.pid = MyProc-&gt;pid;</span>
+<span class="lineNum">    1002 </span>                :<span class="lineNoCov">          0 :                 portalTag.portalId = id;</span>
+<span class="lineNum">    1003 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!ResIncrementFind(&amp;portalTag))</span>
+<span class="lineNum">    1004 </span>                :            :                 {
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1007 </span>                :            :                 }
+<span class="lineNum">    1008 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1009 </span>                :            :         
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(ResQueueLock);</span>
+<span class="lineNum">    1011 </span>                :            :         
+<span class="lineNum">    1012 </span>                :            :         /*
+<span class="lineNum">    1013 </span>                :            :          * No re-usable portal ids, check we have not exhaused the # of trackable
+<span class="lineNum">    1014 </span>                :            :          * portals and return the next id.
+<span class="lineNum">    1015 </span>                :            :          */
+<span class="lineNum">    1016 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!found)</span>
+<span class="lineNum">    1017 </span>                :            :         {
+<span class="lineNum">    1018 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (portalId &gt;= MaxResourcePortalsPerXact)</span>
+<span class="lineNum">    1019 </span>                :            :                 {
+<span class="lineNum">    1020 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">    1021 </span>                :            :                                 (errcode(ERRCODE_INSUFFICIENT_RESOURCES),
+<span class="lineNum">    1022 </span>                :            :                                  errmsg(&quot;insufficient portal ids available&quot;),
+<span class="lineNum">    1023 </span>                :            :                         errhint(&quot;Increase max_resource_portals_per_transaction.&quot;)));
+<span class="lineNum">    1024 </span>                :            : 
+<span class="lineNum">    1025 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1026 </span>                :            : 
+<span class="lineNum">    1027 </span>                :<span class="lineNoCov">          0 :                 id = (++portalId);</span>
+<span class="lineNum">    1028 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1029 </span>                :            : 
+<span class="lineNum">    1030 </span>                :<span class="lineNoCov">          0 :         return id;</span>
+<span class="lineNum">    1031 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1032 </span>                :            : 
+<span class="lineNum">    1033 </span>                :            : 
+<span class="lineNum">    1034 </span>                :            : /*
+<span class="lineNum">    1035 </span>                :            :  * AtCommit_ResScheduler -- do any pre-commit processing for Resource 
+<span class="lineNum">    1036 </span>                :            :  *      Scheduling.
+<a name="1037"><span class="lineNum">    1037 </span>                :            :  */</a>
+<span class="lineNum">    1038 </span>                :            : void
+<span class="lineNum">    1039 </span>                :            : AtCommit_ResScheduler(void)
+<span class="lineNum">    1040 </span>                :            : {
+<span class="lineNum">    1041 </span>                :            : 
+<span class="lineNum">    1042 </span>                :            :         /* reset the portal id. */
+<span class="lineNum">    1043 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (numHoldPortals == 0)</span>
+<span class="lineNum">    1044 </span>                :<span class="lineNoCov">          0 :                 portalId = 0;</span>
+<span class="lineNum">    1045 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1046 </span>                :            : 
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>                :            : /*
+<span class="lineNum">    1049 </span>                :            :  * AtAbort_ResScheduler -- do any abort processing for Resource 
+<span class="lineNum">    1050 </span>                :            :  *      Scheduling.
+<a name="1051"><span class="lineNum">    1051 </span>                :            :  */</a>
+<span class="lineNum">    1052 </span>                :            : void
+<span class="lineNum">    1053 </span>                :            : AtAbort_ResScheduler(void)
+<span class="lineNum">    1054 </span>                :            : {
+<span class="lineNum">    1055 </span>                :            : 
+<span class="lineNum">    1056 </span>                :            :         /* reset the portal id. */
+<span class="lineNum">    1057 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (numHoldPortals == 0)</span>
+<span class="lineNum">    1058 </span>                :<span class="lineNoCov">          0 :                 portalId = 0;</span>
+<span class="lineNum">    1059 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1060 </span>                :            : 
+<span class="lineNum">    1061 </span>                :            : /* This routine checks whether speficied utility stmt should be involved into
+<span class="lineNum">    1062 </span>                :            :  * resourece queue mgmt; if yes, take the slot from the resource queue; if we
+<a name="1063"><span class="lineNum">    1063 </span>                :            :  * want to track additional utility stmts, add it into the condition check */</a>
+<span class="lineNum">    1064 </span>                :            : void
+<span class="lineNum">    1065 </span>                :            : ResHandleUtilityStmt(Portal portal, Node *stmt)
+<span class="lineNum">    1066 </span>                :            : {
+<span class="lineNum">    1067 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsA(stmt, CopyStmt))</span>
+<span class="lineNum">    1068 </span>                :            :         {
+<span class="lineNum">    1069 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1070 </span>                :            :         }
+<span class="lineNum">    1071 </span>                :            : 
+<span class="lineNum">    1072 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH</span>
+<span class="lineNum">    1073 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 &amp;&amp; IsResQueueEnabled()</span>
+<span class="lineNum">    1074 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 &amp;&amp; (!ResourceSelectOnly)</span>
+<span class="lineNum">    1075 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 &amp;&amp; !superuser())</span>
+<span class="lineNum">    1076 </span>                :            :         {
+<span class="lineNum">    1077 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!LWLockHeldExclusiveByMe(ResQueueLock));</span>
+<span class="lineNum">    1078 </span>                :<span class="lineNoCov">          0 :                 LWLockAcquire(ResQueueLock, LW_EXCLUSIVE);</span>
+<span class="lineNum">    1079 </span>                :<span class="lineNoCov">          0 :                 ResQueue resQueue = ResQueueHashFind(portal-&gt;queueId);</span>
+<span class="lineNum">    1080 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(ResQueueLock);</span>
+<span class="lineNum">    1081 </span>                :            : 
+<span class="lineNum">    1082 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(resQueue);</span>
+<span class="lineNum">    1083 </span>                :<span class="lineNoCov">          0 :                 int numSlots = (int) ceil(resQueue-&gt;limits[RES_COUNT_LIMIT].threshold_value);</span>
+<span class="lineNum">    1084 </span>                :            : 
+<span class="lineNum">    1085 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (numSlots &gt;= 1) /* statement limit exists */</span>
+<span class="lineNum">    1086 </span>                :            :                 {
+<span class="lineNum">    1087 </span>                :<span class="lineNoCov">          0 :                         portal-&gt;status = PORTAL_QUEUE;</span>
+<span class="lineNum">    1088 </span>                :            : 
+<span class="lineNum">    1089 </span>                :<span class="lineNoCov">          0 :                         portal-&gt;releaseResLock = ResLockUtilityPortal(portal, resQueue-&gt;ignorecostlimit);</span>
+<span class="lineNum">    1090 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1091 </span>                :<span class="lineNoCov">          0 :                 portal-&gt;status = PORTAL_ACTIVE;</span>
+<span class="lineNum">    1092 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1093 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

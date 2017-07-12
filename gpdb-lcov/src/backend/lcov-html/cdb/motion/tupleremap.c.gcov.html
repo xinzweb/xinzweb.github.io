@@ -1,0 +1,807 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - cdb/motion/tupleremap.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">cdb/motion</a> - tupleremap.c<span style="font-size: 80%;"> (source / <a href="tupleremap.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">196</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">11</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">122</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * tupleremap.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Derived from executor/tqueue.c in upstream PostgreSQL.
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Reused the remap logic on the motion receiver for record type remap,
+<span class="lineNum">       8 </span>                :            :  * with some changes:
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * - TupleQueueReader is renamed to TupleRemapper;
+<span class="lineNum">      11 </span>                :            :  * - {Create,Destroy}TupleQueueReader() are renamed to
+<span class="lineNum">      12 </span>                :            :  *   {Create,Destroy}TupleRemapper;
+<span class="lineNum">      13 </span>                :            :  * - all TQ prefixes are renamed to TR;
+<span class="lineNum">      14 </span>                :            :  * - typmodmap use array instead of hash table for faster lookup;
+<span class="lineNum">      15 </span>                :            :  * - put range support in conditional compilation, only enabled if
+<span class="lineNum">      16 </span>                :            :  *   TYPTYPE_RANGE is defined;
+<span class="lineNum">      17 </span>                :            :  *
+<span class="lineNum">      18 </span>                :            :  * Portions Copyright (c) 1996-2016, PostgreSQL Global Development Group
+<span class="lineNum">      19 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      20 </span>                :            :  *
+<span class="lineNum">      21 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      22 </span>                :            :  *        src/backend/cdb/motion/tupleremap.c
+<span class="lineNum">      23 </span>                :            :  *
+<span class="lineNum">      24 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      25 </span>                :            :  */
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      28 </span>                :            : 
+<span class="lineNum">      29 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;cdb/tupleremap.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;funcapi.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;lib/stringinfo.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;utils/array.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;utils/typcache.h&quot;
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :            : 
+<span class="lineNum">      41 </span>                :            : /*
+<span class="lineNum">      42 </span>                :            :  * When a tuple is received on the motion receiver, the typmod of RECORDOID
+<span class="lineNum">      43 </span>                :            :  * represents the index of cache on the sender, which is meaningless on the
+<span class="lineNum">      44 </span>                :            :  * receiver. So we build a typmod map of RECORDOID type on the motion receiver,
+<span class="lineNum">      45 </span>                :            :  * and translate the typmod of tuple from remote to local.
+<span class="lineNum">      46 </span>                :            :  *
+<span class="lineNum">      47 </span>                :            :  * Motion receiver build a tree of TupleRemapInfo nodes to help them identify
+<span class="lineNum">      48 </span>                :            :  * which (sub) fields of transmitted tuples are composite and may thus need
+<span class="lineNum">      49 </span>                :            :  * remap processing.  We might need to look within arrays and ranges, not only
+<span class="lineNum">      50 </span>                :            :  * composites, to find composite sub-fields.  A NULL TupleRemapInfo pointer
+<span class="lineNum">      51 </span>                :            :  * indicates that it is known that the described field is not composite and
+<span class="lineNum">      52 </span>                :            :  * has no composite substructure.
+<span class="lineNum">      53 </span>                :            :  *
+<span class="lineNum">      54 </span>                :            :  * Note that we currently have to look at each composite field at runtime,
+<span class="lineNum">      55 </span>                :            :  * even if we believe it's of a named composite type (i.e., not RECORD).
+<span class="lineNum">      56 </span>                :            :  * This is because we allow the actual value to be a compatible transient
+<span class="lineNum">      57 </span>                :            :  * RECORD type.  That's grossly inefficient, and it would be good to get
+<span class="lineNum">      58 </span>                :            :  * rid of the requirement, but it's not clear what would need to change.
+<span class="lineNum">      59 </span>                :            :  *
+<span class="lineNum">      60 </span>                :            :  * Also, we allow the top-level tuple structure, as well as the actual
+<span class="lineNum">      61 </span>                :            :  * structure of composite subfields, to change from one tuple to the next
+<span class="lineNum">      62 </span>                :            :  * at runtime.  This may well be entirely historical, but it's mostly free
+<span class="lineNum">      63 </span>                :            :  * to support given the previous requirement; and other places in the system
+<span class="lineNum">      64 </span>                :            :  * also permit this, so it's not entirely clear if we could drop it.
+<span class="lineNum">      65 </span>                :            :  */
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : typedef enum
+<span class="lineNum">      68 </span>                :            : {
+<span class="lineNum">      69 </span>                :            :         TUPLE_REMAP_ARRAY,                      /* array */
+<span class="lineNum">      70 </span>                :            :         TUPLE_REMAP_RANGE,                      /* range */
+<span class="lineNum">      71 </span>                :            :         TUPLE_REMAP_RECORD                      /* composite type, named or transient */
+<span class="lineNum">      72 </span>                :            : } TupleRemapClass;
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : typedef struct TupleRemapInfo TupleRemapInfo;
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : typedef struct ArrayRemapInfo
+<span class="lineNum">      77 </span>                :            : {
+<span class="lineNum">      78 </span>                :            :         int16           typlen;                 /* array element type's storage properties */
+<span class="lineNum">      79 </span>                :            :         bool            typbyval;
+<span class="lineNum">      80 </span>                :            :         char            typalign;
+<span class="lineNum">      81 </span>                :            :         TupleRemapInfo *element_remap;          /* array element type's remap info */
+<span class="lineNum">      82 </span>                :            : } ArrayRemapInfo;
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            : typedef struct RangeRemapInfo
+<span class="lineNum">      85 </span>                :            : {
+<span class="lineNum">      86 </span>                :            :         TypeCacheEntry *typcache;       /* range type's typcache entry */
+<span class="lineNum">      87 </span>                :            :         TupleRemapInfo *bound_remap;    /* range bound type's remap info */
+<span class="lineNum">      88 </span>                :            : } RangeRemapInfo;
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : typedef struct RecordRemapInfo
+<span class="lineNum">      91 </span>                :            : {
+<span class="lineNum">      92 </span>                :            :         /* Original (remote) type ID info last seen for this composite field */
+<span class="lineNum">      93 </span>                :            :         Oid                     rectypid;
+<span class="lineNum">      94 </span>                :            :         int32           rectypmod;
+<span class="lineNum">      95 </span>                :            :         /* Local RECORD typmod, or -1 if unset; not used on sender side */
+<span class="lineNum">      96 </span>                :            :         int32           localtypmod;
+<span class="lineNum">      97 </span>                :            :         /* If no fields of the record require remapping, these are NULL: */
+<span class="lineNum">      98 </span>                :            :         TupleDesc       tupledesc;              /* copy of record's tupdesc */
+<span class="lineNum">      99 </span>                :            :         TupleRemapInfo **field_remap;           /* each field's remap info */
+<span class="lineNum">     100 </span>                :            : } RecordRemapInfo;
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :            : struct TupleRemapInfo
+<span class="lineNum">     103 </span>                :            : {
+<span class="lineNum">     104 </span>                :            :         TupleRemapClass remapclass;
+<span class="lineNum">     105 </span>                :            :         union
+<span class="lineNum">     106 </span>                :            :         {
+<span class="lineNum">     107 </span>                :            :                 ArrayRemapInfo arr;
+<span class="lineNum">     108 </span>                :            :                 RangeRemapInfo rng;
+<span class="lineNum">     109 </span>                :            :                 RecordRemapInfo rec;
+<span class="lineNum">     110 </span>                :            :         } u;
+<span class="lineNum">     111 </span>                :            : };
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :            : /*
+<span class="lineNum">     114 </span>                :            :  * TupleRemapper object's private contents
+<span class="lineNum">     115 </span>                :            :  *
+<span class="lineNum">     116 </span>                :            :  * tupledesc is a pointer to data supplied by remapper's caller.
+<span class="lineNum">     117 </span>                :            :  * The typmodmap and remap info are owned by the TupleRemapper and
+<span class="lineNum">     118 </span>                :            :  * are kept in mycontext.
+<span class="lineNum">     119 </span>                :            :  *
+<span class="lineNum">     120 </span>                :            :  * &quot;typedef struct TupleRemapper TupleRemapper&quot; is in tupleremap.h
+<span class="lineNum">     121 </span>                :            :  */
+<span class="lineNum">     122 </span>                :            : struct TupleRemapper
+<span class="lineNum">     123 </span>                :            : {
+<span class="lineNum">     124 </span>                :            :         MemoryContext mycontext;        /* context containing TupleRemapper */
+<span class="lineNum">     125 </span>                :            :         int32      *typmodmap;          /* typmod map from remote to local */
+<span class="lineNum">     126 </span>                :            :         int                     typmodmapsize;  /* size of typmodmap */
+<span class="lineNum">     127 </span>                :            :         TupleDesc       tupledesc;              /* current top-level tuple descriptor */
+<span class="lineNum">     128 </span>                :            :         TupleRemapInfo **field_remapinfo;       /* current top-level remap info */
+<span class="lineNum">     129 </span>                :            :         bool            remap_needed;   /* is remap needed */
+<span class="lineNum">     130 </span>                :            : };
+<span class="lineNum">     131 </span>                :            : 
+<span class="lineNum">     132 </span>                :            : static HeapTuple TRRemapTuple(TupleRemapper *remapper,
+<span class="lineNum">     133 </span>                :            :                          TupleDesc tupledesc,
+<span class="lineNum">     134 </span>                :            :                          TupleRemapInfo **field_remapinfo,
+<span class="lineNum">     135 </span>                :            :                          HeapTuple tuple);
+<span class="lineNum">     136 </span>                :            : static Datum TRRemap(TupleRemapper *remapper, TupleRemapInfo *remapinfo,
+<span class="lineNum">     137 </span>                :            :                 Datum value, bool *changed);
+<span class="lineNum">     138 </span>                :            : static Datum TRRemapArray(TupleRemapper *remapper, ArrayRemapInfo *remapinfo,
+<span class="lineNum">     139 </span>                :            :                          Datum value, bool *changed);
+<span class="lineNum">     140 </span>                :            : #ifdef TYPTYPE_RANGE
+<span class="lineNum">     141 </span>                :            : /* GPDB_92_MERGE_FIXME remove these ifdef when range type is supported */
+<span class="lineNum">     142 </span>                :            : static Datum TRRemapRange(TupleRemapper *remapper, RangeRemapInfo *remapinfo,
+<span class="lineNum">     143 </span>                :            :                          Datum value, bool *changed);
+<span class="lineNum">     144 </span>                :            : #endif
+<span class="lineNum">     145 </span>                :            : static Datum TRRemapRecord(TupleRemapper *remapper, RecordRemapInfo *remapinfo,
+<span class="lineNum">     146 </span>                :            :                           Datum value, bool *changed);
+<span class="lineNum">     147 </span>                :            : static TupleRemapInfo *BuildTupleRemapInfo(Oid typid, MemoryContext mycontext);
+<span class="lineNum">     148 </span>                :            : static TupleRemapInfo *BuildArrayRemapInfo(Oid elemtypid,
+<span class="lineNum">     149 </span>                :            :                                         MemoryContext mycontext);
+<span class="lineNum">     150 </span>                :            : #ifdef TYPTYPE_RANGE
+<span class="lineNum">     151 </span>                :            : static TupleRemapInfo *BuildRangeRemapInfo(Oid rngtypid,
+<span class="lineNum">     152 </span>                :            :                                         MemoryContext mycontext);
+<span class="lineNum">     153 </span>                :            : #endif
+<span class="lineNum">     154 </span>                :            : static TupleRemapInfo **BuildFieldRemapInfo(TupleDesc tupledesc,
+<span class="lineNum">     155 </span>                :            :                                         MemoryContext mycontext);
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :            : /*
+<span class="lineNum">     159 </span>                :            :  * Create a tuple remapper.
+<a name="160"><span class="lineNum">     160 </span>                :            :  */</a>
+<span class="lineNum">     161 </span>                :            : TupleRemapper *
+<span class="lineNum">     162 </span>                :            : CreateTupleRemapper(void)
+<span class="lineNum">     163 </span>                :            : {
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         TupleRemapper *remapper = palloc0(sizeof(TupleRemapper));</span>
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;mycontext = CurrentMemoryContext;</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;typmodmap = NULL;</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;typmodmapsize = 0;</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;tupledesc = NULL;</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;field_remapinfo = NULL;</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;remap_needed = false;</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :         return remapper;</span>
+<span class="lineNum">     174 </span>                :            : }
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :            : /*
+<span class="lineNum">     177 </span>                :            :  * Destroy a tuple remapper.
+<a name="178"><span class="lineNum">     178 </span>                :            :  */</a>
+<span class="lineNum">     179 </span>                :            : void
+<span class="lineNum">     180 </span>                :            : DestroyTupleRemapper(TupleRemapper *remapper)
+<span class="lineNum">     181 </span>                :            : {
+<span class="lineNum">     182 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (remapper-&gt;typmodmap != NULL)</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                 pfree(remapper-&gt;typmodmap);</span>
+<span class="lineNum">     184 </span>                :            :         /* Is it worth trying to free substructure of the remap tree? */
+<span class="lineNum">     185 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (remapper-&gt;field_remapinfo != NULL)</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                 pfree(remapper-&gt;field_remapinfo);</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         pfree(remapper);</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>                :            : /*
+<span class="lineNum">     191 </span>                :            :  * Remap a tuple if needed
+<span class="lineNum">     192 </span>                :            :  *
+<span class="lineNum">     193 </span>                :            :  * Form a new tuple with all the remote typmods remapped to local typmods.
+<a name="194"><span class="lineNum">     194 </span>                :            :  */</a>
+<span class="lineNum">     195 </span>                :            : HeapTuple
+<span class="lineNum">     196 </span>                :            : TRCheckAndRemap(TupleRemapper *remapper, TupleDesc tupledesc, HeapTuple tuple)
+<span class="lineNum">     197 </span>                :            : {
+<span class="lineNum">     198 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!remapper-&gt;remap_needed)</span>
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :                 return tuple;</span>
+<span class="lineNum">     200 </span>                :            : 
+<span class="lineNum">     201 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!remapper-&gt;field_remapinfo)</span>
+<span class="lineNum">     202 </span>                :            :         {
+<span class="lineNum">     203 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(remapper-&gt;tupledesc == NULL);</span>
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                 remapper-&gt;tupledesc = tupledesc;</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                 remapper-&gt;field_remapinfo = BuildFieldRemapInfo(tupledesc,</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                                                                                                                 remapper-&gt;mycontext);</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :         return TRRemapTuple(remapper, tupledesc, remapper-&gt;field_remapinfo, tuple);</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :            : /*
+<span class="lineNum">     213 </span>                :            :  * Handle the record type cache from motion sender.
+<span class="lineNum">     214 </span>                :            :  *
+<span class="lineNum">     215 </span>                :            :  * Add the record types to local cache, and build a map from remote to local.
+<a name="216"><span class="lineNum">     216 </span>                :            :  */</a>
+<span class="lineNum">     217 </span>                :            : void
+<span class="lineNum">     218 </span>                :            : TRHandleTypeLists(TupleRemapper *remapper, List *typelist)
+<span class="lineNum">     219 </span>                :            : {
+<span class="lineNum">     220 </span>                :            :         int j;
+<span class="lineNum">     221 </span>                :            :         ListCell *cell;
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         int mapsize = remapper-&gt;typmodmapsize + list_length(typelist);</span>
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (remapper-&gt;typmodmap)</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :                 remapper-&gt;typmodmap = repalloc(remapper-&gt;typmodmap, mapsize * sizeof(int32));</span>
+<span class="lineNum">     226 </span>                :            :         else
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :                 remapper-&gt;typmodmap = palloc(mapsize * sizeof(int32));</span>
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (j = 0; j &lt; list_length(typelist); j++)</span>
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                 remapper-&gt;typmodmap[remapper-&gt;typmodmapsize + j] = -1;</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         remapper-&gt;typmodmapsize = mapsize;</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(cell, typelist)</span>
+<span class="lineNum">     235 </span>                :            :         {
+<span class="lineNum">     236 </span>                :            :                 int32 local_typmod;
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :                 TupleDescNode * descnode = (TupleDescNode *) lfirst(cell);</span>
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :                 int32 remote_typmod = descnode-&gt;tuple-&gt;tdtypmod;</span>
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>                :            :                 /* assign_record_type_typmod() will update tdtypmod to the local typmod */
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                 assign_record_type_typmod(descnode-&gt;tuple);</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 local_typmod = descnode-&gt;tuple-&gt;tdtypmod;</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(remote_typmod &gt;= 0);</span>
+<span class="lineNum">     246 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(local_typmod &gt;= 0);</span>
+<span class="lineNum">     247 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(remote_typmod &lt; remapper-&gt;typmodmapsize);</span>
+<span class="lineNum">     248 </span>                :            : 
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                 remapper-&gt;typmodmap[remote_typmod] = local_typmod;</span>
+<span class="lineNum">     250 </span>                :            : 
+<span class="lineNum">     251 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!remapper-&gt;remap_needed &amp;&amp; local_typmod != remote_typmod)</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :                         remapper-&gt;remap_needed = true;</span>
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :            : /*
+<span class="lineNum">     257 </span>                :            :  * Copy the given tuple, remapping any transient typmods contained in it.
+<a name="258"><span class="lineNum">     258 </span>                :            :  */</a>
+<span class="lineNum">     259 </span>                :            : static HeapTuple
+<span class="lineNum">     260 </span>                :            : TRRemapTuple(TupleRemapper *remapper,
+<span class="lineNum">     261 </span>                :            :                          TupleDesc tupledesc,
+<span class="lineNum">     262 </span>                :            :                          TupleRemapInfo **field_remapinfo,
+<span class="lineNum">     263 </span>                :            :                          HeapTuple tuple)
+<span class="lineNum">     264 </span>                :            : {
+<span class="lineNum">     265 </span>                :            :         Datum      *values;
+<span class="lineNum">     266 </span>                :            :         bool       *isnull;
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :         bool            changed = false;</span>
+<span class="lineNum">     268 </span>                :            :         int                     i;
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :         /*
+<span class="lineNum">     271 </span>                :            :          * If no remapping is necessary, just copy the tuple into a single
+<span class="lineNum">     272 </span>                :            :          * palloc'd chunk, as caller will expect.
+<span class="lineNum">     273 </span>                :            :          */
+<span class="lineNum">     274 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (field_remapinfo == NULL)</span>
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :                 return tuple;</span>
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :            :         /* Deform tuple so we can remap record typmods for individual attrs. */
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :         values = (Datum *) palloc(tupledesc-&gt;natts * sizeof(Datum));</span>
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :         isnull = (bool *) palloc(tupledesc-&gt;natts * sizeof(bool));</span>
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>                :            :         /* CDB */
+<span class="lineNum">     282 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (is_heaptuple_memtuple(tuple))</span>
+<span class="lineNum">     283 </span>                :            :         {
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                 MemTupleBinding *pbind = create_memtuple_binding(tupledesc);</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                 memtuple_deform((MemTuple) tuple, pbind, values, isnull);</span>
+<span class="lineNum">     286 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     287 </span>                :            :         else
+<span class="lineNum">     288 </span>                :            :         {
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                 heap_deform_tuple(tuple, tupledesc, values, isnull);</span>
+<span class="lineNum">     290 </span>                :            :         }
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            :         /* Recursively process each interesting non-NULL attribute. */
+<span class="lineNum">     293 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; tupledesc-&gt;natts; i++)</span>
+<span class="lineNum">     294 </span>                :            :         {
+<span class="lineNum">     295 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (isnull[i] || field_remapinfo[i] == NULL)</span>
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                 values[i] = TRRemap(remapper, field_remapinfo[i], values[i], &amp;changed);</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :            :         /* Reconstruct the modified tuple, if anything was modified. */
+<span class="lineNum">     301 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (changed)</span>
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :                 return heap_form_tuple(tupledesc, values, isnull);</span>
+<span class="lineNum">     303 </span>                :            :         else
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                 return tuple;</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     306 </span>                :            : 
+<span class="lineNum">     307 </span>                :            : /*
+<span class="lineNum">     308 </span>                :            :  * Process the given datum and replace any transient record typmods
+<span class="lineNum">     309 </span>                :            :  * contained in it.  Set *changed to TRUE if we actually changed the datum.
+<span class="lineNum">     310 </span>                :            :  *
+<span class="lineNum">     311 </span>                :            :  * remapinfo is previously-computed remapping info about the datum's type.
+<span class="lineNum">     312 </span>                :            :  *
+<span class="lineNum">     313 </span>                :            :  * This function just dispatches based on the remap class.
+<a name="314"><span class="lineNum">     314 </span>                :            :  */</a>
+<span class="lineNum">     315 </span>                :            : static Datum
+<span class="lineNum">     316 </span>                :            : TRRemap(TupleRemapper *remapper, TupleRemapInfo *remapinfo,
+<span class="lineNum">     317 </span>                :            :                 Datum value, bool *changed)
+<span class="lineNum">     318 </span>                :            : {
+<span class="lineNum">     319 </span>                :            :         /* This is recursive, so it could be driven to stack overflow. */
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         check_stack_depth();</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch (remapinfo-&gt;remapclass)</span>
+<span class="lineNum">     323 </span>                :            :         {
+<span class="lineNum">     324 </span>                :            :                 case TUPLE_REMAP_ARRAY:
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :                         return TRRemapArray(remapper, &amp;remapinfo-&gt;u.arr, value, changed);</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :            :                 case TUPLE_REMAP_RANGE:
+<span class="lineNum">     328 </span>                :            : #ifdef TYPTYPE_RANGE
+<span class="lineNum">     329 </span>                :            :                         return TRRemapRange(remapper, &amp;remapinfo-&gt;u.rng, value, changed);
+<span class="lineNum">     330 </span>                :            : #else
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :                         return value;</span>
+<span class="lineNum">     332 </span>                :            : #endif
+<span class="lineNum">     333 </span>                :            : 
+<span class="lineNum">     334 </span>                :            :                 case TUPLE_REMAP_RECORD:
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                         return TRRemapRecord(remapper, &amp;remapinfo-&gt;u.rec, value, changed);</span>
+<span class="lineNum">     336 </span>                :            :         }
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         elog(ERROR, &quot;unrecognized remapper remap class: %d&quot;,</span>
+<span class="lineNum">     339 </span>                :            :                  (int) remapinfo-&gt;remapclass);
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :         return (Datum) 0;</span>
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :            : /*
+<span class="lineNum">     344 </span>                :            :  * Process the given array datum and replace any transient record typmods
+<span class="lineNum">     345 </span>                :            :  * contained in it.  Set *changed to TRUE if we actually changed the datum.
+<a name="346"><span class="lineNum">     346 </span>                :            :  */</a>
+<span class="lineNum">     347 </span>                :            : static Datum
+<span class="lineNum">     348 </span>                :            : TRRemapArray(TupleRemapper *remapper, ArrayRemapInfo *remapinfo,
+<span class="lineNum">     349 </span>                :            :                          Datum value, bool *changed)
+<span class="lineNum">     350 </span>                :            : {
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 :         ArrayType  *arr = DatumGetArrayTypeP(value);</span>
+<span class="lineNum">     352 </span>                :<span class="lineNoCov">          0 :         Oid                     typid = ARR_ELEMTYPE(arr);</span>
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :         bool            element_changed = false;</span>
+<span class="lineNum">     354 </span>                :            :         Datum      *elem_values;
+<span class="lineNum">     355 </span>                :            :         bool       *elem_nulls;
+<span class="lineNum">     356 </span>                :            :         int                     num_elems;
+<span class="lineNum">     357 </span>                :            :         int                     i;
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            :         /* Deconstruct the array. */
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         deconstruct_array(arr, typid, remapinfo-&gt;typlen,</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :                                           remapinfo-&gt;typbyval, remapinfo-&gt;typalign,</span>
+<span class="lineNum">     362 </span>                :            :                                           &amp;elem_values, &amp;elem_nulls, &amp;num_elems);
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :            :         /* Remap each element. */
+<span class="lineNum">     365 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; num_elems; i++)</span>
+<span class="lineNum">     366 </span>                :            :         {
+<span class="lineNum">     367 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!elem_nulls[i])</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                         elem_values[i] = TRRemap(remapper,</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :                                                                          remapinfo-&gt;element_remap,</span>
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :                                                                          elem_values[i],</span>
+<span class="lineNum">     371 </span>                :            :                                                                          &amp;element_changed);
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (element_changed)</span>
+<span class="lineNum">     375 </span>                :            :         {
+<span class="lineNum">     376 </span>                :            :                 /* Reconstruct and return the array.  */
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :                 *changed = true;</span>
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :                 arr = construct_md_array(elem_values, elem_nulls,</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :                                                            ARR_NDIM(arr), ARR_DIMS(arr), ARR_LBOUND(arr),</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :                                                                  typid, remapinfo-&gt;typlen,</span>
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :                                                                  remapinfo-&gt;typbyval, remapinfo-&gt;typalign);</span>
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :                 return PointerGetDatum(arr);</span>
+<span class="lineNum">     383 </span>                :            :         }
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :            :         /* Else just return the value as-is. */
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :         return value;</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>                :            : /*
+<span class="lineNum">     390 </span>                :            :  * Process the given range datum and replace any transient record typmods
+<span class="lineNum">     391 </span>                :            :  * contained in it.  Set *changed to TRUE if we actually changed the datum.
+<span class="lineNum">     392 </span>                :            :  */
+<span class="lineNum">     393 </span>                :            : #ifdef TYPTYPE_RANGE
+<span class="lineNum">     394 </span>                :            : static Datum
+<span class="lineNum">     395 </span>                :            : TRRemapRange(TupleRemapper *remapper, RangeRemapInfo *remapinfo,
+<span class="lineNum">     396 </span>                :            :                          Datum value, bool *changed)
+<span class="lineNum">     397 </span>                :            : {
+<span class="lineNum">     398 </span>                :            :         RangeType  *range = DatumGetRangeType(value);
+<span class="lineNum">     399 </span>                :            :         bool            bound_changed = false;
+<span class="lineNum">     400 </span>                :            :         RangeBound      lower;
+<span class="lineNum">     401 </span>                :            :         RangeBound      upper;
+<span class="lineNum">     402 </span>                :            :         bool            empty;
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>                :            :         /* Extract the lower and upper bounds. */
+<span class="lineNum">     405 </span>                :            :         range_deserialize(remapinfo-&gt;typcache, range, &amp;lower, &amp;upper, &amp;empty);
+<span class="lineNum">     406 </span>                :            : 
+<span class="lineNum">     407 </span>                :            :         /* Nothing to do for an empty range. */
+<span class="lineNum">     408 </span>                :            :         if (empty)
+<span class="lineNum">     409 </span>                :            :                 return value;
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            :         /* Remap each bound, if present. */
+<span class="lineNum">     412 </span>                :            :         if (!upper.infinite)
+<span class="lineNum">     413 </span>                :            :                 upper.val = TRRemap(remapper, remapinfo-&gt;bound_remap,
+<span class="lineNum">     414 </span>                :            :                                                         upper.val, &amp;bound_changed);
+<span class="lineNum">     415 </span>                :            :         if (!lower.infinite)
+<span class="lineNum">     416 </span>                :            :                 lower.val = TRRemap(remapper, remapinfo-&gt;bound_remap,
+<span class="lineNum">     417 </span>                :            :                                                         lower.val, &amp;bound_changed);
+<span class="lineNum">     418 </span>                :            : 
+<span class="lineNum">     419 </span>                :            :         if (bound_changed)
+<span class="lineNum">     420 </span>                :            :         {
+<span class="lineNum">     421 </span>                :            :                 /* Reserialize.  */
+<span class="lineNum">     422 </span>                :            :                 *changed = true;
+<span class="lineNum">     423 </span>                :            :                 range = range_serialize(remapinfo-&gt;typcache, &amp;lower, &amp;upper, empty);
+<span class="lineNum">     424 </span>                :            :                 return RangeTypeGetDatum(range);
+<span class="lineNum">     425 </span>                :            :         }
+<span class="lineNum">     426 </span>                :            : 
+<span class="lineNum">     427 </span>                :            :         /* Else just return the value as-is. */
+<span class="lineNum">     428 </span>                :            :         return value;
+<span class="lineNum">     429 </span>                :            : }
+<span class="lineNum">     430 </span>                :            : #endif
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>                :            : /*
+<span class="lineNum">     433 </span>                :            :  * Process the given record datum and replace any transient record typmods
+<span class="lineNum">     434 </span>                :            :  * contained in it.  Set *changed to TRUE if we actually changed the datum.
+<a name="435"><span class="lineNum">     435 </span>                :            :  */</a>
+<span class="lineNum">     436 </span>                :            : static Datum
+<span class="lineNum">     437 </span>                :            : TRRemapRecord(TupleRemapper *remapper, RecordRemapInfo *remapinfo,
+<span class="lineNum">     438 </span>                :            :                           Datum value, bool *changed)
+<span class="lineNum">     439 </span>                :            : {
+<span class="lineNum">     440 </span>                :            :         HeapTupleHeader tup;
+<span class="lineNum">     441 </span>                :            :         Oid                     typid;
+<span class="lineNum">     442 </span>                :            :         int32           typmod;
+<span class="lineNum">     443 </span>                :            :         bool            changed_typmod;
+<span class="lineNum">     444 </span>                :            :         TupleDesc       tupledesc;
+<span class="lineNum">     445 </span>                :            : 
+<span class="lineNum">     446 </span>                :            :         /* Extract type OID and typmod from tuple. */
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         tup = DatumGetHeapTupleHeader(value);</span>
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 :         typid = HeapTupleHeaderGetTypeId(tup);</span>
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :         typmod = HeapTupleHeaderGetTypMod(tup);</span>
+<span class="lineNum">     450 </span>                :            : 
+<span class="lineNum">     451 </span>                :            :         /*
+<span class="lineNum">     452 </span>                :            :          * If first time through, or if this isn't the same composite type as last
+<span class="lineNum">     453 </span>                :            :          * time, identify the required typmod mapping, and then look up the
+<span class="lineNum">     454 </span>                :            :          * necessary information for processing the fields.
+<span class="lineNum">     455 </span>                :            :          */
+<span class="lineNum">     456 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (typid != remapinfo-&gt;rectypid || typmod != remapinfo-&gt;rectypmod)</span>
+<span class="lineNum">     457 </span>                :            :         {
+<span class="lineNum">     458 </span>                :            :                 /* Free any old data. */
+<span class="lineNum">     459 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (remapinfo-&gt;tupledesc != NULL)</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                         FreeTupleDesc(remapinfo-&gt;tupledesc);</span>
+<span class="lineNum">     461 </span>                :            :                 /* Is it worth trying to free substructure of the remap tree? */
+<span class="lineNum">     462 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (remapinfo-&gt;field_remap != NULL)</span>
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :                         pfree(remapinfo-&gt;field_remap);</span>
+<span class="lineNum">     464 </span>                :            : 
+<span class="lineNum">     465 </span>                :            :                 /* If transient record type, look up matching local typmod. */
+<span class="lineNum">     466 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (typid == RECORDOID)</span>
+<span class="lineNum">     467 </span>                :            :                 {
+<span class="lineNum">     468 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(remapper-&gt;typmodmap != NULL);</span>
+<span class="lineNum">     469 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(typmod &gt;= 0);</span>
+<span class="lineNum">     470 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(typmod &lt; remapper-&gt;typmodmapsize);</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :                         remapinfo-&gt;localtypmod = remapper-&gt;typmodmap[typmod];</span>
+<span class="lineNum">     473 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(remapinfo-&gt;localtypmod &gt;= 0);</span>
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     475 </span>                :            :                 else
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :                         remapinfo-&gt;localtypmod = -1;</span>
+<span class="lineNum">     477 </span>                :            : 
+<span class="lineNum">     478 </span>                :            :                 /* Look up tuple descriptor in typcache. */
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                 tupledesc = lookup_rowtype_tupdesc(typid, remapinfo-&gt;localtypmod);</span>
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>                :            :                 /* Figure out whether fields need recursive processing. */
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;field_remap = BuildFieldRemapInfo(tupledesc,</span>
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :                                                                                                          remapper-&gt;mycontext);</span>
+<span class="lineNum">     484 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (remapinfo-&gt;field_remap != NULL)</span>
+<span class="lineNum">     485 </span>                :            :                 {
+<span class="lineNum">     486 </span>                :            :                         /*
+<span class="lineNum">     487 </span>                :            :                          * We need to inspect the record contents, so save a copy of the
+<span class="lineNum">     488 </span>                :            :                          * tupdesc.  (We could possibly just reference the typcache's
+<span class="lineNum">     489 </span>                :            :                          * copy, but then it's problematic when to release the refcount.)
+<span class="lineNum">     490 </span>                :            :                          */
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :                         MemoryContext oldcontext = MemoryContextSwitchTo(remapper-&gt;mycontext);</span>
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :                         remapinfo-&gt;tupledesc = CreateTupleDescCopy(tupledesc);</span>
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :                         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     496 </span>                :            :                 else
+<span class="lineNum">     497 </span>                :            :                 {
+<span class="lineNum">     498 </span>                :            :                         /* No fields of the record require remapping. */
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                         remapinfo-&gt;tupledesc = NULL;</span>
+<span class="lineNum">     500 </span>                :            :                 }
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;rectypid = typid;</span>
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;rectypmod = typmod;</span>
+<span class="lineNum">     503 </span>                :            : 
+<span class="lineNum">     504 </span>                :            :                 /* Release reference count acquired by lookup_rowtype_tupdesc. */
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                 DecrTupleDescRefCount(tupledesc);</span>
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     507 </span>                :            : 
+<span class="lineNum">     508 </span>                :            :         /* If transient record, replace remote typmod with local typmod. */
+<span class="lineNum">     509 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (typid == RECORDOID &amp;&amp; typmod != remapinfo-&gt;localtypmod)</span>
+<span class="lineNum">     510 </span>                :            :         {
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                 typmod = remapinfo-&gt;localtypmod;</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :                 changed_typmod = true;</span>
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     514 </span>                :            :         else
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :                 changed_typmod = false;</span>
+<span class="lineNum">     516 </span>                :            : 
+<span class="lineNum">     517 </span>                :            :         /*
+<span class="lineNum">     518 </span>                :            :          * If we need to change the typmod, or if there are any potentially
+<span class="lineNum">     519 </span>                :            :          * remappable fields, replace the tuple.
+<span class="lineNum">     520 </span>                :            :          */
+<span class="lineNum">     521 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (changed_typmod || remapinfo-&gt;field_remap != NULL)</span>
+<span class="lineNum">     522 </span>                :            :         {
+<span class="lineNum">     523 </span>                :            :                 HeapTupleData htup;
+<span class="lineNum">     524 </span>                :            :                 HeapTuple       atup;
+<span class="lineNum">     525 </span>                :            : 
+<span class="lineNum">     526 </span>                :            :                 /* For now, assume we always need to change the tuple in this case. */
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :                 *changed = true;</span>
+<span class="lineNum">     528 </span>                :            : 
+<span class="lineNum">     529 </span>                :            :                 /* Copy tuple, possibly remapping contained fields. */
+<span class="lineNum">     530 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ItemPointerSetInvalid(&amp;htup.t_self);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                 htup.t_len = HeapTupleHeaderGetDatumLength(tup);</span>
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :                 htup.t_data = tup;</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :                 atup = TRRemapTuple(remapper,</span>
+<span class="lineNum">     534 </span>                :<span class="lineNoCov">          0 :                                                         remapinfo-&gt;tupledesc,</span>
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :                                                         remapinfo-&gt;field_remap,</span>
+<span class="lineNum">     536 </span>                :            :                                                         &amp;htup);
+<span class="lineNum">     537 </span>                :            : 
+<span class="lineNum">     538 </span>                :            :                 /* Apply the correct labeling for a local Datum. */
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :                 HeapTupleHeaderSetTypeId(atup-&gt;t_data, typid);</span>
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :                 HeapTupleHeaderSetTypMod(atup-&gt;t_data, typmod);</span>
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :                 HeapTupleHeaderSetDatumLength(atup-&gt;t_data, htup.t_len);</span>
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :            :                 /* And return the results. */
+<span class="lineNum">     544 </span>                :<span class="lineNoCov">          0 :                 return PointerGetDatum(atup-&gt;t_data);</span>
+<span class="lineNum">     545 </span>                :            :         }
+<span class="lineNum">     546 </span>                :            : 
+<span class="lineNum">     547 </span>                :            :         /* Else just return the value as-is. */
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :         return value;</span>
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     550 </span>                :            : 
+<span class="lineNum">     551 </span>                :            : /*
+<span class="lineNum">     552 </span>                :            :  * Build remap info for the specified data type, storing it in mycontext.
+<span class="lineNum">     553 </span>                :            :  * Returns NULL if neither the type nor any subtype could require remapping.
+<a name="554"><span class="lineNum">     554 </span>                :            :  */</a>
+<span class="lineNum">     555 </span>                :            : static TupleRemapInfo *
+<span class="lineNum">     556 </span>                :            : BuildTupleRemapInfo(Oid typid, MemoryContext mycontext)
+<span class="lineNum">     557 </span>                :            : {
+<span class="lineNum">     558 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     559 </span>                :            :         Form_pg_type typ;
+<span class="lineNum">     560 </span>                :            : 
+<span class="lineNum">     561 </span>                :            :         /* This is recursive, so it could be driven to stack overflow. */
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :         check_stack_depth();</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            : restart:
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache1(TYPEOID, ObjectIdGetDatum(typid));</span>
+<span class="lineNum">     566 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for type %u&quot;, typid);</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :         typ = (Form_pg_type) GETSTRUCT(tup);</span>
+<span class="lineNum">     569 </span>                :            : 
+<span class="lineNum">     570 </span>                :            :         /* Look through domains to underlying base type. */
+<span class="lineNum">     571 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (typ-&gt;typtype == TYPTYPE_DOMAIN)</span>
+<span class="lineNum">     572 </span>                :            :         {
+<span class="lineNum">     573 </span>                :<span class="lineNoCov">          0 :                 typid = typ-&gt;typbasetype;</span>
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                 ReleaseSysCache(tup);</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :                 goto restart;</span>
+<span class="lineNum">     576 </span>                :            :         }
+<span class="lineNum">     577 </span>                :            : 
+<span class="lineNum">     578 </span>                :            :         /* If it's a true array type, deal with it that way. */
+<span class="lineNum">     579 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(typ-&gt;typelem) &amp;&amp; typ-&gt;typlen == -1)</span>
+<span class="lineNum">     580 </span>                :            :         {
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                 typid = typ-&gt;typelem;</span>
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                 ReleaseSysCache(tup);</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                 return BuildArrayRemapInfo(typid, mycontext);</span>
+<span class="lineNum">     584 </span>                :            :         }
+<span class="lineNum">     585 </span>                :            : 
+<span class="lineNum">     586 </span>                :            : #ifdef TYPTYPE_RANGE
+<span class="lineNum">     587 </span>                :            :         /* Similarly, deal with ranges appropriately. */
+<span class="lineNum">     588 </span>                :            :         if (typ-&gt;typtype == TYPTYPE_RANGE)
+<span class="lineNum">     589 </span>                :            :         {
+<span class="lineNum">     590 </span>                :            :                 ReleaseSysCache(tup);
+<span class="lineNum">     591 </span>                :            :                 return BuildRangeRemapInfo(typid, mycontext);
+<span class="lineNum">     592 </span>                :            :         }
+<span class="lineNum">     593 </span>                :            : #endif
+<span class="lineNum">     594 </span>                :            : 
+<span class="lineNum">     595 </span>                :            :         /*
+<span class="lineNum">     596 </span>                :            :          * If it's a composite type (including RECORD), set up for remapping.  We
+<span class="lineNum">     597 </span>                :            :          * don't attempt to determine the status of subfields here, since we do
+<span class="lineNum">     598 </span>                :            :          * not have enough information yet; just mark everything invalid.
+<span class="lineNum">     599 </span>                :            :          */
+<span class="lineNum">     600 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (typ-&gt;typtype == TYPTYPE_COMPOSITE || typid == RECORDOID)</span>
+<span class="lineNum">     601 </span>                :            :         {
+<span class="lineNum">     602 </span>                :            :                 TupleRemapInfo *remapinfo;
+<span class="lineNum">     603 </span>                :            : 
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :                 remapinfo = (TupleRemapInfo *)</span>
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :                         MemoryContextAlloc(mycontext, sizeof(TupleRemapInfo));</span>
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;remapclass = TUPLE_REMAP_RECORD;</span>
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;u.rec.rectypid = InvalidOid;</span>
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;u.rec.rectypmod = -1;</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;u.rec.localtypmod = -1;</span>
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;u.rec.tupledesc = NULL;</span>
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :                 remapinfo-&gt;u.rec.field_remap = NULL;</span>
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                 ReleaseSysCache(tup);</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                 return remapinfo;</span>
+<span class="lineNum">     614 </span>                :            :         }
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :            :         /* Nothing else can possibly need remapping attention. */
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="620"><span class="lineNum">     620 </span>                :            : </a>
+<span class="lineNum">     621 </span>                :            : static TupleRemapInfo *
+<span class="lineNum">     622 </span>                :            : BuildArrayRemapInfo(Oid elemtypid, MemoryContext mycontext)
+<span class="lineNum">     623 </span>                :            : {
+<span class="lineNum">     624 </span>                :            :         TupleRemapInfo *remapinfo;
+<span class="lineNum">     625 </span>                :            :         TupleRemapInfo *element_remapinfo;
+<span class="lineNum">     626 </span>                :            : 
+<span class="lineNum">     627 </span>                :            :         /* See if element type requires remapping. */
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :         element_remapinfo = BuildTupleRemapInfo(elemtypid, mycontext);</span>
+<span class="lineNum">     629 </span>                :            :         /* If not, the array doesn't either. */
+<span class="lineNum">     630 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (element_remapinfo == NULL)</span>
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     632 </span>                :            :         /* OK, set up to remap the array. */
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :         remapinfo = (TupleRemapInfo *)</span>
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :                 MemoryContextAlloc(mycontext, sizeof(TupleRemapInfo));</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :         remapinfo-&gt;remapclass = TUPLE_REMAP_ARRAY;</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :         get_typlenbyvalalign(elemtypid,</span>
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :                                                  &amp;remapinfo-&gt;u.arr.typlen,</span>
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :                                                  &amp;remapinfo-&gt;u.arr.typbyval,</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :                                                  &amp;remapinfo-&gt;u.arr.typalign);</span>
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :         remapinfo-&gt;u.arr.element_remap = element_remapinfo;</span>
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :         return remapinfo;</span>
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :            : #ifdef TYPTYPE_RANGE
+<span class="lineNum">     645 </span>                :            : static TupleRemapInfo *
+<span class="lineNum">     646 </span>                :            : BuildRangeRemapInfo(Oid rngtypid, MemoryContext mycontext)
+<span class="lineNum">     647 </span>                :            : {
+<span class="lineNum">     648 </span>                :            :         TupleRemapInfo *remapinfo;
+<span class="lineNum">     649 </span>                :            :         TupleRemapInfo *bound_remapinfo;
+<span class="lineNum">     650 </span>                :            :         TypeCacheEntry *typcache;
+<span class="lineNum">     651 </span>                :            : 
+<span class="lineNum">     652 </span>                :            :         /*
+<span class="lineNum">     653 </span>                :            :          * Get range info from the typcache.  We assume this pointer will stay
+<span class="lineNum">     654 </span>                :            :          * valid for the duration of the query.
+<span class="lineNum">     655 </span>                :            :          */
+<span class="lineNum">     656 </span>                :            :         typcache = lookup_type_cache(rngtypid, TYPECACHE_RANGE_INFO);
+<span class="lineNum">     657 </span>                :            :         if (typcache-&gt;rngelemtype == NULL)
+<span class="lineNum">     658 </span>                :            :                 elog(ERROR, &quot;type %u is not a range type&quot;, rngtypid);
+<span class="lineNum">     659 </span>                :            : 
+<span class="lineNum">     660 </span>                :            :         /* See if range bound type requires remapping. */
+<span class="lineNum">     661 </span>                :            :         bound_remapinfo = BuildTupleRemapInfo(typcache-&gt;rngelemtype-&gt;type_id,
+<span class="lineNum">     662 </span>                :            :                                                                                   mycontext);
+<span class="lineNum">     663 </span>                :            :         /* If not, the range doesn't either. */
+<span class="lineNum">     664 </span>                :            :         if (bound_remapinfo == NULL)
+<span class="lineNum">     665 </span>                :            :                 return NULL;
+<span class="lineNum">     666 </span>                :            :         /* OK, set up to remap the range. */
+<span class="lineNum">     667 </span>                :            :         remapinfo = (TupleRemapInfo *)
+<span class="lineNum">     668 </span>                :            :                 MemoryContextAlloc(mycontext, sizeof(TupleRemapInfo));
+<span class="lineNum">     669 </span>                :            :         remapinfo-&gt;remapclass = TUPLE_REMAP_RANGE;
+<span class="lineNum">     670 </span>                :            :         remapinfo-&gt;u.rng.typcache = typcache;
+<span class="lineNum">     671 </span>                :            :         remapinfo-&gt;u.rng.bound_remap = bound_remapinfo;
+<span class="lineNum">     672 </span>                :            :         return remapinfo;
+<span class="lineNum">     673 </span>                :            : }
+<span class="lineNum">     674 </span>                :            : #endif
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>                :            : /*
+<span class="lineNum">     677 </span>                :            :  * Build remap info for fields of the type described by the given tupdesc.
+<span class="lineNum">     678 </span>                :            :  * Returns an array of TupleRemapInfo pointers, or NULL if no field
+<span class="lineNum">     679 </span>                :            :  * requires remapping.  Data is allocated in mycontext.
+<a name="680"><span class="lineNum">     680 </span>                :            :  */</a>
+<span class="lineNum">     681 </span>                :            : static TupleRemapInfo **
+<span class="lineNum">     682 </span>                :            : BuildFieldRemapInfo(TupleDesc tupledesc, MemoryContext mycontext)
+<span class="lineNum">     683 </span>                :            : {
+<span class="lineNum">     684 </span>                :            :         TupleRemapInfo **remapinfo;
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :         bool            noop = true;</span>
+<span class="lineNum">     686 </span>                :            :         int                     i;
+<span class="lineNum">     687 </span>                :            : 
+<span class="lineNum">     688 </span>                :            :         /* Recursively determine the remapping status of each field. */
+<span class="lineNum">     689 </span>                :<span class="lineNoCov">          0 :         remapinfo = (TupleRemapInfo **)</span>
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :                 MemoryContextAlloc(mycontext,</span>
+<span class="lineNum">     691 </span>                :            :                                                    tupledesc-&gt;natts * sizeof(TupleRemapInfo *));
+<span class="lineNum">     692 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; tupledesc-&gt;natts; i++)</span>
+<span class="lineNum">     693 </span>                :            :         {
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 :                 Form_pg_attribute attr = tupledesc-&gt;attrs[i];</span>
+<span class="lineNum">     695 </span>                :            : 
+<span class="lineNum">     696 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (attr-&gt;attisdropped)</span>
+<span class="lineNum">     697 </span>                :            :                 {
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :                         remapinfo[i] = NULL;</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     700 </span>                :            :                 }
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :                 remapinfo[i] = BuildTupleRemapInfo(attr-&gt;atttypid, mycontext);</span>
+<span class="lineNum">     702 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (remapinfo[i] != NULL)</span>
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :                         noop = false;</span>
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     705 </span>                :            : 
+<span class="lineNum">     706 </span>                :            :         /* If no fields require remapping, report that by returning NULL. */
+<span class="lineNum">     707 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (noop)</span>
+<span class="lineNum">     708 </span>                :            :         {
+<span class="lineNum">     709 </span>                :<span class="lineNoCov">          0 :                 pfree(remapinfo);</span>
+<span class="lineNum">     710 </span>                :<span class="lineNoCov">          0 :                 remapinfo = NULL;</span>
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     712 </span>                :            : 
+<span class="lineNum">     713 </span>                :<span class="lineNoCov">          0 :         return remapinfo;</span>
+<span class="lineNum">     714 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

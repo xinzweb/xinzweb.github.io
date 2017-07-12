@@ -1,0 +1,940 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - cdb/cdbpersistentstore.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">cdb</a> - cdbpersistentstore.c<span style="font-size: 80%;"> (source / <a href="cdbpersistentstore.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">302</td>
+            <td class="headerCovTableEntryLo">5.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">22</td>
+            <td class="headerCovTableEntryLo">9.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">190</td>
+            <td class="headerCovTableEntryLo">6.3 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * cdbpersistentstore.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Copyright (c) 2009-2010, Greenplum inc
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">       8 </span>                :            :  */
+<span class="lineNum">       9 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      10 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      11 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      12 </span>                :            : #include &quot;utils/palloc.h&quot;
+<span class="lineNum">      13 </span>                :            : 
+<span class="lineNum">      14 </span>                :            : #include &quot;cdb/cdbpersistentstore.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;cdb/cdbpersistentcheck.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;storage/itemptr.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;access/transam.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;utils/faultinjector.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;storage/smgr.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;cdb/cdbglobalsequence.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;cdb/cdbpersistentfilesysobj.h&quot;
+<a name="28"><span class="lineNum">      28 </span>                :            : #include &quot;cdb/cdbpersistentrecovery.h&quot;</a>
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : void PersistentStore_InitShared(
+<span class="lineNum">      31 </span>                :            :         PersistentStoreSharedData       *storeSharedData)
+<span class="lineNum">      32 </span>                :            : {
+<span class="lineNum">      33 </span>[<span class="branchCov" title="Branch 0 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       1428 :         MemSet(storeSharedData, 0, sizeof(PersistentStoreSharedData));</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 7 was not taken"> - </span>]
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 8 was taken 1224 times"> + </span><span class="branchCov" title="Branch 9 was taken 204 times"> + </span>]
+<span class="lineNum">      34 </span>                :<span class="lineCov">        204 :         strcpy(storeSharedData-&gt;eyecatcher, PersistentStoreSharedDataEyecatcher);</span>
+<span class="lineNum">      35 </span>                :<span class="lineCov">        204 :         storeSharedData-&gt;needToScanIntoSharedMemory = true;  </span>
+<a name="36"><span class="lineNum">      36 </span>                :<span class="lineCov">        204 : }</span></a>
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : void PersistentStore_Init(
+<span class="lineNum">      39 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">      40 </span>                :            :         char                                            *tableName,
+<span class="lineNum">      41 </span>                :            :         GpGlobalSequence                        gpGlobalSequence,
+<span class="lineNum">      42 </span>                :            :         PersistentStoreOpenRel          openRel,
+<span class="lineNum">      43 </span>                :            :         PersistentStoreCloseRel         closeRel,
+<span class="lineNum">      44 </span>                :            :         PersistentStoreScanTupleCallback        scanTupleCallback,
+<span class="lineNum">      45 </span>                :            :         PersistentStorePrintTupleCallback       printTupleCallback,
+<span class="lineNum">      46 </span>                :            :         PersistentStoreScanKeyInitCallback  scanKeyInitCallback,
+<span class="lineNum">      47 </span>                :            :         PersistentStoreAllowDuplicateCallback allowDuplicateCallback,
+<span class="lineNum">      48 </span>                :            :         int                                             numAttributes,
+<span class="lineNum">      49 </span>                :            :         int                                             attNumPersistentSerialNum)
+<span class="lineNum">      50 </span>                :            : {
+<span class="lineNum">      51 </span>[<span class="branchCov" title="Branch 0 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">       2244 :         MemSet(storeData, 0, sizeof(PersistentStoreData));</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 204 times"> + </span><span class="branchNoCov" title="Branch 7 was not taken"> - </span>]
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 8 was taken 2040 times"> + </span><span class="branchCov" title="Branch 9 was taken 204 times"> + </span>]
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>                :<span class="lineCov">        204 :         storeData-&gt;tableName = tableName;</span>
+<span class="lineNum">      54 </span>                :<span class="lineCov">        204 :         storeData-&gt;gpGlobalSequence = gpGlobalSequence;</span>
+<span class="lineNum">      55 </span>                :<span class="lineCov">        204 :         storeData-&gt;openRel = openRel;</span>
+<span class="lineNum">      56 </span>                :<span class="lineCov">        204 :         storeData-&gt;closeRel = closeRel;</span>
+<span class="lineNum">      57 </span>                :<span class="lineCov">        204 :         storeData-&gt;scanTupleCallback = scanTupleCallback;</span>
+<span class="lineNum">      58 </span>                :<span class="lineCov">        204 :         storeData-&gt;printTupleCallback = printTupleCallback;</span>
+<span class="lineNum">      59 </span>                :<span class="lineCov">        204 :         storeData-&gt;scanKeyInitCallback = scanKeyInitCallback;</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">        204 :         storeData-&gt;allowDuplicateCallback = allowDuplicateCallback;</span>
+<span class="lineNum">      61 </span>                :<span class="lineCov">        204 :         storeData-&gt;numAttributes = numAttributes;</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">        204 :         storeData-&gt;attNumPersistentSerialNum = attNumPersistentSerialNum;</span>
+<a name="63"><span class="lineNum">      63 </span>                :<span class="lineCov">        204 : }</span></a>
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : void PersistentStore_DeformTuple(
+<span class="lineNum">      66 </span>                :            :         PersistentStoreData     *storeData,
+<span class="lineNum">      67 </span>                :            :         TupleDesc                               tupleDesc,                      
+<span class="lineNum">      68 </span>                :            :                                                 /* tuple descriptor */
+<span class="lineNum">      69 </span>                :            :     HeapTuple                           tuple,
+<span class="lineNum">      70 </span>                :            :         Datum                                   *values)
+<span class="lineNum">      71 </span>                :            : {
+<span class="lineNum">      72 </span>                :            :         bool    *nulls;
+<span class="lineNum">      73 </span>                :            :         int i;
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :         nulls = (bool*)palloc(storeData-&gt;numAttributes * sizeof(bool));</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :         heap_deform_tuple(tuple, tupleDesc, values, nulls);</span>
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 1; i &lt;= storeData-&gt;numAttributes; i++)</span>
+<span class="lineNum">      79 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!nulls[i - 1]);</span>
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :         pfree(nulls);</span>
+<a name="82"><span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            : static void PersistentStore_ExtractOurTupleData(
+<span class="lineNum">      85 </span>                :            :         PersistentStoreData     *storeData,
+<span class="lineNum">      86 </span>                :            :         Datum                                   *values,
+<span class="lineNum">      87 </span>                :            :         int64                                   *persistentSerialNum)
+<span class="lineNum">      88 </span>                :            : {
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :         *persistentSerialNum = DatumGetInt64(values[storeData-&gt;attNumPersistentSerialNum - 1]);</span>
+<a name="90"><span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :            : static void PersistentStore_DoInitScan(
+<span class="lineNum">      93 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">      94 </span>                :            :         PersistentStoreSharedData       *storeSharedData)
+<span class="lineNum">      95 </span>                :            : {
+<span class="lineNum">      96 </span>                :            :         PersistentStoreScan     storeScan;
+<span class="lineNum">      97 </span>                :            :         ItemPointerData                 persistentTid;
+<span class="lineNum">      98 </span>                :            :         int64                                   persistentSerialNum;
+<span class="lineNum">      99 </span>                :            :         Datum                                   *values;
+<span class="lineNum">     100 </span>                :            :         int64                                   globalSequenceNum;
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :         values = (Datum*)palloc(storeData-&gt;numAttributes * sizeof(Datum));</span>
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :         PersistentStore_BeginScan(</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                                                 storeData,</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :                                                 storeSharedData,</span>
+<span class="lineNum">     107 </span>                :            :                                                 &amp;storeScan);
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (PersistentStore_GetNext(</span>
+<span class="lineNum">     110 </span>                :            :                                                         &amp;storeScan,
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                                                         values,</span>
+<span class="lineNum">     112 </span>                :            :                                                         &amp;persistentTid,
+<span class="lineNum">     113 </span>                :            :                                                         &amp;persistentSerialNum))
+<span class="lineNum">     114 </span>                :            :         {
+<span class="lineNum">     115 </span>                :            :                 /*
+<span class="lineNum">     116 </span>                :            :                  * We are scanning from low to high TID.
+<span class="lineNum">     117 </span>                :            :                  */
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                 PersistentStore_ExtractOurTupleData(</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                                                                         storeData,</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                                                                         values,</span>
+<span class="lineNum">     121 </span>                :            :                                                                         &amp;persistentSerialNum);
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (Debug_persistent_recovery_print)</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                         (*storeData-&gt;printTupleCallback)(</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                                                                                 PersistentRecovery_DebugPrintLevel(),</span>
+<span class="lineNum">     126 </span>                :            :                                                                                 &quot;SCAN&quot;,
+<span class="lineNum">     127 </span>                :            :                                                                                 &amp;persistentTid,
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                                                                                 values);</span>
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                 storeSharedData-&gt;inUseCount++;</span>
+<span class="lineNum">     131 </span>                :            : 
+<span class="lineNum">     132 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (storeSharedData-&gt;maxInUseSerialNum &lt; persistentSerialNum)</span>
+<span class="lineNum">     133 </span>                :            :                 {
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                         storeSharedData-&gt;maxInUseSerialNum = persistentSerialNum;</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                         storeData-&gt;myHighestSerialNum = storeSharedData-&gt;maxInUseSerialNum;</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (storeData-&gt;scanTupleCallback != NULL)</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                         (*storeData-&gt;scanTupleCallback)(</span>
+<span class="lineNum">     140 </span>                :            :                                                                                 &amp;persistentTid,
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                                                                                 persistentSerialNum,</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :                                                                                 values);</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>                :            :         }
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         PersistentStore_EndScan(&amp;storeScan);</span>
+<span class="lineNum">     147 </span>                :            : 
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :         pfree(values);</span>
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :         globalSequenceNum = GlobalSequence_Current(storeData-&gt;gpGlobalSequence);</span>
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :            :         /*
+<span class="lineNum">     153 </span>                :            :          * Note: Originally the below IF STMT was guarded with a InRecovery flag check.
+<span class="lineNum">     154 </span>                :            :          * However, this routine should not be called during recovery since the entries are
+<span class="lineNum">     155 </span>                :            :          * not consistent...
+<span class="lineNum">     156 </span>                :            :          */
+<span class="lineNum">     157 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!InRecovery);</span>
+<span class="lineNum">     158 </span>                :            : 
+<span class="lineNum">     159 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (globalSequenceNum &lt; storeSharedData-&gt;maxInUseSerialNum)</span>
+<span class="lineNum">     160 </span>                :            :         {
+<span class="lineNum">     161 </span>                :            :                 /*
+<span class="lineNum">     162 </span>                :            :                  * We seem to have a corruption problem.
+<span class="lineNum">     163 </span>                :            :                  *
+<span class="lineNum">     164 </span>                :            :                  * Use the gp_persistent_repair_global_sequence GUC to get the
+<span class="lineNum">     165 </span>                :            :                  * system up.
+<span class="lineNum">     166 </span>                :            :                  */
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (gp_persistent_repair_global_sequence)</span>
+<span class="lineNum">     169 </span>                :            :                 {
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                         elog(LOG, &quot;need to repair global sequence number &quot; INT64_FORMAT</span>
+<span class="lineNum">     171 </span>                :            :                                  &quot; so use scanned maximum value &quot; INT64_FORMAT &quot; ('%s')&quot;,
+<span class="lineNum">     172 </span>                :            :                                  globalSequenceNum,
+<span class="lineNum">     173 </span>                :            :                                  storeSharedData-&gt;maxInUseSerialNum,
+<span class="lineNum">     174 </span>                :            :                                  storeData-&gt;tableName);
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     176 </span>                :            :                 else
+<span class="lineNum">     177 </span>                :            :                 {
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;global sequence number &quot; INT64_FORMAT &quot; less than &quot;</span>
+<span class="lineNum">     179 </span>                :            :                                  &quot;maximum value &quot; INT64_FORMAT &quot; found in scan ('%s')&quot;,
+<span class="lineNum">     180 </span>                :            :                                  globalSequenceNum,
+<span class="lineNum">     181 </span>                :            :                                  storeSharedData-&gt;maxInUseSerialNum,
+<span class="lineNum">     182 </span>                :            :                                  storeData-&gt;tableName);
+<span class="lineNum">     183 </span>                :            :                 }
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     185 </span>                :            :         else
+<span class="lineNum">     186 </span>                :            :         {
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                 storeSharedData-&gt;maxInUseSerialNum = globalSequenceNum;</span>
+<span class="lineNum">     188 </span>                :            :         }
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_recovery_print)</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentRecovery_DebugPrintLevel(),</span>
+<span class="lineNum">     192 </span>                :            :                          &quot;PersistentStore_DoInitScan ('%s'): maximum in-use serial number &quot;
+<span class="lineNum">     193 </span>                :            :                          INT64_FORMAT ,
+<span class="lineNum">     194 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     195 </span>                :            :                          storeSharedData-&gt;maxInUseSerialNum);
+<a name="196"><span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            : void PersistentStore_InitScanUnderLock(
+<span class="lineNum">     199 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     200 </span>                :            :         PersistentStoreSharedData       *storeSharedData)
+<span class="lineNum">     201 </span>                :            : {
+<span class="lineNum">     202 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!storeSharedData-&gt;needToScanIntoSharedMemory)</span>
+<span class="lineNum">     203 </span>                :            :         {
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                 return; // Someone else got in first.</span>
+<span class="lineNum">     205 </span>                :            :         }
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         PersistentStore_DoInitScan(</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                                                 storeData,</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                                                 storeSharedData);</span>
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         storeSharedData-&gt;needToScanIntoSharedMemory = false;</span>
+<a name="212"><span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>                :            : void PersistentStore_Scan(
+<span class="lineNum">     215 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     216 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     217 </span>                :            :         PersistentStoreScanTupleCallback        scanTupleCallback)
+<span class="lineNum">     218 </span>                :            : {
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         WRITE_PERSISTENT_STATE_ORDERED_LOCK_DECLARE;</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :            :         PersistentStoreScan     storeScan;
+<span class="lineNum">     222 </span>                :            :         ItemPointerData                 persistentTid;
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :         int64                                   persistentSerialNum = 0;</span>
+<span class="lineNum">     224 </span>                :            :         Datum                                   *values;
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :         values = (Datum*)palloc(storeData-&gt;numAttributes * sizeof(Datum));</span>
+<span class="lineNum">     227 </span>                :            : 
+<span class="lineNum">     228 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         WRITE_PERSISTENT_STATE_ORDERED_LOCK;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>]
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :         PersistentStore_BeginScan(</span>
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :                                                 storeData,</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                                                 storeSharedData,</span>
+<span class="lineNum">     233 </span>                :            :                                                 &amp;storeScan);
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (PersistentStore_GetNext(</span>
+<span class="lineNum">     236 </span>                :            :                                                         &amp;storeScan,
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :                                                         values,</span>
+<span class="lineNum">     238 </span>                :            :                                                         &amp;persistentTid,
+<span class="lineNum">     239 </span>                :            :                                                         &amp;persistentSerialNum))
+<span class="lineNum">     240 </span>                :            :         {
+<span class="lineNum">     241 </span>                :            :                 bool okToContinue;
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 okToContinue = (*scanTupleCallback)(</span>
+<span class="lineNum">     244 </span>                :            :                                                                 &amp;persistentTid,
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                                                                 persistentSerialNum,</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :                                                                 values);</span>
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!okToContinue)</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     250 </span>                :            : 
+<span class="lineNum">     251 </span>                :            :         }
+<span class="lineNum">     252 </span>                :            :         
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :         PersistentStore_EndScan(&amp;storeScan);</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         WRITE_PERSISTENT_STATE_ORDERED_UNLOCK;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 16 was not executed"> # </span><span class="branchNoExec" title="Branch 17 was not executed"> # </span>]
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :         pfree(values);</span>
+<a name="258"><span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :            : void PersistentStore_BeginScan(
+<span class="lineNum">     261 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     262 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     263 </span>                :            :         PersistentStoreScan                     *storeScan)
+<span class="lineNum">     264 </span>                :            : {
+<span class="lineNum">     265 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(storeScan, 0, sizeof(PersistentStoreScan));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :         storeScan-&gt;storeData = storeData;</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :         storeScan-&gt;storeSharedData = storeSharedData;</span>
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :         storeScan-&gt;persistentRel = (*storeData-&gt;openRel)();</span>
+<span class="lineNum">     271 </span>                :            : 
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :         storeScan-&gt;scan = heap_beginscan(</span>
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :                                                         storeScan-&gt;persistentRel, </span>
+<span class="lineNum">     274 </span>                :            :                                                         SnapshotNow, 
+<span class="lineNum">     275 </span>                :            :                                                         0, 
+<span class="lineNum">     276 </span>                :            :                                                         NULL);
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :         storeScan-&gt;tuple = NULL;</span>
+<a name="279"><span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>                :            : bool PersistentStore_GetNext(
+<span class="lineNum">     282 </span>                :            :         PersistentStoreScan                     *storeScan,
+<span class="lineNum">     283 </span>                :            :         Datum                                           *values,
+<span class="lineNum">     284 </span>                :            :         ItemPointer                                     persistentTid,
+<span class="lineNum">     285 </span>                :            :         int64                                           *persistentSerialNum)
+<span class="lineNum">     286 </span>                :            : {
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :         storeScan-&gt;tuple = heap_getnext(storeScan-&gt;scan, ForwardScanDirection);</span>
+<span class="lineNum">     288 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeScan-&gt;tuple == NULL)</span>
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     290 </span>                :            : 
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :         PersistentStore_DeformTuple(</span>
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :                                                         storeScan-&gt;storeData,</span>
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                                                         storeScan-&gt;persistentRel-&gt;rd_att,</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                                                         storeScan-&gt;tuple,</span>
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                                                         values);</span>
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :         PersistentStore_ExtractOurTupleData(</span>
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                                                                 storeScan-&gt;storeData,</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                                                                 values,</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                                                                 persistentSerialNum);</span>
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :         *persistentTid = storeScan-&gt;tuple-&gt;t_self;</span>
+<span class="lineNum">     302 </span>                :            : 
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<a name="304"><span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     305 </span>                :            : 
+<span class="lineNum">     306 </span>                :            : HeapTuple PersistentStore_GetScanTupleCopy(
+<span class="lineNum">     307 </span>                :            :         PersistentStoreScan                     *storeScan)
+<span class="lineNum">     308 </span>                :            : {
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :         return heaptuple_copy_to(storeScan-&gt;tuple, NULL, NULL);</span>
+<a name="310"><span class="lineNum">     310 </span>                :            : }</a>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>                :            : void PersistentStore_EndScan(
+<span class="lineNum">     313 </span>                :            :         PersistentStoreScan                     *storeScan)
+<span class="lineNum">     314 </span>                :            : {
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :         heap_endscan(storeScan-&gt;scan);</span>
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :         (*storeScan-&gt;storeData-&gt;closeRel)(storeScan-&gt;persistentRel);</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>                :            : // -----------------------------------------------------------------------------
+<span class="lineNum">     321 </span>                :            : // Helpers 
+<span class="lineNum">     322 </span>                :            : // -----------------------------------------------------------------------------
+<span class="lineNum">     323 </span>                :            : 
+<a name="324"><span class="lineNum">     324 </span>                :            : static XLogRecPtr nowaitXLogEndLoc;</a>
+<span class="lineNum">     325 </span>                :            : 
+<span class="lineNum">     326 </span>                :            : inline static void XLogRecPtr_Zero(XLogRecPtr *xlogLoc)
+<span class="lineNum">     327 </span>                :            : {
+<span class="lineNum">     328 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(xlogLoc, 0, sizeof(XLogRecPtr));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<a name="329"><span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :            : void PersistentStore_FlushXLog(void)
+<span class="lineNum">     332 </span>                :            : {
+<span class="lineNum">     333 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (nowaitXLogEndLoc.xlogid != 0 ||</span>
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :                 nowaitXLogEndLoc.xrecoff != 0)</span>
+<span class="lineNum">     335 </span>                :            :         {
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                 XLogFlush(nowaitXLogEndLoc);</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :                 XLogRecPtr_Zero(&amp;nowaitXLogEndLoc);</span>
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         }</span>
+<a name="339"><span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     340 </span>                :            : 
+<span class="lineNum">     341 </span>                :            : int64 PersistentStore_MyHighestSerialNum(
+<span class="lineNum">     342 </span>                :            :         PersistentStoreData     *storeData)
+<span class="lineNum">     343 </span>                :            : {
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         return storeData-&gt;myHighestSerialNum;</span>
+<a name="345"><span class="lineNum">     345 </span>                :            : }</a>
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :            : int64 PersistentStore_CurrentMaxSerialNum(
+<span class="lineNum">     348 </span>                :            :         PersistentStoreSharedData       *storeSharedData)
+<span class="lineNum">     349 </span>                :            : {
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :         return storeSharedData-&gt;maxInUseSerialNum;</span>
+<a name="351"><span class="lineNum">     351 </span>                :            : }</a>
+<span class="lineNum">     352 </span>                :            : 
+<span class="lineNum">     353 </span>                :            : static void PersistentStore_DoInsertTuple(
+<span class="lineNum">     354 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     355 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     356 </span>                :            :         Relation                                persistentRel,
+<span class="lineNum">     357 </span>                :            :                                 /* The persistent table relation. */
+<span class="lineNum">     358 </span>                :            :         Datum                                   *values,
+<span class="lineNum">     359 </span>                :            :         bool                                    flushToXLog,
+<span class="lineNum">     360 </span>                :            :                                 /* When true, the XLOG record for this change will be flushed to disk. */
+<span class="lineNum">     361 </span>                :            :         ItemPointer                     persistentTid)
+<span class="lineNum">     362 </span>                :            :                                 /* TID of the stored tuple. */
+<span class="lineNum">     363 </span>                :            : {
+<span class="lineNum">     364 </span>                :            :         bool            *nulls;
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         HeapTuple       persistentTuple = NULL;</span>
+<span class="lineNum">     366 </span>                :            :         XLogRecPtr      xlogInsertEndLoc;
+<span class="lineNum">     367 </span>                :            : 
+<span class="lineNum">     368 </span>                :            :         /*
+<span class="lineNum">     369 </span>                :            :          * In order to keep the tuples the exact same size to enable direct reuse of
+<span class="lineNum">     370 </span>                :            :          * free tuples, we do not use NULLs.
+<span class="lineNum">     371 </span>                :            :          */
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :         nulls = (bool*)palloc0(storeData-&gt;numAttributes * sizeof(bool));</span>
+<span class="lineNum">     373 </span>                :            :                 
+<span class="lineNum">     374 </span>                :            :         /*
+<span class="lineNum">     375 </span>                :            :          * Form the tuple.
+<span class="lineNum">     376 </span>                :            :          */
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :         persistentTuple = heap_form_tuple(persistentRel-&gt;rd_att, values, nulls);</span>
+<span class="lineNum">     378 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(persistentTuple))</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to build persistent tuple ('%s')&quot;,</span>
+<span class="lineNum">     380 </span>                :            :                      storeData-&gt;tableName);
+<span class="lineNum">     381 </span>                :            : 
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :         frozen_heap_insert(</span>
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                                         persistentRel,</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                                         persistentTuple);</span>
+<span class="lineNum">     385 </span>                :            : 
+<span class="lineNum">     386 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     388 </span>                :            :                          &quot;PersistentStore_DoInsertTuple: new insert TID %s ('%s')&quot;,
+<span class="lineNum">     389 </span>                :            :                          ItemPointerToString2(&amp;persistentTuple-&gt;t_self),
+<span class="lineNum">     390 </span>                :            :                          storeData-&gt;tableName);
+<span class="lineNum">     391 </span>                :            :         
+<span class="lineNum">     392 </span>                :            :         /*
+<span class="lineNum">     393 </span>                :            :          * Return the TID of the INSERT tuple.
+<span class="lineNum">     394 </span>                :            :          * Return the XLOG location of the INSERT tuple's XLOG record.
+<span class="lineNum">     395 </span>                :            :          */
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :         *persistentTid = persistentTuple-&gt;t_self;</span>
+<span class="lineNum">     397 </span>                :            :                 
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :         xlogInsertEndLoc = XLogLastInsertEndLoc();</span>
+<span class="lineNum">     399 </span>                :            : 
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(persistentTuple);</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flushToXLog)</span>
+<span class="lineNum">     403 </span>                :            :         {
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                 XLogFlush(xlogInsertEndLoc);</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                 XLogRecPtr_Zero(&amp;nowaitXLogEndLoc);</span>
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     407 </span>                :            :         else
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :                 nowaitXLogEndLoc = xlogInsertEndLoc;</span>
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :         pfree(nulls);</span>
+<span class="lineNum">     411 </span>                :            : 
+<a name="412"><span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     413 </span>                :            : 
+<span class="lineNum">     414 </span>                :            : static void PersistentStore_InsertTuple(
+<span class="lineNum">     415 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     416 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     417 </span>                :            :         Datum                                   *values,
+<span class="lineNum">     418 </span>                :            :         bool                                    flushToXLog,
+<span class="lineNum">     419 </span>                :            :                                 /* When true, the XLOG record for this change will be flushed to disk. */
+<span class="lineNum">     420 </span>                :            :         ItemPointer                     persistentTid)
+<span class="lineNum">     421 </span>                :            :                                 /* TID of the stored tuple. */
+<span class="lineNum">     422 </span>                :            : {
+<span class="lineNum">     423 </span>                :            :         Relation        persistentRel;
+<span class="lineNum">     424 </span>                :            : 
+<span class="lineNum">     425 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     426 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeSharedData == NULL ||</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :                 !PersistentStoreSharedData_EyecatcherIsValid(storeSharedData))</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Persistent store shared-memory not valid&quot;);</span>
+<span class="lineNum">     429 </span>                :            : #endif
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     433 </span>                :            :                          &quot;PersistentStore_InsertTuple: Going to insert new tuple ('%s', shared data %p)&quot;,
+<span class="lineNum">     434 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     435 </span>                :            :                          storeSharedData);
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         persistentRel = (*storeData-&gt;openRel)();</span>
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :         PersistentStore_DoInsertTuple(</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                                                                 storeData,</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                                                                 storeSharedData,</span>
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                                                                 persistentRel,</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :                                                                 values,</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                                                                 flushToXLog,</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :                                                                 persistentTid);</span>
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         (*storeData-&gt;closeRel)(persistentRel);</span>
+<span class="lineNum">     448 </span>                :            :         
+<span class="lineNum">     449 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     450 </span>                :            :         {
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     452 </span>                :            :                          &quot;PersistentStore_InsertTuple: Inserted new tuple at TID %s ('%s')&quot;,
+<span class="lineNum">     453 </span>                :            :                          ItemPointerToString(persistentTid),
+<span class="lineNum">     454 </span>                :            :                          storeData-&gt;tableName);
+<span class="lineNum">     455 </span>                :            :                 
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :                 (*storeData-&gt;printTupleCallback)(</span>
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                                                                         PersistentStore_DebugPrintLevel(),</span>
+<span class="lineNum">     458 </span>                :            :                                                                         &quot;STORE INSERT TUPLE&quot;,
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :                                                                         persistentTid,</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                                                                         values);</span>
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     462 </span>                :            : 
+<a name="463"><span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     464 </span>                :            : 
+<span class="lineNum">     465 </span>                :            : void PersistentStore_UpdateTuple(
+<span class="lineNum">     466 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     467 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     468 </span>                :            :         ItemPointer                     persistentTid,
+<span class="lineNum">     469 </span>                :            :                                 /* TID of the stored tuple. */
+<span class="lineNum">     470 </span>                :            :         Datum                                   *values,
+<span class="lineNum">     471 </span>                :            :         bool                                    flushToXLog)
+<span class="lineNum">     472 </span>                :            :                                 /* When true, the XLOG record for this change will be flushed to disk. */
+<span class="lineNum">     473 </span>                :            : {
+<span class="lineNum">     474 </span>                :            :         Relation        persistentRel;
+<span class="lineNum">     475 </span>                :            :         bool            *nulls;
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :         HeapTuple       persistentTuple = NULL;</span>
+<span class="lineNum">     477 </span>                :            :         XLogRecPtr      xlogUpdateEndLoc;
+<span class="lineNum">     478 </span>                :            :         
+<span class="lineNum">     479 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     480 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeSharedData == NULL ||</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                 !PersistentStoreSharedData_EyecatcherIsValid(storeSharedData))</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Persistent store shared-memory not valid&quot;);</span>
+<span class="lineNum">     483 </span>                :            : #endif
+<span class="lineNum">     484 </span>                :            :         
+<span class="lineNum">     485 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     487 </span>                :            :                          &quot;PersistentStore_ReplaceTuple: Going to update whole tuple at TID %s ('%s', shared data %p)&quot;,
+<span class="lineNum">     488 </span>                :            :                          ItemPointerToString(persistentTid),
+<span class="lineNum">     489 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     490 </span>                :            :                          storeSharedData);
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :         persistentRel = (*storeData-&gt;openRel)();</span>
+<span class="lineNum">     493 </span>                :            : 
+<span class="lineNum">     494 </span>                :            :         /*
+<span class="lineNum">     495 </span>                :            :          * In order to keep the tuples the exact same size to enable direct reuse of
+<span class="lineNum">     496 </span>                :            :          * free tuples, we do not use NULLs.
+<span class="lineNum">     497 </span>                :            :          */
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :         nulls = (bool*)palloc0(storeData-&gt;numAttributes * sizeof(bool));</span>
+<span class="lineNum">     499 </span>                :            :                 
+<span class="lineNum">     500 </span>                :            :         /*
+<span class="lineNum">     501 </span>                :            :          * Form the tuple.
+<span class="lineNum">     502 </span>                :            :          */
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :         persistentTuple = heap_form_tuple(persistentRel-&gt;rd_att, values, nulls);</span>
+<span class="lineNum">     504 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(persistentTuple))</span>
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to build persistent tuple ('%s')&quot;,</span>
+<span class="lineNum">     506 </span>                :            :                      storeData-&gt;tableName);
+<span class="lineNum">     507 </span>                :            : 
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :         persistentTuple-&gt;t_self = *persistentTid;</span>
+<span class="lineNum">     509 </span>                :            : 
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :         frozen_heap_inplace_update(persistentRel, persistentTuple);</span>
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :            :         /*
+<span class="lineNum">     513 </span>                :            :          * Return the XLOG location of the UPDATE tuple's XLOG record.
+<span class="lineNum">     514 </span>                :            :          */
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :         xlogUpdateEndLoc = XLogLastInsertEndLoc();</span>
+<span class="lineNum">     516 </span>                :            : 
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(persistentTuple);</span>
+<span class="lineNum">     518 </span>                :            : 
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         (*storeData-&gt;closeRel)(persistentRel);</span>
+<span class="lineNum">     520 </span>                :            :         
+<span class="lineNum">     521 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     522 </span>                :            :         {
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     524 </span>                :            :                          &quot;PersistentStore_UpdateTuple: Updated whole tuple at TID %s ('%s')&quot;,
+<span class="lineNum">     525 </span>                :            :                          ItemPointerToString(persistentTid),
+<span class="lineNum">     526 </span>                :            :                          storeData-&gt;tableName);
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 :                 (*storeData-&gt;printTupleCallback)(</span>
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :                                                                         PersistentStore_DebugPrintLevel(),</span>
+<span class="lineNum">     530 </span>                :            :                                                                         &quot;STORE UPDATED TUPLE&quot;,
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                                                                         persistentTid,</span>
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :                                                                         values);</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     534 </span>                :            : 
+<span class="lineNum">     535 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flushToXLog)</span>
+<span class="lineNum">     536 </span>                :            :         {
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :                 XLogFlush(xlogUpdateEndLoc);</span>
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :                 XLogRecPtr_Zero(&amp;nowaitXLogEndLoc);</span>
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     540 </span>                :            :         else
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :                 nowaitXLogEndLoc = xlogUpdateEndLoc;</span>
+<a name="542"><span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            : void PersistentStore_ReplaceTuple(
+<span class="lineNum">     545 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     546 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     547 </span>                :            :         ItemPointer                     persistentTid,
+<span class="lineNum">     548 </span>                :            :                                 /* TID of the stored tuple. */
+<span class="lineNum">     549 </span>                :            :         HeapTuple                               tuple,
+<span class="lineNum">     550 </span>                :            :         Datum                                   *newValues,
+<span class="lineNum">     551 </span>                :            :         bool                                    *replaces,
+<span class="lineNum">     552 </span>                :            :         bool                                    flushToXLog)
+<span class="lineNum">     553 </span>                :            :                                 /* When true, the XLOG record for this change will be flushed to disk. */
+<span class="lineNum">     554 </span>                :            : {
+<span class="lineNum">     555 </span>                :            :         Relation        persistentRel;
+<span class="lineNum">     556 </span>                :            :         bool            *nulls;
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :         HeapTuple       replacementTuple = NULL;</span>
+<span class="lineNum">     558 </span>                :            :         XLogRecPtr      xlogUpdateEndLoc;
+<span class="lineNum">     559 </span>                :            :         
+<span class="lineNum">     560 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     561 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeSharedData == NULL ||</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                 !PersistentStoreSharedData_EyecatcherIsValid(storeSharedData))</span>
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Persistent store shared-memory not valid&quot;);</span>
+<span class="lineNum">     564 </span>                :            : #endif
+<span class="lineNum">     565 </span>                :            :         
+<span class="lineNum">     566 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     568 </span>                :            :                          &quot;PersistentStore_ReplaceTuple: Going to replace set of columns in tuple at TID %s ('%s', shared data %p)&quot;,
+<span class="lineNum">     569 </span>                :            :                          ItemPointerToString(persistentTid),
+<span class="lineNum">     570 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     571 </span>                :            :                          storeSharedData);
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :<span class="lineNoCov">          0 :         persistentRel = (*storeData-&gt;openRel)();</span>
+<span class="lineNum">     574 </span>                :            : 
+<span class="lineNum">     575 </span>                :            :         /*
+<span class="lineNum">     576 </span>                :            :          * In order to keep the tuples the exact same size to enable direct reuse of
+<span class="lineNum">     577 </span>                :            :          * free tuples, we do not use NULLs.
+<span class="lineNum">     578 </span>                :            :          */
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :         nulls = (bool*)palloc0(storeData-&gt;numAttributes * sizeof(bool));</span>
+<span class="lineNum">     580 </span>                :            :                 
+<span class="lineNum">     581 </span>                :            :         /*
+<span class="lineNum">     582 </span>                :            :          * Modify the tuple.
+<span class="lineNum">     583 </span>                :            :          */
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :         replacementTuple = heap_modify_tuple(tuple, persistentRel-&gt;rd_att, </span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                                                                                  newValues, nulls, replaces);</span>
+<span class="lineNum">     586 </span>                :            : 
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :         replacementTuple-&gt;t_self = *persistentTid;</span>
+<span class="lineNum">     588 </span>                :            :                 
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :         frozen_heap_inplace_update(persistentRel, replacementTuple);</span>
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :            :         /*
+<span class="lineNum">     592 </span>                :            :          * Return the XLOG location of the UPDATE tuple's XLOG record.
+<span class="lineNum">     593 </span>                :            :          */
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         xlogUpdateEndLoc = XLogLastInsertEndLoc();</span>
+<span class="lineNum">     595 </span>                :            : 
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(replacementTuple);</span>
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :         pfree(nulls);</span>
+<span class="lineNum">     598 </span>                :            : 
+<span class="lineNum">     599 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     600 </span>                :            :         {
+<span class="lineNum">     601 </span>                :            :                 Datum                   *readValues;
+<span class="lineNum">     602 </span>                :            :                 bool                    *readNulls;
+<span class="lineNum">     603 </span>                :            :                 HeapTupleData   readTuple;
+<span class="lineNum">     604 </span>                :            :                 Buffer                  buffer;
+<span class="lineNum">     605 </span>                :            :                 HeapTuple               readTupleCopy;
+<span class="lineNum">     606 </span>                :            :                 
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     608 </span>                :            :                          &quot;PersistentStore_ReplaceTuple: Replaced set of columns in tuple at TID %s ('%s')&quot;,
+<span class="lineNum">     609 </span>                :            :                          ItemPointerToString(persistentTid),
+<span class="lineNum">     610 </span>                :            :                          storeData-&gt;tableName);
+<span class="lineNum">     611 </span>                :            :                 
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                 readValues = (Datum*)palloc(storeData-&gt;numAttributes * sizeof(Datum));</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                 readNulls = (bool*)palloc(storeData-&gt;numAttributes * sizeof(bool));</span>
+<span class="lineNum">     614 </span>                :            : 
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :                 readTuple.t_self = *persistentTid;</span>
+<span class="lineNum">     616 </span>                :            :                 
+<span class="lineNum">     617 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!heap_fetch(persistentRel, SnapshotAny,</span>
+<span class="lineNum">     618 </span>                :            :                                                 &amp;readTuple, &amp;buffer, false, NULL))
+<span class="lineNum">     619 </span>                :            :                 {
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;Failed to fetch persistent tuple at %s ('%s')&quot;,</span>
+<span class="lineNum">     621 </span>                :            :                                  ItemPointerToString(&amp;readTuple.t_self),
+<span class="lineNum">     622 </span>                :            :                                  storeData-&gt;tableName);
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     624 </span>                :            :                 
+<span class="lineNum">     625 </span>                :            :                 
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :                 readTupleCopy = heaptuple_copy_to(&amp;readTuple, NULL, NULL);</span>
+<span class="lineNum">     627 </span>                :            :                 
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                 ReleaseBuffer(buffer);</span>
+<span class="lineNum">     629 </span>                :            :                 
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                 heap_deform_tuple(readTupleCopy, persistentRel-&gt;rd_att, readValues, readNulls);</span>
+<span class="lineNum">     631 </span>                :            :                 
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :                 (*storeData-&gt;printTupleCallback)(</span>
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :                                                                         PersistentStore_DebugPrintLevel(),</span>
+<span class="lineNum">     634 </span>                :            :                                                                         &quot;STORE REPLACED TUPLE&quot;,
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                                                                         persistentTid,</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                                                                         readValues);</span>
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :                 heap_freetuple(readTupleCopy);</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :                 pfree(readValues);</span>
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                 pfree(readNulls);</span>
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     642 </span>                :            : 
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :         (*storeData-&gt;closeRel)(persistentRel);</span>
+<span class="lineNum">     644 </span>                :            :         
+<span class="lineNum">     645 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flushToXLog)</span>
+<span class="lineNum">     646 </span>                :            :         {
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :                 XLogFlush(xlogUpdateEndLoc);</span>
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :                 XLogRecPtr_Zero(&amp;nowaitXLogEndLoc);</span>
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     650 </span>                :            :         else
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :                 nowaitXLogEndLoc = xlogUpdateEndLoc;</span>
+<a name="652"><span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     653 </span>                :            : 
+<span class="lineNum">     654 </span>                :            : void PersistentStore_ReadTuple(
+<span class="lineNum">     655 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     656 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     657 </span>                :            :         ItemPointer                                     readTid,
+<span class="lineNum">     658 </span>                :            :         Datum                                           *values,
+<span class="lineNum">     659 </span>                :            :         HeapTuple                                       *tupleCopy)
+<span class="lineNum">     660 </span>                :            : {
+<span class="lineNum">     661 </span>                :            :         Relation        persistentRel;
+<span class="lineNum">     662 </span>                :            : 
+<span class="lineNum">     663 </span>                :            :         HeapTupleData   tuple;
+<span class="lineNum">     664 </span>                :            :         Buffer                  buffer;
+<span class="lineNum">     665 </span>                :            : 
+<span class="lineNum">     666 </span>                :            :         bool *nulls;
+<span class="lineNum">     667 </span>                :            :         
+<span class="lineNum">     668 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     669 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeSharedData == NULL ||</span>
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :                 !PersistentStoreSharedData_EyecatcherIsValid(storeSharedData))</span>
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Persistent store shared-memory not valid&quot;);</span>
+<span class="lineNum">     672 </span>                :            : #endif
+<span class="lineNum">     673 </span>                :            :         
+<span class="lineNum">     674 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     675 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     676 </span>                :            :                          &quot;PersistentStore_ReadTuple: Going to read tuple at TID %s ('%s', shared data %p)&quot;,
+<span class="lineNum">     677 </span>                :            :                          ItemPointerToString(readTid),
+<span class="lineNum">     678 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     679 </span>                :            :                          storeSharedData);
+<span class="lineNum">     680 </span>                :            : 
+<span class="lineNum">     681 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PersistentStore_IsZeroTid(readTid))</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;TID for fetch persistent tuple is invalid (0,0) ('%s')&quot;,</span>
+<span class="lineNum">     683 </span>                :            :                          storeData-&gt;tableName);
+<span class="lineNum">     684 </span>                :            : 
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :         persistentRel = (*storeData-&gt;openRel)();</span>
+<span class="lineNum">     686 </span>                :            : 
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :         tuple.t_self = *readTid;</span>
+<span class="lineNum">     688 </span>                :            : 
+<span class="lineNum">     689 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (heap_fetch(persistentRel, SnapshotAny,</span>
+<span class="lineNum">     690 </span>                :            :                                         &amp;tuple, &amp;buffer, false, NULL))
+<span class="lineNum">     691 </span>                :            :         {
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :                 *tupleCopy = heaptuple_copy_to(&amp;tuple, NULL, NULL);</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :                 ReleaseBuffer(buffer);</span>
+<span class="lineNum">     694 </span>                :            :                 /*
+<span class="lineNum">     695 </span>                :            :                  * In order to keep the tuples the exact same size to enable direct reuse of
+<span class="lineNum">     696 </span>                :            :                  * free tuples, we do not use NULLs.
+<span class="lineNum">     697 </span>                :            :                  */
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :                 nulls = (bool*)palloc(storeData-&gt;numAttributes * sizeof(bool));</span>
+<span class="lineNum">     699 </span>                :            : 
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :                 heap_deform_tuple(*tupleCopy, persistentRel-&gt;rd_att, values, nulls);</span>
+<span class="lineNum">     701 </span>                :            : 
+<span class="lineNum">     702 </span>                :<span class="lineNoCov">          0 :                 (*storeData-&gt;closeRel)(persistentRel);</span>
+<span class="lineNum">     703 </span>                :            :         
+<span class="lineNum">     704 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (Debug_persistent_store_print)</span>
+<span class="lineNum">     705 </span>                :            :                 {
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                         elog(PersistentStore_DebugPrintLevel(),</span>
+<span class="lineNum">     707 </span>                :            :                                  &quot;PersistentStore_ReadTuple: Successfully read tuple at TID %s ('%s')&quot;,
+<span class="lineNum">     708 </span>                :            :                                  ItemPointerToString(readTid),
+<span class="lineNum">     709 </span>                :            :                                  storeData-&gt;tableName);
+<span class="lineNum">     710 </span>                :            : 
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :                         (*storeData-&gt;printTupleCallback)(</span>
+<span class="lineNum">     712 </span>                :<span class="lineNoCov">          0 :                                 PersistentStore_DebugPrintLevel(),</span>
+<span class="lineNum">     713 </span>                :            :                                 &quot;STORE READ TUPLE&quot;,
+<span class="lineNum">     714 </span>                :<span class="lineNoCov">          0 :                                 readTid,</span>
+<span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :                                 values);</span>
+<span class="lineNum">     716 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     717 </span>                :            : 
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :                 pfree(nulls);</span>
+<span class="lineNum">     719 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     720 </span>                :            :         else
+<span class="lineNum">     721 </span>                :            :         {
+<span class="lineNum">     722 </span>                :<span class="lineNoCov">          0 :                 *tupleCopy = NULL;</span>
+<span class="lineNum">     723 </span>                :            :         }
+<a name="724"><span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     725 </span>                :            : 
+<span class="lineNum">     726 </span>                :            : void PersistentStore_AddTuple(
+<span class="lineNum">     727 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     728 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     729 </span>                :            :         Datum                                   *values,
+<span class="lineNum">     730 </span>                :            :         bool                                    flushToXLog,
+<span class="lineNum">     731 </span>                :            :                                 /* When true, the XLOG record for this change will be flushed to disk. */
+<span class="lineNum">     732 </span>                :            :         ItemPointer                     persistentTid,
+<span class="lineNum">     733 </span>                :            :                                 /* TID of the stored tuple. */
+<span class="lineNum">     734 </span>                :            :         int64                                   *persistentSerialNum)
+<span class="lineNum">     735 </span>                :            : {
+<span class="lineNum">     736 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     737 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeSharedData == NULL ||</span>
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :                 !PersistentStoreSharedData_EyecatcherIsValid(storeSharedData))</span>
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Persistent store shared-memory not valid&quot;);</span>
+<span class="lineNum">     740 </span>                :            : #endif
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :         PTCheck_BeforeAddingEntry(storeData, values);</span>
+<span class="lineNum">     743 </span>                :            : 
+<span class="lineNum">     744 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     745 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     746 </span>                :            :                          &quot;PersistentStore_AddTuple: Going to add tuple ('%s', shared data %p)&quot;,
+<span class="lineNum">     747 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     748 </span>                :            :                          storeSharedData);
+<span class="lineNum">     749 </span>                :            : 
+<span class="lineNum">     750 </span>                :<span class="lineNoCov">          0 :         *persistentSerialNum = ++storeSharedData-&gt;maxInUseSerialNum;</span>
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :         storeData-&gt;myHighestSerialNum = storeSharedData-&gt;maxInUseSerialNum;</span>
+<span class="lineNum">     752 </span>                :            : 
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :         GlobalSequence_Set(</span>
+<span class="lineNum">     754 </span>                :<span class="lineNoCov">          0 :                                 storeData-&gt;gpGlobalSequence,</span>
+<span class="lineNum">     755 </span>                :<span class="lineNoCov">          0 :                                 *persistentSerialNum);</span>
+<span class="lineNum">     756 </span>                :            :         
+<span class="lineNum">     757 </span>                :            :         // Overwrite with the new serial number value.
+<span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :         values[storeData-&gt;attNumPersistentSerialNum - 1] = </span>
+<span class="lineNum">     759 </span>                :<span class="lineNoCov">          0 :                                                                                 Int64GetDatum(*persistentSerialNum);</span>
+<span class="lineNum">     760 </span>                :            : 
+<span class="lineNum">     761 </span>                :            :         /*
+<span class="lineNum">     762 </span>                :            :          * Add new tuple.
+<span class="lineNum">     763 </span>                :            :          */
+<span class="lineNum">     764 </span>                :            : 
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :         PersistentStore_InsertTuple(</span>
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :                                                         storeData,</span>
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :                                                         storeSharedData,</span>
+<span class="lineNum">     768 </span>                :<span class="lineNoCov">          0 :                                                         values,</span>
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :                                                         flushToXLog,</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                                                         persistentTid);</span>
+<span class="lineNum">     771 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ItemPointerIsValid(persistentTid));</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     772 </span>                :            : 
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :         storeSharedData-&gt;inUseCount++;</span>
+<span class="lineNum">     774 </span>                :            : 
+<span class="lineNum">     775 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     777 </span>                :            :                          &quot;PersistentStore_AddTuple: Added tuple ('%s', in use count &quot; INT64_FORMAT &quot;, shared data %p)&quot;,
+<span class="lineNum">     778 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     779 </span>                :            :                          storeSharedData-&gt;inUseCount,
+<span class="lineNum">     780 </span>                :            :                          storeSharedData);
+<a name="781"><span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     782 </span>                :            : 
+<span class="lineNum">     783 </span>                :            : void PersistentStore_FreeTuple(
+<span class="lineNum">     784 </span>                :            :         PersistentStoreData             *storeData,
+<span class="lineNum">     785 </span>                :            :         PersistentStoreSharedData       *storeSharedData,
+<span class="lineNum">     786 </span>                :            :         ItemPointer                     persistentTid,
+<span class="lineNum">     787 </span>                :            :                                 /* TID of the stored tuple. */
+<span class="lineNum">     788 </span>                :            :         Datum                                   *freeValues,
+<span class="lineNum">     789 </span>                :            :         bool                                    flushToXLog)
+<span class="lineNum">     790 </span>                :            :                                 /* When true, the XLOG record for this change will be flushed to disk. */
+<span class="lineNum">     791 </span>                :            : {
+<span class="lineNum">     792 </span>                :            :         Relation        persistentRel;
+<span class="lineNum">     793 </span>                :            :         XLogRecPtr xlogEndLoc;
+<span class="lineNum">     794 </span>                :            :                                 /* The end location of the UPDATE XLOG record. */
+<span class="lineNum">     795 </span>                :            : 
+<span class="lineNum">     796 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert( LWLockHeldByMe(PersistentObjLock) );</span>
+<span class="lineNum">     797 </span>                :            :                                 
+<span class="lineNum">     798 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     799 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (storeSharedData == NULL ||</span>
+<span class="lineNum">     800 </span>                :<span class="lineNoCov">          0 :                 !PersistentStoreSharedData_EyecatcherIsValid(storeSharedData))</span>
+<span class="lineNum">     801 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Persistent store shared-memory not valid&quot;);</span>
+<span class="lineNum">     802 </span>                :            : #endif
+<span class="lineNum">     803 </span>                :            :                                 
+<span class="lineNum">     804 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_store_print)</span>
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 :                 elog(PersistentStore_DebugPrintLevel(), </span>
+<span class="lineNum">     806 </span>                :            :                          &quot;PersistentStore_FreeTuple: Going to free tuple at TID %s ('%s', shared data %p)&quot;,
+<span class="lineNum">     807 </span>                :            :                          ItemPointerToString(persistentTid),
+<span class="lineNum">     808 </span>                :            :                          storeData-&gt;tableName,
+<span class="lineNum">     809 </span>                :            :                          storeSharedData);
+<span class="lineNum">     810 </span>                :            :         
+<span class="lineNum">     811 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ItemPointerIsValid(persistentTid));</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     812 </span>                :            : 
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :         persistentRel = (*storeData-&gt;openRel)();</span>
+<span class="lineNum">     814 </span>                :<span class="lineNoCov">          0 :         simple_heap_delete_xid(persistentRel, persistentTid, FrozenTransactionId);</span>
+<span class="lineNum">     815 </span>                :            :         /*
+<span class="lineNum">     816 </span>                :            :          * XLOG location of the UPDATE tuple's XLOG record.
+<span class="lineNum">     817 </span>                :            :          */
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :         xlogEndLoc = XLogLastInsertEndLoc();</span>
+<span class="lineNum">     819 </span>                :            : 
+<span class="lineNum">     820 </span>                :<span class="lineNoCov">          0 :         (*storeData-&gt;closeRel)(persistentRel);</span>
+<span class="lineNum">     821 </span>                :            : 
+<span class="lineNum">     822 </span>                :<span class="lineNoCov">          0 :         storeSharedData-&gt;inUseCount--;</span>
+<span class="lineNum">     823 </span>                :            : 
+<span class="lineNum">     824 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flushToXLog)</span>
+<span class="lineNum">     825 </span>                :            :         {
+<span class="lineNum">     826 </span>                :<span class="lineNoCov">          0 :                 XLogFlush(xlogEndLoc);</span>
+<span class="lineNum">     827 </span>                :<span class="lineNoCov">          0 :                 XLogRecPtr_Zero(&amp;nowaitXLogEndLoc);</span>
+<span class="lineNum">     828 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     829 </span>                :            :         else
+<span class="lineNum">     830 </span>                :<span class="lineNoCov">          0 :                 nowaitXLogEndLoc = xlogEndLoc;</span>
+<span class="lineNum">     831 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

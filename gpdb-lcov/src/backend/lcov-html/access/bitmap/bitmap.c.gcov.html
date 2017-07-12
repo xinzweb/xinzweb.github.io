@@ -1,0 +1,1245 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - access/bitmap/bitmap.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">access/bitmap</a> - bitmap.c<span style="font-size: 80%;"> (source / <a href="bitmap.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">485</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">370</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : </a>
+<span class="lineNum">       2 </span>                :            : /*-------------------------------------------------------------------------
+<span class="lineNum">       3 </span>                :            :  *
+<span class="lineNum">       4 </span>                :            :  * bitmap.c
+<span class="lineNum">       5 </span>                :            :  *      Implementation of the Hybrid Run-Length (HRL) on-disk bitmap index.
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Copyright (c) 2006-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      10 </span>                :            :  *      $PostgreSQL$
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  * NOTES
+<span class="lineNum">      13 </span>                :            :  *      This file contains only the public interface routines.
+<span class="lineNum">      14 </span>                :            :  *
+<span class="lineNum">      15 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      16 </span>                :            :  */
+<span class="lineNum">      17 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;access/bitmap.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/index.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;nodes/tidbitmap.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;storage/lmgr.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;storage/smgr.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;parser/parse_oper.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;cdb/cdbfilerepprimary.h&quot;
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : static void bmbuildCallback(Relation index,     ItemPointer tupleId, Datum *attdata,
+<span class="lineNum">      32 </span>                :            :                                                         bool *nulls, bool tupleIsAlive, void *state);
+<span class="lineNum">      33 </span>                :            : static bool words_get_match(BMBatchWords *words, BMIterateResult *result,
+<span class="lineNum">      34 </span>                :            :                             BlockNumber blockno, PagetableEntry *entry,
+<span class="lineNum">      35 </span>                :            :                                                         bool newentry);
+<span class="lineNum">      36 </span>                :            : static IndexScanDesc copy_scan_desc(IndexScanDesc scan);
+<span class="lineNum">      37 </span>                :            : static void stream_free(StreamNode *self);
+<span class="lineNum">      38 </span>                :            : static void indexstream_free(StreamNode *self);
+<span class="lineNum">      39 </span>                :            : static bool pull_stream(StreamNode *self, PagetableEntry *e);
+<span class="lineNum">      40 </span>                :            : static void cleanup_pos(BMScanPosition pos);
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : /* type to hide BM specific stream state */
+<span class="lineNum">      43 </span>                :            : typedef struct BMStreamOpaque
+<span class="lineNum">      44 </span>                :            : {
+<span class="lineNum">      45 </span>                :            :         IndexScanDesc scan;
+<span class="lineNum">      46 </span>                :            :         PagetableEntry *entry;
+<span class="lineNum">      47 </span>                :            :         /* Indicate that this stream contains no more bitmap words. */
+<span class="lineNum">      48 </span>                :            :         bool is_done;
+<span class="lineNum">      49 </span>                :            : } BMStreamOpaque;
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : /*
+<span class="lineNum">      52 </span>                :            :  * bmbuild() -- Build a new bitmap index.
+<a name="53"><span class="lineNum">      53 </span>                :            :  */</a>
+<span class="lineNum">      54 </span>                :            : Datum
+<span class="lineNum">      55 </span>                :            : bmbuild(PG_FUNCTION_ARGS)
+<span class="lineNum">      56 </span>                :            : {
+<span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">      58 </span>                :            : 
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :         Relation    heap = (Relation) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :         Relation    index = (Relation) PG_GETARG_POINTER(1);</span>
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 :         IndexInfo  *indexInfo = (IndexInfo *) PG_GETARG_POINTER(2);</span>
+<span class="lineNum">      62 </span>                :            :         double      reltuples;
+<span class="lineNum">      63 </span>                :            :         BMBuildState bmstate;
+<span class="lineNum">      64 </span>                :            :         IndexBuildResult *result;
+<span class="lineNum">      65 </span>                :            :         TupleDesc       tupDesc;
+<span class="lineNum">      66 </span>                :            :         bool            useWal;
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (indexInfo-&gt;ii_Concurrent)</span>
+<span class="lineNum">      71 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      72 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">      73 </span>                :            :                                  errmsg(&quot;CONCURRENTLY is not supported when creating bitmap indexes&quot;)));
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :            :         /* We expect this to be called exactly once. */
+<span class="lineNum">      76 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (RelationGetNumberOfBlocks(index) != 0)</span>
+<span class="lineNum">      77 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport (ERROR,</span>
+<span class="lineNum">      78 </span>                :            :                                 (errcode(ERRCODE_INDEX_CORRUPTED),
+<span class="lineNum">      79 </span>                :            :                                 errmsg(&quot;index \&quot;%s\&quot; already contains data&quot;,
+<span class="lineNum">      80 </span>                :            :                                 RelationGetRelationName(index)),
+<span class="lineNum">      81 </span>                :            :                                 errSendAlert(true)));
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :         tupDesc = RelationGetDescr(index);</span>
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         useWal = (!XLog_UnconvertedCanBypassWal() &amp;&amp; !index-&gt;rd_istemp);</span>
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :            :         /* initialize the bitmap index. */
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :         _bitmap_init(index, useWal);</span>
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            :         /* initialize the build state. */
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :         _bitmap_init_buildstate(index, &amp;bmstate);</span>
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :            :         /* do the heap scan */
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :         reltuples = IndexBuildScan(heap, index, indexInfo, false,</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                                                           bmbuildCallback, (void *)&amp;bmstate);</span>
+<span class="lineNum">      96 </span>                :            :         /* clean up the build state */
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         _bitmap_cleanup_buildstate(index, &amp;bmstate);</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :            :         /*
+<span class="lineNum">     100 </span>                :            :          * fsync the relevant files to disk, unless we're building
+<span class="lineNum">     101 </span>                :            :          * a temporary index
+<span class="lineNum">     102 </span>                :            :          */
+<span class="lineNum">     103 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (!useWal)</span>
+<span class="lineNum">     104 </span>                :            :     {
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 FlushRelationBuffers(bmstate.bm_lov_heap);</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         smgrimmedsync(bmstate.bm_lov_heap-&gt;rd_smgr);</span>
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :                 FlushRelationBuffers(bmstate.bm_lov_index);</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                 smgrimmedsync(bmstate.bm_lov_index-&gt;rd_smgr);</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                 FlushRelationBuffers(index);</span>
+<span class="lineNum">     112 </span>                :            :                 /* FlushRelationBuffers will have opened rd_smgr */
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :         smgrimmedsync(index-&gt;rd_smgr);</span>
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     115 </span>                :            :         
+<span class="lineNum">     116 </span>                :            :         /* return statistics */
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :         result = (IndexBuildResult *) palloc0(sizeof(IndexBuildResult));</span>
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :         result-&gt;heap_tuples = reltuples;</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :         result-&gt;index_tuples = bmstate.ituples;</span>
+<span class="lineNum">     121 </span>                :            : 
+<span class="lineNum">     122 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_POINTER(result);</span>
+<span class="lineNum">     125 </span>                :            : }
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>                :            : /*
+<span class="lineNum">     129 </span>                :            :  * bminsert() -- insert an index tuple into a bitmap index.
+<a name="130"><span class="lineNum">     130 </span>                :            :  */</a>
+<span class="lineNum">     131 </span>                :            : Datum
+<span class="lineNum">     132 </span>                :            : bminsert(PG_FUNCTION_ARGS)
+<span class="lineNum">     133 </span>                :            : {
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         Relation        rel = (Relation) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :         Datum           *datum = (Datum *) PG_GETARG_POINTER(1);</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :         bool            *nulls = (bool *) PG_GETARG_POINTER(2);</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :         ItemPointer     ht_ctid = (ItemPointer) PG_GETARG_POINTER(3);</span>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         _bitmap_doinsert(rel, *ht_ctid, datum, nulls);</span>
+<span class="lineNum">     144 </span>                :            : 
+<span class="lineNum">     145 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     146 </span>                :            : 
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(true);</span>
+<span class="lineNum">     148 </span>                :            : }
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :            : /*
+<span class="lineNum">     151 </span>                :            :  * bmgettuple() -- return the next tuple in a scan.
+<a name="152"><span class="lineNum">     152 </span>                :            :  */</a>
+<span class="lineNum">     153 </span>                :            : Datum
+<span class="lineNum">     154 </span>                :            : bmgettuple(PG_FUNCTION_ARGS)
+<span class="lineNum">     155 </span>                :            : {
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :         ScanDirection dir = (ScanDirection) PG_GETARG_INT32(1);</span>
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :         BMScanOpaque  so = (BMScanOpaque)scan-&gt;opaque;</span>
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>                :            :         bool res;
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :            :         /* 
+<span class="lineNum">     167 </span>                :            :          * If we have already begun our scan, continue in the same direction.
+<span class="lineNum">     168 </span>                :            :          * Otherwise, start up the scan.
+<span class="lineNum">     169 </span>                :            :          */
+<span class="lineNum">     170 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;bm_currPos &amp;&amp; so-&gt;cur_pos_valid)</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                 res = _bitmap_next(scan, dir);</span>
+<span class="lineNum">     172 </span>                :            :         else
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :                 res = _bitmap_first(scan, dir);</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(res);</span>
+<span class="lineNum">     178 </span>                :            : }
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :            : /*
+<span class="lineNum">     181 </span>                :            :  * bmgetmulti() -- return a stream bitmap.
+<a name="182"><span class="lineNum">     182 </span>                :            :  */</a>
+<span class="lineNum">     183 </span>                :            : Datum
+<span class="lineNum">     184 </span>                :            : bmgetmulti(PG_FUNCTION_ARGS)
+<span class="lineNum">     185 </span>                :            : {
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :            :         /* We ignore the second argument as we're returning a hash bitmap */
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         IndexScanDesc scan = (IndexScanDesc) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         Node             *bm = (Node *)PG_GETARG_POINTER(1);</span>
+<span class="lineNum">     191 </span>                :            :         IndexStream      *is;
+<span class="lineNum">     192 </span>                :            :         BMScanPosition  scanPos;
+<span class="lineNum">     193 </span>                :            :         bool res;
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :         res = _bitmap_firstbatchwords(scan, ForwardScanDirection);</span>
+<span class="lineNum">     198 </span>                :            : 
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         scanPos = ((BMScanOpaque)scan-&gt;opaque)-&gt;bm_currPos;</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :         scanPos-&gt;bm_result.nextTid = 1;</span>
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (res)</span>
+<span class="lineNum">     203 </span>                :            :         {
+<span class="lineNum">     204 </span>                :            :                 BMScanPosition  sp;
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                 IndexScanDesc copy = copy_scan_desc(scan);</span>
+<span class="lineNum">     206 </span>                :            :                 BMStreamOpaque *so;
+<span class="lineNum">     207 </span>                :            :                 int vec;
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :            :                 /* perhaps this should be in a special context? */
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                 is = (IndexStream *)palloc0(sizeof(IndexStream));</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                 is-&gt;type = BMS_INDEX;</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                 is-&gt;pull = pull_stream;</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                 is-&gt;nextblock = 0;</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                 is-&gt;free = indexstream_free;</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                 is-&gt;set_instrument = NULL;</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                 is-&gt;upd_instrument = NULL;</span>
+<span class="lineNum">     217 </span>                :            : 
+<span class="lineNum">     218 </span>                :            :                 /* create a memory context for the stream */
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                 so = palloc(sizeof(BMStreamOpaque));</span>
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                 sp = ((BMScanOpaque)copy-&gt;opaque)-&gt;bm_currPos;</span>
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                 so-&gt;scan = copy;</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :                 so-&gt;entry = NULL;</span>
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :                 so-&gt;is_done = false;</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :                 is-&gt;opaque = (void *)so;</span>
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(!bm)</span>
+<span class="lineNum">     228 </span>                :            :                 {
+<span class="lineNum">     229 </span>                :            :                         /* 
+<span class="lineNum">     230 </span>                :            :                          * We must create the StreamBitmap outside of our temporary
+<span class="lineNum">     231 </span>                :            :                          * memory context. The reason is, because we glue all the 
+<span class="lineNum">     232 </span>                :            :                          * related streams together, bitmap_stream_free() will
+<span class="lineNum">     233 </span>                :            :                          * descend the stream tree and free up all the nodes by
+<span class="lineNum">     234 </span>                :            :                          * killing their memory context. If we lose the StreamBitmap
+<span class="lineNum">     235 </span>                :            :                          * memory, we'll be reading invalid memory.
+<span class="lineNum">     236 </span>                :            :                          */
+<span class="lineNum">     237 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         StreamBitmap *sb = makeNode(StreamBitmap);</span>
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :                         sb-&gt;streamNode = is;</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                         bm = (Node *)sb;</span>
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if(IsA(bm, StreamBitmap))</span>
+<span class="lineNum">     242 </span>                :            :                 {
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                         stream_add_node((StreamBitmap *)bm, is, BMS_OR);</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     245 </span>                :            :                 else
+<span class="lineNum">     246 </span>                :            :                 {
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;non stream bitmap&quot;); </span>
+<span class="lineNum">     248 </span>                :            :                 }
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :            :                 /*
+<span class="lineNum">     251 </span>                :            :                  * Since we have made a copy for this scan, we reset the lov buffers
+<span class="lineNum">     252 </span>                :            :                  * in the original scan to make sure that these buffers will not
+<span class="lineNum">     253 </span>                :            :                  * be released.
+<span class="lineNum">     254 </span>                :            :                  */
+<span class="lineNum">     255 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (vec = 0; vec &lt; scanPos-&gt;nvec; vec++)</span>
+<span class="lineNum">     256 </span>                :            :                 {
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                         BMVector bmvec = &amp;(scanPos-&gt;posvecs[vec]);</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                         bmvec-&gt;bm_lovBuffer = InvalidBuffer;</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_POINTER(bm);</span>
+<span class="lineNum">     265 </span>                :            : }
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :            : /*
+<span class="lineNum">     268 </span>                :            :  * bmbeginscan() -- start a scan on the bitmap index.
+<a name="269"><span class="lineNum">     269 </span>                :            :  */</a>
+<span class="lineNum">     270 </span>                :            : Datum
+<span class="lineNum">     271 </span>                :            : bmbeginscan(PG_FUNCTION_ARGS)
+<span class="lineNum">     272 </span>                :            : {
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     274 </span>                :            : 
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :         Relation        rel = (Relation) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :         int                     nkeys = PG_GETARG_INT32(1);</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :         ScanKey         scankey = (ScanKey) PG_GETARG_POINTER(2);</span>
+<span class="lineNum">     278 </span>                :            :         IndexScanDesc scan;
+<span class="lineNum">     279 </span>                :            : 
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     281 </span>                :            : 
+<span class="lineNum">     282 </span>                :            :         /* get the scan */
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         scan = RelationGetIndexScan(rel, nkeys, scankey);</span>
+<span class="lineNum">     284 </span>                :            : 
+<span class="lineNum">     285 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_POINTER(scan);</span>
+<span class="lineNum">     288 </span>                :            : }
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :            : /*
+<span class="lineNum">     291 </span>                :            :  * bmrescan() -- restart a scan on the bitmap index.
+<a name="292"><span class="lineNum">     292 </span>                :            :  */</a>
+<span class="lineNum">     293 </span>                :            : Datum
+<span class="lineNum">     294 </span>                :            : bmrescan(PG_FUNCTION_ARGS)
+<span class="lineNum">     295 </span>                :            : {
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         IndexScanDesc   scan = (IndexScanDesc) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :         ScanKey                 scankey = (ScanKey) PG_GETARG_POINTER(1);</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :         BMScanOpaque    so = (BMScanOpaque) scan-&gt;opaque;</span>
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     303 </span>                :            : 
+<span class="lineNum">     304 </span>                :            :         /* so will be NULL if we were called via index_rescan() */
+<span class="lineNum">     305 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so == NULL)</span>
+<span class="lineNum">     306 </span>                :            :         {
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :                 so = (BMScanOpaque) palloc(sizeof(BMScanOpaqueData));</span>
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                 so-&gt;bm_currPos = NULL;</span>
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :                 so-&gt;bm_markPos = NULL;</span>
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                 so-&gt;cur_pos_valid = false;</span>
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :                 so-&gt;mark_pos_valid = false;</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                 scan-&gt;opaque = so;</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;bm_currPos != NULL)</span>
+<span class="lineNum">     316 </span>                :            :         {
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                 cleanup_pos(so-&gt;bm_currPos);</span>
+<span class="lineNum">     318 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MemSet(so-&gt;bm_currPos, 0, sizeof(BMScanPositionData));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                 so-&gt;cur_pos_valid = false;</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;bm_markPos != NULL)</span>
+<span class="lineNum">     323 </span>                :            :         {
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                 cleanup_pos(so-&gt;bm_markPos);</span>
+<span class="lineNum">     325 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MemSet(so-&gt;bm_markPos, 0, sizeof(BMScanPositionData));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                 so-&gt;cur_pos_valid = false;</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     328 </span>                :            :         /* reset the scan key */
+<span class="lineNum">     329 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (scankey &amp;&amp; scan-&gt;numberOfKeys &gt; 0)</span>
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :                 memmove(scan-&gt;keyData, scankey,</span>
+<span class="lineNum">     331 </span>                :            :                                 scan-&gt;numberOfKeys * sizeof(ScanKeyData));
+<span class="lineNum">     332 </span>                :            : 
+<span class="lineNum">     333 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_VOID();</span>
+<span class="lineNum">     336 </span>                :            : }
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :            : /*
+<span class="lineNum">     339 </span>                :            :  * bmendscan() -- close a scan.
+<a name="340"><span class="lineNum">     340 </span>                :            :  */</a>
+<span class="lineNum">     341 </span>                :            : Datum
+<span class="lineNum">     342 </span>                :            : bmendscan(PG_FUNCTION_ARGS)
+<span class="lineNum">     343 </span>                :            : {
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :         IndexScanDesc   scan = (IndexScanDesc) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :         BMScanOpaque    so = (BMScanOpaque) scan-&gt;opaque;</span>
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     350 </span>                :            : 
+<span class="lineNum">     351 </span>                :            :         /* free the space */
+<span class="lineNum">     352 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;bm_currPos != NULL)</span>
+<span class="lineNum">     353 </span>                :            :         {
+<span class="lineNum">     354 </span>                :            :                 /*
+<span class="lineNum">     355 </span>                :            :                  * release the buffers that have been stored for each related 
+<span class="lineNum">     356 </span>                :            :                  * bitmap vector.
+<span class="lineNum">     357 </span>                :            :                  */
+<span class="lineNum">     358 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (so-&gt;bm_currPos-&gt;nvec &gt; 1)</span>
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :                          _bitmap_cleanup_batchwords(so-&gt;bm_currPos-&gt;bm_batchWords);</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                 _bitmap_cleanup_scanpos(so-&gt;bm_currPos-&gt;posvecs,</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :                                                                 so-&gt;bm_currPos-&gt;nvec);</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :                 pfree(so-&gt;bm_currPos);</span>
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :                 so-&gt;bm_currPos = NULL;</span>
+<span class="lineNum">     364 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;bm_markPos != NULL)</span>
+<span class="lineNum">     367 </span>                :            :         {
+<span class="lineNum">     368 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (so-&gt;bm_markPos-&gt;nvec &gt; 1)</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :                          _bitmap_cleanup_batchwords(so-&gt;bm_markPos-&gt;bm_batchWords);</span>
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :                 _bitmap_cleanup_scanpos(so-&gt;bm_markPos-&gt;posvecs,</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                                                                 so-&gt;bm_markPos-&gt;nvec);</span>
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :                 so-&gt;bm_markPos = NULL;</span>
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     374 </span>                :            : 
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :         pfree(so);</span>
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         scan-&gt;opaque = NULL;</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_VOID();</span>
+<span class="lineNum">     381 </span>                :            : }
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :            : /*
+<span class="lineNum">     384 </span>                :            :  * bmmarkpos() -- save the current scan position.
+<a name="385"><span class="lineNum">     385 </span>                :            :  */</a>
+<span class="lineNum">     386 </span>                :            : Datum
+<span class="lineNum">     387 </span>                :            : bmmarkpos(PG_FUNCTION_ARGS)
+<span class="lineNum">     388 </span>                :            : {
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     390 </span>                :            : 
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :         IndexScanDesc   scan = (IndexScanDesc) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :         BMScanOpaque    so = (BMScanOpaque) scan-&gt;opaque;</span>
+<span class="lineNum">     393 </span>                :            :         BMVector        bmScanPos;
+<span class="lineNum">     394 </span>                :            :         uint32 vectorNo;
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     397 </span>                :            : 
+<span class="lineNum">     398 </span>                :            :         /* free the space */
+<span class="lineNum">     399 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;mark_pos_valid)</span>
+<span class="lineNum">     400 </span>                :            :         {
+<span class="lineNum">     401 </span>                :            :                 /*
+<span class="lineNum">     402 </span>                :            :                  * release the buffers that have been stored for each
+<span class="lineNum">     403 </span>                :            :                  * related bitmap.
+<span class="lineNum">     404 </span>                :            :                  */
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                 bmScanPos = so-&gt;bm_markPos-&gt;posvecs;</span>
+<span class="lineNum">     406 </span>                :            : 
+<span class="lineNum">     407 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (vectorNo=0; vectorNo &lt; so-&gt;bm_markPos-&gt;nvec; vectorNo++)</span>
+<span class="lineNum">     408 </span>                :            :                 {
+<span class="lineNum">     409 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (BufferIsValid((bmScanPos[vectorNo]).bm_lovBuffer))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     410 </span>                :            :                         {
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 :                                 ReleaseBuffer((bmScanPos[vectorNo]).bm_lovBuffer);</span>
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :                                 (bmScanPos[vectorNo]).bm_lovBuffer = InvalidBuffer;</span>
+<span class="lineNum">     413 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :                 so-&gt;mark_pos_valid = false;</span>
+<span class="lineNum">     416 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     417 </span>                :            : 
+<span class="lineNum">     418 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;cur_pos_valid)</span>
+<span class="lineNum">     419 </span>                :            :         {
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :                 uint32  size = sizeof(BMScanPositionData);</span>
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :            : 
+<span class="lineNum">     423 </span>                :            :                 /* set the mark position */
+<span class="lineNum">     424 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (so-&gt;bm_markPos == NULL)</span>
+<span class="lineNum">     425 </span>                :            :                 {
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                         so-&gt;bm_markPos = (BMScanPosition) palloc(size);</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     428 </span>                :            : 
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                 bmScanPos = so-&gt;bm_currPos-&gt;posvecs;</span>
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (vectorNo = 0; vectorNo &lt; so-&gt;bm_currPos-&gt;nvec; vectorNo++)</span>
+<span class="lineNum">     432 </span>                :            :                 {
+<span class="lineNum">     433 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (BufferIsValid((bmScanPos[vectorNo]).bm_lovBuffer))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                                 IncrBufferRefCount((bmScanPos[vectorNo]).bm_lovBuffer);</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :                 memcpy(so-&gt;bm_markPos-&gt;posvecs, bmScanPos,</span>
+<span class="lineNum">     438 </span>                :            :                            so-&gt;bm_currPos-&gt;nvec *
+<span class="lineNum">     439 </span>                :            :                            sizeof(BMVectorData));
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                 memcpy(so-&gt;bm_markPos, so-&gt;bm_currPos, size);</span>
+<span class="lineNum">     441 </span>                :            : 
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                 so-&gt;mark_pos_valid = true;</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     444 </span>                :            : 
+<span class="lineNum">     445 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_VOID();</span>
+<span class="lineNum">     448 </span>                :            : }
+<span class="lineNum">     449 </span>                :            : 
+<span class="lineNum">     450 </span>                :            : /*
+<span class="lineNum">     451 </span>                :            :  * bmrestrpos() -- restore a scan to the last saved position.
+<a name="452"><span class="lineNum">     452 </span>                :            :  */</a>
+<span class="lineNum">     453 </span>                :            : Datum
+<span class="lineNum">     454 </span>                :            : bmrestrpos(PG_FUNCTION_ARGS)
+<span class="lineNum">     455 </span>                :            : {
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     457 </span>                :            : 
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :         IndexScanDesc   scan = (IndexScanDesc) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :         BMScanOpaque    so = (BMScanOpaque) scan-&gt;opaque;</span>
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>                :            :         BMVector        bmScanPos;
+<span class="lineNum">     462 </span>                :            :         uint32 vectorNo;
+<span class="lineNum">     463 </span>                :            : 
+<span class="lineNum">     464 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     465 </span>                :            : 
+<span class="lineNum">     466 </span>                :            :         /* free space */
+<span class="lineNum">     467 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;cur_pos_valid)</span>
+<span class="lineNum">     468 </span>                :            :         {
+<span class="lineNum">     469 </span>                :            :                 /* release the buffers that have been stored for each related bitmap.*/
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                 bmScanPos = so-&gt;bm_currPos-&gt;posvecs;</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (vectorNo=0; vectorNo&lt;so-&gt;bm_markPos-&gt;nvec;</span>
+<span class="lineNum">     473 </span>                :<span class="lineNoCov">          0 :                          vectorNo++)</span>
+<span class="lineNum">     474 </span>                :            :                 {
+<span class="lineNum">     475 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (BufferIsValid((bmScanPos[vectorNo]).bm_lovBuffer))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     476 </span>                :            :                         {
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :                                 ReleaseBuffer((bmScanPos[vectorNo]).bm_lovBuffer);</span>
+<span class="lineNum">     478 </span>                :<span class="lineNoCov">          0 :                                 (bmScanPos[vectorNo]).bm_lovBuffer = InvalidBuffer;</span>
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                 so-&gt;cur_pos_valid = false;</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;mark_pos_valid)</span>
+<span class="lineNum">     485 </span>                :            :         {
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :                 uint32  size = sizeof(BMScanPositionData);</span>
+<span class="lineNum">     487 </span>                :            : 
+<span class="lineNum">     488 </span>                :            :                 /* set the current position */
+<span class="lineNum">     489 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (so-&gt;bm_currPos == NULL)</span>
+<span class="lineNum">     490 </span>                :            :                 {
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :                         so-&gt;bm_currPos = (BMScanPosition) palloc0(size);</span>
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     493 </span>                :            : 
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :                 bmScanPos = so-&gt;bm_markPos-&gt;posvecs;</span>
+<span class="lineNum">     495 </span>                :            : 
+<span class="lineNum">     496 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (vectorNo=0; vectorNo&lt;so-&gt;bm_currPos-&gt;nvec;</span>
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                          vectorNo++)</span>
+<span class="lineNum">     498 </span>                :            :                 {
+<span class="lineNum">     499 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (BufferIsValid((bmScanPos[vectorNo]).bm_lovBuffer))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                                 IncrBufferRefCount((bmScanPos[vectorNo]).bm_lovBuffer);</span>
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                 }               </span>
+<span class="lineNum">     502 </span>                :            : 
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :                 memcpy(so-&gt;bm_currPos-&gt;posvecs, bmScanPos,</span>
+<span class="lineNum">     504 </span>                :            :                            so-&gt;bm_markPos-&gt;nvec *
+<span class="lineNum">     505 </span>                :            :                            sizeof(BMVectorData));
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :                 memcpy(so-&gt;bm_currPos, so-&gt;bm_markPos, size);</span>
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :                 so-&gt;cur_pos_valid = true;</span>
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     509 </span>                :            : 
+<span class="lineNum">     510 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_VOID();</span>
+<span class="lineNum">     513 </span>                :            : }
+<span class="lineNum">     514 </span>                :            : 
+<span class="lineNum">     515 </span>                :            : /*
+<span class="lineNum">     516 </span>                :            :  * bmbulkdelete() -- bulk delete index entries
+<span class="lineNum">     517 </span>                :            :  *
+<span class="lineNum">     518 </span>                :            :  * Re-index is performed before retrieving the number of tuples
+<span class="lineNum">     519 </span>                :            :  * indexed in this index.
+<a name="520"><span class="lineNum">     520 </span>                :            :  */</a>
+<span class="lineNum">     521 </span>                :            : Datum
+<span class="lineNum">     522 </span>                :            : bmbulkdelete(PG_FUNCTION_ARGS)
+<span class="lineNum">     523 </span>                :            : {
+<span class="lineNum">     524 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     525 </span>                :            : 
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :         IndexVacuumInfo *info = (IndexVacuumInfo *) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :         Relation        rel = info-&gt;index;</span>
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 :         IndexBulkDeleteResult* volatile result =</span>
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :                 (IndexBulkDeleteResult *) PG_GETARG_POINTER(1);</span>
+<span class="lineNum">     530 </span>                :            : 
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     532 </span>                :            : 
+<span class="lineNum">     533 </span>                :            :         /* allocate stats if first time through, else re-use existing struct */
+<span class="lineNum">     534 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result == NULL)</span>
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :                 result = (IndexBulkDeleteResult *)</span>
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :                         palloc0(sizeof(IndexBulkDeleteResult)); </span>
+<span class="lineNum">     537 </span>                :            : 
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :         reindex_index(RelationGetRelid(rel));</span>
+<span class="lineNum">     539 </span>                :            : 
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :         CommandCounterIncrement();</span>
+<span class="lineNum">     541 </span>                :            : 
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :         result = (IndexBulkDeleteResult *) palloc0(sizeof(IndexBulkDeleteResult));</span>
+<span class="lineNum">     543 </span>                :<span class="lineNoCov">          0 :         result-&gt;num_pages = RelationGetNumberOfBlocks(rel);</span>
+<span class="lineNum">     544 </span>                :            :         /* Since we re-build the index, set this to number of heap tuples. */
+<span class="lineNum">     545 </span>                :<span class="lineNoCov">          0 :         result-&gt;num_index_tuples = info-&gt;num_heap_tuples;</span>
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :         result-&gt;tuples_removed = 0;</span>
+<span class="lineNum">     547 </span>                :            : 
+<span class="lineNum">     548 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     549 </span>                :            : 
+<span class="lineNum">     550 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_POINTER(result);</span>
+<span class="lineNum">     551 </span>                :            : }
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>                :            : /*
+<span class="lineNum">     554 </span>                :            :  * bmvacuumcleanup() -- post-vacuum cleanup.
+<span class="lineNum">     555 </span>                :            :  *
+<span class="lineNum">     556 </span>                :            :  * We do nothing useful here.
+<a name="557"><span class="lineNum">     557 </span>                :            :  */</a>
+<span class="lineNum">     558 </span>                :            : Datum
+<span class="lineNum">     559 </span>                :            : bmvacuumcleanup(PG_FUNCTION_ARGS)
+<span class="lineNum">     560 </span>                :            : {
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     562 </span>                :            : 
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :         IndexVacuumInfo *info = (IndexVacuumInfo *) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">     564 </span>                :<span class="lineNoCov">          0 :         Relation        rel = info-&gt;index;</span>
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :         IndexBulkDeleteResult *stats = </span>
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :                         (IndexBulkDeleteResult *) PG_GETARG_POINTER(1);</span>
+<span class="lineNum">     567 </span>                :            : 
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     569 </span>                :            : 
+<span class="lineNum">     570 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(stats == NULL)</span>
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                 stats = (IndexBulkDeleteResult *)palloc0(sizeof(IndexBulkDeleteResult));</span>
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :            :         /* update statistics */
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :         stats-&gt;num_pages = RelationGetNumberOfBlocks(rel);</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :         stats-&gt;pages_deleted = 0;</span>
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :         stats-&gt;pages_free = 0;</span>
+<span class="lineNum">     577 </span>                :            :         /* XXX: dodgy hack to shutup index_scan() and vacuum_index() */
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         stats-&gt;num_index_tuples = info-&gt;num_heap_tuples;</span>
+<span class="lineNum">     579 </span>                :            : 
+<span class="lineNum">     580 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     581 </span>                :            : 
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_POINTER(stats);</span>
+<span class="lineNum">     583 </span>                :            : }
+<span class="lineNum">     584 </span>                :            : 
+<span class="lineNum">     585 </span>                :            : /*
+<span class="lineNum">     586 </span>                :            :  * Per-tuple callback from IndexBuildHeapScan
+<a name="587"><span class="lineNum">     587 </span>                :            :  */</a>
+<span class="lineNum">     588 </span>                :            : static void
+<span class="lineNum">     589 </span>                :            : bmbuildCallback(Relation index, ItemPointer tupleId, Datum *attdata,
+<span class="lineNum">     590 </span>                :            :                                 bool *nulls, bool tupleIsAlive __attribute__((unused)), void *state)
+<span class="lineNum">     591 </span>                :            : {
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_DECLARE;</span>
+<span class="lineNum">     593 </span>                :            : 
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         BMBuildState *bstate = (BMBuildState *) state;</span>
+<span class="lineNum">     595 </span>                :            : 
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_ENTER;</span>
+<span class="lineNum">     597 </span>                :            : 
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :         _bitmap_buildinsert(index, *tupleId, attdata, nulls, bstate);</span>
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :         bstate-&gt;ituples += 1;</span>
+<span class="lineNum">     600 </span>                :            : 
+<span class="lineNum">     601 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (((int)bstate-&gt;ituples) % 1000 == 0)</span>
+<span class="lineNum">     602 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     603 </span>                :            : 
+<span class="lineNum">     604 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_VERIFY_NO_LOCK_LEAK_EXIT;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     605 </span>                :            : 
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     607 </span>                :            : 
+<span class="lineNum">     608 </span>                :            : /*
+<span class="lineNum">     609 </span>                :            :  * free the memory associated with the stream
+<span class="lineNum">     610 </span>                :            :  */
+<a name="611"><span class="lineNum">     611 </span>                :            : </a>
+<span class="lineNum">     612 </span>                :            : static void
+<span class="lineNum">     613 </span>                :            : stream_free(StreamNode *self)
+<span class="lineNum">     614 </span>                :            : {
+<span class="lineNum">     615 </span>                :<span class="lineNoCov">          0 :         IndexStream *is = self;</span>
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :         BMStreamOpaque *so = (BMStreamOpaque *)is-&gt;opaque;</span>
+<span class="lineNum">     617 </span>                :            : 
+<span class="lineNum">     618 </span>                :            :         /* opaque may be NULL */
+<span class="lineNum">     619 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so)</span>
+<span class="lineNum">     620 </span>                :            :         {
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :                 IndexScanDesc scan = so-&gt;scan;</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                 BMScanOpaque s = (BMScanOpaque)scan-&gt;opaque;</span>
+<span class="lineNum">     623 </span>                :            : 
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :                 is-&gt;opaque = NULL;</span>
+<span class="lineNum">     625 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(s-&gt;bm_currPos)</span>
+<span class="lineNum">     626 </span>                :            :                 {
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :                         cleanup_pos(s-&gt;bm_currPos);</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                         pfree(s-&gt;bm_currPos);</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                         s-&gt;bm_currPos = NULL;</span>
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     631 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(s-&gt;bm_markPos)</span>
+<span class="lineNum">     632 </span>                :            :                 {
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :                         cleanup_pos(s-&gt;bm_markPos);</span>
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :                         pfree(s-&gt;bm_markPos);</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                         s-&gt;bm_markPos = NULL;</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (so-&gt;entry != NULL)</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :                         pfree(so-&gt;entry);</span>
+<span class="lineNum">     640 </span>                :            : 
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                 pfree(s);</span>
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :                 pfree(scan);</span>
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :                 pfree(so);</span>
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     646 </span>                :            : 
+<span class="lineNum">     647 </span>                :            : /*
+<span class="lineNum">     648 </span>                :            :  * free the memory associated with an IndexStream
+<a name="649"><span class="lineNum">     649 </span>                :            :  */</a>
+<span class="lineNum">     650 </span>                :            : static void
+<span class="lineNum">     651 </span>                :            : indexstream_free(StreamNode *self) {
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :         stream_free(self);</span>
+<span class="lineNum">     653 </span>                :            : 
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 :         pfree(self);</span>
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="656"><span class="lineNum">     656 </span>                :            : </a>
+<span class="lineNum">     657 </span>                :            : static void
+<span class="lineNum">     658 </span>                :            : cleanup_pos(BMScanPosition pos) 
+<span class="lineNum">     659 </span>                :            : {
+<span class="lineNum">     660 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pos-&gt;nvec == 0)</span>
+<span class="lineNum">     661 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     662 </span>                :            :         
+<span class="lineNum">     663 </span>                :            :         /*
+<span class="lineNum">     664 </span>                :            :          * Only cleanup bm_batchWords if we have more than one vector since
+<span class="lineNum">     665 </span>                :            :          * _bitmap_cleanup_scanpos() will clean it up for the single vector
+<span class="lineNum">     666 </span>                :            :          * case.
+<span class="lineNum">     667 </span>                :            :          */
+<span class="lineNum">     668 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pos-&gt;nvec &gt; 1)</span>
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 :                  _bitmap_cleanup_batchwords(pos-&gt;bm_batchWords);</span>
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :         _bitmap_cleanup_scanpos(pos-&gt;posvecs, pos-&gt;nvec);</span>
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     672 </span>                :            : 
+<span class="lineNum">     673 </span>                :            : 
+<span class="lineNum">     674 </span>                :            : /*
+<span class="lineNum">     675 </span>                :            :  * pull the next block of tids from a bitmap stream
+<span class="lineNum">     676 </span>                :            :  */
+<a name="677"><span class="lineNum">     677 </span>                :            : </a>
+<span class="lineNum">     678 </span>                :            : static bool 
+<span class="lineNum">     679 </span>                :            : pull_stream(StreamNode *self, PagetableEntry *e)
+<span class="lineNum">     680 </span>                :            : {
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 :         StreamNode         *n = self;</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :         bool                    res = false;</span>
+<span class="lineNum">     683 </span>                :<span class="lineNoCov">          0 :         bool                    newentry = true;</span>
+<span class="lineNum">     684 </span>                :<span class="lineNoCov">          0 :         IndexStream    *is = (IndexStream *)n;</span>
+<span class="lineNum">     685 </span>                :            :         PagetableEntry *next;
+<span class="lineNum">     686 </span>                :            :         BMScanPosition  scanPos;
+<span class="lineNum">     687 </span>                :            :         IndexScanDesc   scan;
+<span class="lineNum">     688 </span>                :            :         BMStreamOpaque *so;
+<span class="lineNum">     689 </span>                :            : 
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :         so = (BMStreamOpaque *)is-&gt;opaque;</span>
+<span class="lineNum">     691 </span>                :            :         /* empty bitmap vector */
+<span class="lineNum">     692 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(so == NULL)</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 :         next = so-&gt;entry;</span>
+<span class="lineNum">     695 </span>                :            : 
+<span class="lineNum">     696 </span>                :            :         /* have we already got an entry? */
+<span class="lineNum">     697 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(next &amp;&amp; is-&gt;nextblock &lt;= next-&gt;blockno)</span>
+<span class="lineNum">     698 </span>                :            :         {
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                 memcpy(e, next, sizeof(PagetableEntry));</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     701 </span>                :            :         }
+<span class="lineNum">     702 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (so-&gt;is_done)</span>
+<span class="lineNum">     703 </span>                :            :         {
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                 stream_free(n);</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                 is-&gt;opaque = NULL;</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     707 </span>                :            :         }
+<span class="lineNum">     708 </span>                :            :         
+<span class="lineNum">     709 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(e, 0, sizeof(PagetableEntry));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     710 </span>                :            : 
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :         scan = so-&gt;scan;</span>
+<span class="lineNum">     712 </span>                :<span class="lineNoCov">          0 :         scanPos = ((BMScanOpaque)scan-&gt;opaque)-&gt;bm_currPos;</span>
+<span class="lineNum">     713 </span>                :<span class="lineNoCov">          0 :         e-&gt;blockno = is-&gt;nextblock;</span>
+<span class="lineNum">     714 </span>                :            : 
+<span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :         so-&gt;is_done = false;</span>
+<span class="lineNum">     716 </span>                :            : 
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :         while(true)</span>
+<span class="lineNum">     718 </span>                :            :         {
+<span class="lineNum">     719 </span>                :            :                 bool found;
+<span class="lineNum">     720 </span>                :            : 
+<span class="lineNum">     721 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     722 </span>                :            :                 
+<span class="lineNum">     723 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (scanPos != NULL)</span>
+<span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 :                         res = _bitmap_nextbatchwords(scan, ForwardScanDirection);</span>
+<span class="lineNum">     725 </span>                :            :                 else
+<span class="lineNum">     726 </span>                :            :                         /* we should be initialised! */
+<span class="lineNum">     727 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;scan position uninitialized&quot;);</span>
+<span class="lineNum">     728 </span>                :            : 
+<span class="lineNum">     729 </span>                :<span class="lineNoCov">          0 :                 found = words_get_match(scanPos-&gt;bm_batchWords, &amp;(scanPos-&gt;bm_result),</span>
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                                                            is-&gt;nextblock, e, newentry);</span>
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(found)</span>
+<span class="lineNum">     733 </span>                :            :                 {
+<span class="lineNum">     734 </span>                :<span class="lineNoCov">          0 :                         res = true;</span>
+<span class="lineNum">     735 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     736 </span>                :            :                 }
+<span class="lineNum">     737 </span>                :            :                 else
+<span class="lineNum">     738 </span>                :            :                 {
+<span class="lineNum">     739 </span>                :            :                         /* Are there any more words available from the index itself? */
+<span class="lineNum">     740 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(!res)</span>
+<span class="lineNum">     741 </span>                :            :                         {
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :                                 so-&gt;is_done = true;</span>
+<span class="lineNum">     743 </span>                :<span class="lineNoCov">          0 :                                 res = true;</span>
+<span class="lineNum">     744 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     745 </span>                :            :                         }
+<span class="lineNum">     746 </span>                :            :                         else
+<span class="lineNum">     747 </span>                :            :                         {
+<span class="lineNum">     748 </span>                :            :                                 /*
+<span class="lineNum">     749 </span>                :            :                                  * We didn't have enough words to match the whole page, so
+<span class="lineNum">     750 </span>                :            :                                  * tell words_get_match() to continue looking at the page
+<span class="lineNum">     751 </span>                :            :                                  * it finished at
+<span class="lineNum">     752 </span>                :            :                                  */
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :                                 is-&gt;nextblock = e-&gt;blockno;</span>
+<span class="lineNum">     754 </span>                :<span class="lineNoCov">          0 :                                 newentry = false;</span>
+<span class="lineNum">     755 </span>                :            :                         }
+<span class="lineNum">     756 </span>                :            :                 }
+<span class="lineNum">     757 </span>                :            :         }
+<span class="lineNum">     758 </span>                :            : 
+<span class="lineNum">     759 </span>                :            :         /*
+<span class="lineNum">     760 </span>                :            :          * Set the next block number. We want to skip those blocks that do not
+<span class="lineNum">     761 </span>                :            :          * contain possible query results, since in AO index cases, this range
+<span class="lineNum">     762 </span>                :            :          * can be very large.
+<span class="lineNum">     763 </span>                :            :          */
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :         is-&gt;nextblock = e-&gt;blockno + 1;</span>
+<span class="lineNum">     765 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (scanPos-&gt;bm_result.nextTid / BM_MAX_TUPLES_PER_PAGE &gt; e-&gt;blockno + 1)</span>
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :                 is-&gt;nextblock = scanPos-&gt;bm_result.nextTid / BM_MAX_TUPLES_PER_PAGE;</span>
+<span class="lineNum">     767 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (so-&gt;entry == NULL)</span>
+<span class="lineNum">     768 </span>                :<span class="lineNoCov">          0 :                 so-&gt;entry = (PagetableEntry *) palloc(sizeof(PagetableEntry));</span>
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :         memcpy(so-&gt;entry, e, sizeof(PagetableEntry));</span>
+<span class="lineNum">     770 </span>                :            : 
+<span class="lineNum">     771 </span>                :<span class="lineNoCov">          0 :         return res;</span>
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     773 </span>                :            : 
+<span class="lineNum">     774 </span>                :            : /*
+<span class="lineNum">     775 </span>                :            :  * Make a copy of an index scan descriptor as well as useful fields in
+<span class="lineNum">     776 </span>                :            :  * the opaque structure
+<span class="lineNum">     777 </span>                :            :  */
+<a name="778"><span class="lineNum">     778 </span>                :            : </a>
+<span class="lineNum">     779 </span>                :            : static IndexScanDesc
+<span class="lineNum">     780 </span>                :            : copy_scan_desc(IndexScanDesc scan)
+<span class="lineNum">     781 </span>                :            : {
+<span class="lineNum">     782 </span>                :            :         IndexScanDesc s;
+<span class="lineNum">     783 </span>                :            :         BMScanOpaque so;
+<span class="lineNum">     784 </span>                :            :         BMScanPosition sp;
+<span class="lineNum">     785 </span>                :            :         BMScanPosition spcopy;
+<span class="lineNum">     786 </span>                :            :         BMBatchWords *w;
+<span class="lineNum">     787 </span>                :            :         BMVector bsp;
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>                :            :         /* we only need a few fields */
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :         s = (IndexScanDesc)palloc0(sizeof(IndexScanDescData));</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :         s-&gt;opaque = palloc(sizeof(BMScanOpaqueData));</span>
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :         spcopy = palloc0(sizeof(BMScanPositionData));</span>
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :         w = (BMBatchWords *)palloc(sizeof(BMBatchWords));</span>
+<span class="lineNum">     794 </span>                :            : 
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :         s-&gt;indexRelation = scan-&gt;indexRelation;</span>
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :         so = (BMScanOpaque)scan-&gt;opaque;</span>
+<span class="lineNum">     797 </span>                :<span class="lineNoCov">          0 :         sp = so-&gt;bm_currPos;</span>
+<span class="lineNum">     798 </span>                :            : 
+<span class="lineNum">     799 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(sp)</span>
+<span class="lineNum">     800 </span>                :            :         {
+<span class="lineNum">     801 </span>                :            :                 int vec;
+<span class="lineNum">     802 </span>                :            : 
+<span class="lineNum">     803 </span>                :<span class="lineNoCov">          0 :                 spcopy-&gt;done = sp-&gt;done;</span>
+<span class="lineNum">     804 </span>                :<span class="lineNoCov">          0 :                 spcopy-&gt;nvec = sp-&gt;nvec;</span>
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 :                 spcopy-&gt;bm_batchWords = w;</span>
+<span class="lineNum">     806 </span>                :            : 
+<span class="lineNum">     807 </span>                :            :                 /* now the batch words */
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                 w-&gt;maxNumOfWords = sp-&gt;bm_batchWords-&gt;maxNumOfWords;</span>
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :                 w-&gt;nwordsread = sp-&gt;bm_batchWords-&gt;nwordsread;</span>
+<span class="lineNum">     810 </span>                :<span class="lineNoCov">          0 :                 w-&gt;nextread = sp-&gt;bm_batchWords-&gt;nextread;</span>
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :                 w-&gt;firstTid = sp-&gt;bm_batchWords-&gt;firstTid;</span>
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :                 w-&gt;startNo = sp-&gt;bm_batchWords-&gt;startNo;</span>
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :                 w-&gt;nwords = sp-&gt;bm_batchWords-&gt;nwords;</span>
+<span class="lineNum">     814 </span>                :            : 
+<span class="lineNum">     815 </span>                :            :                 /* the actual words now */
+<span class="lineNum">     816 </span>                :            :                 /* use copy */
+<span class="lineNum">     817 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :             w-&gt;hwords = palloc0(sizeof(BM_HRL_WORD) * </span>
+<span class="lineNum">     818 </span>                :            :                                         BM_CALC_H_WORDS(sp-&gt;bm_batchWords-&gt;maxNumOfWords));
+<span class="lineNum">     819 </span>                :<span class="lineNoCov">          0 :         w-&gt;cwords = palloc0(sizeof(BM_HRL_WORD) * </span>
+<span class="lineNum">     820 </span>                :            :                                         sp-&gt;bm_batchWords-&gt;maxNumOfWords);
+<span class="lineNum">     821 </span>                :            : 
+<span class="lineNum">     822 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 memcpy(w-&gt;hwords, sp-&gt;bm_batchWords-&gt;hwords,</span>
+<span class="lineNum">     823 </span>                :            :                         BM_CALC_H_WORDS(sp-&gt;bm_batchWords-&gt;maxNumOfWords) * sizeof(BM_HRL_WORD));
+<span class="lineNum">     824 </span>                :<span class="lineNoCov">          0 :                 memcpy(w-&gt;cwords, sp-&gt;bm_batchWords-&gt;cwords,</span>
+<span class="lineNum">     825 </span>                :            :                         sp-&gt;bm_batchWords-&gt;maxNumOfWords * sizeof(BM_HRL_WORD));
+<span class="lineNum">     826 </span>                :            : 
+<span class="lineNum">     827 </span>                :<span class="lineNoCov">          0 :                 memcpy(&amp;spcopy-&gt;bm_result, &amp;sp-&gt;bm_result, sizeof(BMIterateResult));</span>
+<span class="lineNum">     828 </span>                :            : 
+<span class="lineNum">     829 </span>                :<span class="lineNoCov">          0 :                 bsp = (BMVector)palloc(sizeof(BMVectorData) * sp-&gt;nvec);</span>
+<span class="lineNum">     830 </span>                :<span class="lineNoCov">          0 :                 spcopy-&gt;posvecs = bsp;</span>
+<span class="lineNum">     831 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(sp-&gt;nvec == 1)</span>
+<span class="lineNum">     832 </span>                :            :                 {
+<span class="lineNum">     833 </span>                :<span class="lineNoCov">          0 :                         bsp-&gt;bm_lovBuffer = sp-&gt;posvecs-&gt;bm_lovBuffer;</span>
+<span class="lineNum">     834 </span>                :<span class="lineNoCov">          0 :                         bsp-&gt;bm_lovOffset = sp-&gt;posvecs-&gt;bm_lovOffset;</span>
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :                         bsp-&gt;bm_nextBlockNo = sp-&gt;posvecs-&gt;bm_nextBlockNo;</span>
+<span class="lineNum">     836 </span>                :<span class="lineNoCov">          0 :                         bsp-&gt;bm_readLastWords = sp-&gt;posvecs-&gt;bm_readLastWords;</span>
+<span class="lineNum">     837 </span>                :<span class="lineNoCov">          0 :                         bsp-&gt;bm_batchWords = w;</span>
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     839 </span>                :            :                 else
+<span class="lineNum">     840 </span>                :            :                 {
+<span class="lineNum">     841 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         for (vec = 0; vec &lt; sp-&gt;nvec; vec++)</span>
+<span class="lineNum">     842 </span>                :            :                         {
+<span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :                                 BMVector bmScanPos = &amp;(bsp[vec]);</span>
+<span class="lineNum">     844 </span>                :<span class="lineNoCov">          0 :                                 BMVector spp = &amp;(sp-&gt;posvecs[vec]);</span>
+<span class="lineNum">     845 </span>                :            : 
+<span class="lineNum">     846 </span>                :<span class="lineNoCov">          0 :                                 bmScanPos-&gt;bm_lovBuffer = spp-&gt;bm_lovBuffer;</span>
+<span class="lineNum">     847 </span>                :<span class="lineNoCov">          0 :                                 bmScanPos-&gt;bm_lovOffset = spp-&gt;bm_lovOffset;</span>
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :                                 bmScanPos-&gt;bm_nextBlockNo = spp-&gt;bm_nextBlockNo;</span>
+<span class="lineNum">     849 </span>                :<span class="lineNoCov">          0 :                                 bmScanPos-&gt;bm_readLastWords = spp-&gt;bm_readLastWords;</span>
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>                :<span class="lineNoCov">          0 :                                 bmScanPos-&gt;bm_batchWords = </span>
+<span class="lineNum">     852 </span>                :<span class="lineNoCov">          0 :                                         (BMBatchWords *) palloc0(sizeof(BMBatchWords));</span>
+<span class="lineNum">     853 </span>                :<span class="lineNoCov">          0 :                                 _bitmap_init_batchwords(bmScanPos-&gt;bm_batchWords,</span>
+<span class="lineNum">     854 </span>                :            :                                                                         BM_NUM_OF_HRL_WORDS_PER_PAGE,
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :                                                                         CurrentMemoryContext);</span>
+<span class="lineNum">     856 </span>                :<span class="lineNoCov">          0 :                                 _bitmap_copy_batchwords(spp-&gt;bm_batchWords,</span>
+<span class="lineNum">     857 </span>                :<span class="lineNoCov">          0 :                                                                         bmScanPos-&gt;bm_batchWords);</span>
+<span class="lineNum">     858 </span>                :            : 
+<span class="lineNum">     859 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     860 </span>                :            :                 }
+<span class="lineNum">     861 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     862 </span>                :            :         else
+<span class="lineNum">     863 </span>                :<span class="lineNoCov">          0 :                 spcopy = NULL;</span>
+<span class="lineNum">     864 </span>                :            : 
+<span class="lineNum">     865 </span>                :<span class="lineNoCov">          0 :         ((BMScanOpaque)s-&gt;opaque)-&gt;bm_currPos = spcopy;</span>
+<span class="lineNum">     866 </span>                :<span class="lineNoCov">          0 :         ((BMScanOpaque)s-&gt;opaque)-&gt;bm_markPos = NULL;</span>
+<span class="lineNum">     867 </span>                :            : 
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :         return s;</span>
+<span class="lineNum">     869 </span>                :            : }
+<span class="lineNum">     870 </span>                :            : 
+<span class="lineNum">     871 </span>                :            : /*
+<span class="lineNum">     872 </span>                :            :  * Given a set of bitmap words and our current position, get the next
+<span class="lineNum">     873 </span>                :            :  * page with matches on it.
+<span class="lineNum">     874 </span>                :            :  *
+<span class="lineNum">     875 </span>                :            :  * If newentry is false, we're calling the function with a partially filled
+<span class="lineNum">     876 </span>                :            :  * page table entry. Otherwise, the entry is empty.
+<span class="lineNum">     877 </span>                :            :  */
+<a name="878"><span class="lineNum">     878 </span>                :            : </a>
+<span class="lineNum">     879 </span>                :            : static bool
+<span class="lineNum">     880 </span>                :            : words_get_match(BMBatchWords *words, BMIterateResult *result,
+<span class="lineNum">     881 </span>                :            :                                 BlockNumber blockno, PagetableEntry *entry, bool newentry)
+<span class="lineNum">     882 </span>                :            : {
+<span class="lineNum">     883 </span>                :            :         tbm_bitmapword newWord;
+<span class="lineNum">     884 </span>                :<span class="lineNoCov">          0 :         int nhrlwords = (TBM_BITS_PER_BITMAPWORD/BM_HRL_WORD_SIZE);</span>
+<span class="lineNum">     885 </span>                :            :         int hrlwordno;
+<span class="lineNum">     886 </span>                :            :         int newwordno;
+<span class="lineNum">     887 </span>                :<span class="lineNoCov">          0 :         uint64 start, end;</span>
+<span class="lineNum">     888 </span>                :            : 
+<span class="lineNum">     889 </span>                :            : restart:
+<span class="lineNum">     890 </span>                :            :         /* compute the first and last tid location for 'blockno' */
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :         start = ((uint64)blockno) * BM_MAX_TUPLES_PER_PAGE + 1;</span>
+<span class="lineNum">     892 </span>                :<span class="lineNoCov">          0 :         end = ((uint64)(blockno + 1)) * BM_MAX_TUPLES_PER_PAGE;</span>
+<span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :         newwordno = 0;</span>
+<span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 :         hrlwordno = 0;</span>
+<span class="lineNum">     895 </span>                :            : 
+<span class="lineNum">     896 </span>                :            :         /* If we have read past the requested block, simple return true. */
+<span class="lineNum">     897 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result-&gt;nextTid &gt; end)</span>
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     899 </span>                :            : 
+<span class="lineNum">     900 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result-&gt;lastScanWordNo &gt;= words-&gt;maxNumOfWords)</span>
+<span class="lineNum">     901 </span>                :            :         {
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :                 result-&gt;lastScanWordNo = 0;</span>
+<span class="lineNum">     903 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (result-&gt;nextTid &lt; end)</span>
+<span class="lineNum">     904 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     905 </span>                :            :                 
+<span class="lineNum">     906 </span>                :            :                 else
+<span class="lineNum">     907 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     908 </span>                :            :         }
+<span class="lineNum">     909 </span>                :            :                 
+<span class="lineNum">     910 </span>                :            :         /*
+<span class="lineNum">     911 </span>                :            :          * XXX: We assume that BM_HRL_WORD_SIZE is not greater than
+<span class="lineNum">     912 </span>                :            :          * TBM_BITS_PER_BITMAPWORD for tidbitmap.
+<span class="lineNum">     913 </span>                :            :          */
+<span class="lineNum">     914 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(BM_HRL_WORD_SIZE &lt;= TBM_BITS_PER_BITMAPWORD);</span>
+<span class="lineNum">     915 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(nhrlwords &gt;= 1); </span>
+<span class="lineNum">     916 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert((result-&gt;nextTid - start) % BM_HRL_WORD_SIZE == 0);</span>
+<span class="lineNum">     917 </span>                :            : 
+<span class="lineNum">     918 </span>                :            :         /*
+<span class="lineNum">     919 </span>                :            :          * find the first tid location in 'words' that is equal to
+<span class="lineNum">     920 </span>                :            :          * 'start'.
+<span class="lineNum">     921 </span>                :            :          */
+<span class="lineNum">     922 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (words-&gt;nwords &gt; 0 &amp;&amp; result-&gt;nextTid &lt; start)</span>
+<span class="lineNum">     923 </span>                :            :         {
+<span class="lineNum">     924 </span>                :<span class="lineNoCov">          0 :                 BM_HRL_WORD word = words-&gt;cwords[result-&gt;lastScanWordNo];</span>
+<span class="lineNum">     925 </span>                :            : 
+<span class="lineNum">     926 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IS_FILL_WORD(words-&gt;hwords, result-&gt;lastScanWordNo))</span>
+<span class="lineNum">     927 </span>                :            :                 {
+<span class="lineNum">     928 </span>                :            :                         uint64  fillLength;
+<span class="lineNum">     929 </span>                :            :                         
+<span class="lineNum">     930 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (word == 0)</span>
+<span class="lineNum">     931 </span>                :<span class="lineNoCov">          0 :                                 fillLength = 1;</span>
+<span class="lineNum">     932 </span>                :            :                         else
+<span class="lineNum">     933 </span>                :<span class="lineNoCov">          0 :                                 fillLength = FILL_LENGTH(word);</span>
+<span class="lineNum">     934 </span>                :            : 
+<span class="lineNum">     935 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (GET_FILL_BIT(word) == 1)</span>
+<span class="lineNum">     936 </span>                :            :                         {
+<span class="lineNum">     937 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (start - result-&gt;nextTid &gt;= fillLength * BM_HRL_WORD_SIZE)</span>
+<span class="lineNum">     938 </span>                :            :                                 {
+<span class="lineNum">     939 </span>                :<span class="lineNoCov">          0 :                                         result-&gt;nextTid += fillLength * BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">     940 </span>                :<span class="lineNoCov">          0 :                                         result-&gt;lastScanWordNo++;</span>
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :                                         words-&gt;nwords--;</span>
+<span class="lineNum">     942 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     943 </span>                :            :                                 else
+<span class="lineNum">     944 </span>                :            :                                 {
+<span class="lineNum">     945 </span>                :<span class="lineNoCov">          0 :                                         words-&gt;cwords[result-&gt;lastScanWordNo] -=</span>
+<span class="lineNum">     946 </span>                :<span class="lineNoCov">          0 :                                                 (start - result-&gt;nextTid)/BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">     947 </span>                :<span class="lineNoCov">          0 :                                         result-&gt;nextTid = start;</span>
+<span class="lineNum">     948 </span>                :            :                                 }
+<span class="lineNum">     949 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     950 </span>                :            :                         else
+<span class="lineNum">     951 </span>                :            :                         {
+<span class="lineNum">     952 </span>                :            :                                 /*
+<span class="lineNum">     953 </span>                :            :                                  * This word represents compressed non-matches. If it
+<span class="lineNum">     954 </span>                :            :                                  * is sufficiently large, we might be able to skip over a 
+<span class="lineNum">     955 </span>                :            :                                  * large range of blocks which would have no matches
+<span class="lineNum">     956 </span>                :            :                                  */
+<span class="lineNum">     957 </span>                :<span class="lineNoCov">          0 :                                 result-&gt;lastScanWordNo++;</span>
+<span class="lineNum">     958 </span>                :<span class="lineNoCov">          0 :                                 words-&gt;nwords--;</span>
+<span class="lineNum">     959 </span>                :            :                                 
+<span class="lineNum">     960 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if(fillLength * BM_HRL_WORD_SIZE &gt; end - result-&gt;nextTid)</span>
+<span class="lineNum">     961 </span>                :            :                                 {
+<span class="lineNum">     962 </span>                :<span class="lineNoCov">          0 :                                         result-&gt;nextTid += fillLength * BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">     963 </span>                :<span class="lineNoCov">          0 :                                         blockno = result-&gt;nextTid / BM_MAX_TUPLES_PER_PAGE;</span>
+<span class="lineNum">     964 </span>                :<span class="lineNoCov">          0 :                                         goto restart;</span>
+<span class="lineNum">     965 </span>                :            :                                 }
+<span class="lineNum">     966 </span>                :<span class="lineNoCov">          0 :                                 result-&gt;nextTid += fillLength * BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">     967 </span>                :            :                         }
+<span class="lineNum">     968 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     969 </span>                :            :                 else
+<span class="lineNum">     970 </span>                :            :                 {
+<span class="lineNum">     971 </span>                :<span class="lineNoCov">          0 :                         result-&gt;nextTid += BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">     972 </span>                :<span class="lineNoCov">          0 :                         result-&gt;lastScanWordNo++;</span>
+<span class="lineNum">     973 </span>                :<span class="lineNoCov">          0 :                         words-&gt;nwords--;</span>
+<span class="lineNum">     974 </span>                :            :                 }
+<span class="lineNum">     975 </span>                :            :         }
+<span class="lineNum">     976 </span>                :            : 
+<span class="lineNum">     977 </span>                :            :         /*
+<span class="lineNum">     978 </span>                :            :          * if there are no such a bitmap in the given batch words, then
+<span class="lineNum">     979 </span>                :            :          * return false.
+<span class="lineNum">     980 </span>                :            :          */
+<span class="lineNum">     981 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (words-&gt;nwords == 0)</span>
+<span class="lineNum">     982 </span>                :            :         {
+<span class="lineNum">     983 </span>                :<span class="lineNoCov">          0 :                 result-&gt;lastScanWordNo = 0;</span>
+<span class="lineNum">     984 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     985 </span>                :            :         }
+<span class="lineNum">     986 </span>                :            : 
+<span class="lineNum">     987 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IS_FILL_WORD(words-&gt;hwords, result-&gt;lastScanWordNo) &amp;&amp;</span>
+<span class="lineNum">     988 </span>                :<span class="lineNoCov">          0 :                 GET_FILL_BIT(words-&gt;cwords[result-&gt;lastScanWordNo]) == 0)</span>
+<span class="lineNum">     989 </span>                :            :         {
+<span class="lineNum">     990 </span>                :            :                 uint64 filllen;
+<span class="lineNum">     991 </span>                :<span class="lineNoCov">          0 :                 BM_HRL_WORD word = words-&gt;cwords[result-&gt;lastScanWordNo];</span>
+<span class="lineNum">     992 </span>                :            : 
+<span class="lineNum">     993 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(word == 0)</span>
+<span class="lineNum">     994 </span>                :<span class="lineNoCov">          0 :                         filllen = 1;</span>
+<span class="lineNum">     995 </span>                :            :                 else
+<span class="lineNum">     996 </span>                :<span class="lineNoCov">          0 :                         filllen = FILL_LENGTH(word);</span>
+<span class="lineNum">     997 </span>                :            : 
+<span class="lineNum">     998 </span>                :            :                 /*
+<span class="lineNum">     999 </span>                :            :                  * Check if the fill word would take us past the end of the block
+<span class="lineNum">    1000 </span>                :            :                  * we're currently interested in.
+<span class="lineNum">    1001 </span>                :            :                  */
+<span class="lineNum">    1002 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(filllen * BM_HRL_WORD_SIZE &gt; end - result-&gt;nextTid)</span>
+<span class="lineNum">    1003 </span>                :            :                 {
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                         result-&gt;nextTid += filllen * BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                         blockno = result-&gt;nextTid / BM_MAX_TUPLES_PER_PAGE;</span>
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :                         result-&gt;lastScanWordNo++;</span>
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 :                         words-&gt;nwords--;</span>
+<span class="lineNum">    1008 </span>                :            :                         
+<span class="lineNum">    1009 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(newentry)</span>
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :                                 goto restart;</span>
+<span class="lineNum">    1011 </span>                :            :                         else
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 :                                 return true;</span>
+<span class="lineNum">    1013 </span>                :            :                 }
+<span class="lineNum">    1014 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1015 </span>                :            : 
+<span class="lineNum">    1016 </span>                :            :         /* copy the bitmap for tuples in the given heap page. */
+<span class="lineNum">    1017 </span>                :<span class="lineNoCov">          0 :         newWord = 0;</span>
+<span class="lineNum">    1018 </span>                :<span class="lineNoCov">          0 :         hrlwordno = ((result-&gt;nextTid - start) / BM_HRL_WORD_SIZE) % nhrlwords;</span>
+<span class="lineNum">    1019 </span>                :<span class="lineNoCov">          0 :         newwordno = (result-&gt;nextTid - start) / TBM_BITS_PER_BITMAPWORD;</span>
+<span class="lineNum">    1020 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (words-&gt;nwords &gt; 0 &amp;&amp; result-&gt;nextTid &lt; end)</span>
+<span class="lineNum">    1021 </span>                :            :         {
+<span class="lineNum">    1022 </span>                :<span class="lineNoCov">          0 :                 BM_HRL_WORD word = words-&gt;cwords[result-&gt;lastScanWordNo];</span>
+<span class="lineNum">    1023 </span>                :            : 
+<span class="lineNum">    1024 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IS_FILL_WORD(words-&gt;hwords, result-&gt;lastScanWordNo))</span>
+<span class="lineNum">    1025 </span>                :            :                 {
+<span class="lineNum">    1026 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (GET_FILL_BIT(word) == 1)</span>
+<span class="lineNum">    1027 </span>                :            :                         {
+<span class="lineNum">    1028 </span>                :<span class="lineNoCov">          0 :                                 newWord |= ((tbm_bitmapword)(LITERAL_ALL_ONE)) &lt;&lt;</span>
+<span class="lineNum">    1029 </span>                :<span class="lineNoCov">          0 :                                         (hrlwordno * BM_HRL_WORD_SIZE);</span>
+<span class="lineNum">    1030 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1031 </span>                :            :                                         
+<span class="lineNum">    1032 </span>                :<span class="lineNoCov">          0 :                         words-&gt;cwords[result-&gt;lastScanWordNo]--;</span>
+<span class="lineNum">    1033 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (FILL_LENGTH(words-&gt;cwords[result-&gt;lastScanWordNo]) == 0)</span>
+<span class="lineNum">    1034 </span>                :            :                         {
+<span class="lineNum">    1035 </span>                :<span class="lineNoCov">          0 :                                 result-&gt;lastScanWordNo++;</span>
+<span class="lineNum">    1036 </span>                :<span class="lineNoCov">          0 :                                 words-&gt;nwords--;</span>
+<span class="lineNum">    1037 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1038 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1039 </span>                :            :                 else
+<span class="lineNum">    1040 </span>                :            :                 {
+<span class="lineNum">    1041 </span>                :<span class="lineNoCov">          0 :                         newWord |= ((tbm_bitmapword)word) &lt;&lt; (hrlwordno * BM_HRL_WORD_SIZE);</span>
+<span class="lineNum">    1042 </span>                :<span class="lineNoCov">          0 :                         result-&gt;lastScanWordNo++;</span>
+<span class="lineNum">    1043 </span>                :<span class="lineNoCov">          0 :                         words-&gt;nwords--;</span>
+<span class="lineNum">    1044 </span>                :            :                 }
+<span class="lineNum">    1045 </span>                :            : 
+<span class="lineNum">    1046 </span>                :<span class="lineNoCov">          0 :                 hrlwordno = (hrlwordno + 1) % nhrlwords;</span>
+<span class="lineNum">    1047 </span>                :<span class="lineNoCov">          0 :                 result-&gt;nextTid += BM_HRL_WORD_SIZE;</span>
+<span class="lineNum">    1048 </span>                :            : 
+<span class="lineNum">    1049 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (hrlwordno % nhrlwords == 0)</span>
+<span class="lineNum">    1050 </span>                :            :                 {
+<span class="lineNum">    1051 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(newwordno &lt; WORDS_PER_PAGE || newwordno &lt; WORDS_PER_CHUNK);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1052 </span>                :            : 
+<span class="lineNum">    1053 </span>                :<span class="lineNoCov">          0 :                         entry-&gt;words[newwordno] |= newWord;</span>
+<span class="lineNum">    1054 </span>                :<span class="lineNoCov">          0 :                         newwordno++;</span>
+<span class="lineNum">    1055 </span>                :            : 
+<span class="lineNum">    1056 </span>                :            :                         /* reset newWord */
+<span class="lineNum">    1057 </span>                :<span class="lineNoCov">          0 :                         newWord = 0;</span>
+<span class="lineNum">    1058 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1059 </span>                :            :         }
+<span class="lineNum">    1060 </span>                :            : 
+<span class="lineNum">    1061 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (hrlwordno % nhrlwords != 0)</span>
+<span class="lineNum">    1062 </span>                :            :         {
+<span class="lineNum">    1063 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(newwordno &lt; WORDS_PER_PAGE || newwordno &lt; WORDS_PER_CHUNK);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1064 </span>                :<span class="lineNoCov">          0 :                 entry-&gt;words[newwordno] |= newWord;</span>
+<span class="lineNum">    1065 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1066 </span>                :            : 
+<span class="lineNum">    1067 </span>                :<span class="lineNoCov">          0 :         entry-&gt;blockno = blockno;</span>
+<span class="lineNum">    1068 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (words-&gt;nwords == 0)</span>
+<span class="lineNum">    1069 </span>                :            :         {
+<span class="lineNum">    1070 </span>                :<span class="lineNoCov">          0 :                 result-&gt;lastScanWordNo = 0;</span>
+<span class="lineNum">    1071 </span>                :            : 
+<span class="lineNum">    1072 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (result-&gt;nextTid &lt; end)</span>
+<span class="lineNum">    1073 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">    1074 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1075 </span>                :            : 
+<span class="lineNum">    1076 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">    1077 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1078 </span>                :            : 
+<span class="lineNum">    1079 </span>                :            : /*
+<span class="lineNum">    1080 </span>                :            :  * GetBitmapIndexAuxOids - Given an open index, fetch and return the oids for
+<span class="lineNum">    1081 </span>                :            :  * the bitmap subobjects (pg_bm_xxxx + pg_bm_xxxx_index).
+<span class="lineNum">    1082 </span>                :            :  *
+<span class="lineNum">    1083 </span>                :            :  * Note: Currently this information is not stored directly in the catalog, but
+<span class="lineNum">    1084 </span>                :            :  * is hidden away inside the metadata page of the index.  Future versions should
+<span class="lineNum">    1085 </span>                :            :  * move this information into the catalog.
+<a name="1086"><span class="lineNum">    1086 </span>                :            :  */</a>
+<span class="lineNum">    1087 </span>                :            : void 
+<span class="lineNum">    1088 </span>                :            : GetBitmapIndexAuxOids(Relation index, Oid *heapId, Oid *indexId)
+<span class="lineNum">    1089 </span>                :            : {
+<span class="lineNum">    1090 </span>                :<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_DECLARE;</span>
+<span class="lineNum">    1091 </span>                :            : 
+<span class="lineNum">    1092 </span>                :            :         Buffer     metabuf;
+<span class="lineNum">    1093 </span>                :            :         BMMetaPage metapage;
+<span class="lineNum">    1094 </span>                :            :         
+<span class="lineNum">    1095 </span>                :            : 
+<span class="lineNum">    1096 </span>                :            :         /* Only Bitmap Indexes have bitmap related sub-objects */
+<span class="lineNum">    1097 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!RelationIsBitmapIndex(index))</span>
+<span class="lineNum">    1098 </span>                :            :         {
+<span class="lineNum">    1099 </span>                :<span class="lineNoCov">          0 :                 *heapId = InvalidOid;</span>
+<span class="lineNum">    1100 </span>                :<span class="lineNoCov">          0 :                 *indexId = InvalidOid;</span>
+<span class="lineNum">    1101 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">    1102 </span>                :            :         }
+<span class="lineNum">    1103 </span>                :            :                 
+<span class="lineNum">    1104 </span>                :            :         // -------- MirroredLock ----------
+<span class="lineNum">    1105 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_LOCK;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">    1106 </span>                :            :         
+<span class="lineNum">    1107 </span>                :<span class="lineNoCov">          0 :         metabuf = _bitmap_getbuf(index, BM_METAPAGE, BM_READ);</span>
+<span class="lineNum">    1108 </span>                :<span class="lineNoCov">          0 :         metapage = _bitmap_get_metapage_data(index, metabuf);</span>
+<span class="lineNum">    1109 </span>                :            : 
+<span class="lineNum">    1110 </span>                :<span class="lineNoCov">          0 :         *heapId  = metapage-&gt;bm_lov_heapId;</span>
+<span class="lineNum">    1111 </span>                :<span class="lineNoCov">          0 :         *indexId = metapage-&gt;bm_lov_indexId;</span>
+<span class="lineNum">    1112 </span>                :            : 
+<span class="lineNum">    1113 </span>                :<span class="lineNoCov">          0 :         _bitmap_relbuf(metabuf);</span>
+<span class="lineNum">    1114 </span>                :            :         
+<span class="lineNum">    1115 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MIRROREDLOCK_BUFMGR_UNLOCK;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>]
+<span class="lineNum">    1116 </span>                :            :         // -------- MirroredLock ----------
+<span class="lineNum">    1117 </span>                :            :         
+<span class="lineNum">    1118 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,173 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - postmaster/test/checkpointer_test.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">postmaster/test</a> - checkpointer_test.c<span style="font-size: 80%;"> (source / <a href="checkpointer_test.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">41</td>
+            <td class="headerCovTableEntry">41</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #include &lt;stdarg.h&gt;</a>
+<span class="lineNum">       2 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">       3 </span>                :            : #include &lt;setjmp.h&gt;
+<span class="lineNum">       4 </span>                :            : #include &quot;cmockery.h&quot;
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : #include &quot;c.h&quot;
+<span class="lineNum">       7 </span>                :            : #include &quot;../checkpointer.c&quot;
+<span class="lineNum">       8 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">       9 </span>                :            : 
+<a name="10"><span class="lineNum">      10 </span>                :            : #define MAX_BGW_REQUESTS 5</a>
+<span class="lineNum">      11 </span>                :            : void
+<span class="lineNum">      12 </span>                :            : init_request_queue(void)
+<span class="lineNum">      13 </span>                :            : {
+<span class="lineNum">      14 </span>                :<span class="lineCov">          1 :         size_t size = sizeof(CheckpointerShmemStruct) + sizeof(CheckpointerRequest)*MAX_BGW_REQUESTS;</span>
+<span class="lineNum">      15 </span>                :<span class="lineCov">          1 :         CheckpointerShmem = (CheckpointerShmemStruct *) malloc(size);</span>
+<span class="lineNum">      16 </span>                :<span class="lineCov">          1 :         memset(CheckpointerShmem, 0, size);</span>
+<span class="lineNum">      17 </span>                :<span class="lineCov">          1 :         CheckpointerShmem-&gt;checkpointer_pid = 1234;</span>
+<span class="lineNum">      18 </span>                :<span class="lineCov">          1 :         CheckpointerShmem-&gt;max_requests = MAX_BGW_REQUESTS;</span>
+<span class="lineNum">      19 </span>                :<span class="lineCov">          1 :         IsUnderPostmaster = true;</span>
+<span class="lineNum">      20 </span>                :<span class="lineCov">          1 : }</span>
+<span class="lineNum">      21 </span>                :            : 
+<span class="lineNum">      22 </span>                :            : /*
+<span class="lineNum">      23 </span>                :            :  * Basic enqueue tests, including compaction upon enqueuing into a
+<span class="lineNum">      24 </span>                :            :  * full queue.
+<a name="25"><span class="lineNum">      25 </span>                :            :  */</a>
+<span class="lineNum">      26 </span>                :            : void
+<span class="lineNum">      27 </span>                :            : test__ForwardFsyncRequest_enqueue(void **state)
+<span class="lineNum">      28 </span>                :            : {
+<span class="lineNum">      29 </span>                :            :         bool ret;
+<span class="lineNum">      30 </span>                :            :         int i;
+<span class="lineNum">      31 </span>                :<span class="lineCov">          1 :         RelFileNode dummy = {1,1,1};</span>
+<span class="lineNum">      32 </span>                :<span class="lineCov">          1 :         init_request_queue();</span>
+<span class="lineNum">      33 </span>                :<span class="lineCov">          1 :         expect_value(LWLockAcquire, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      34 </span>                :<span class="lineCov">          1 :         expect_value(LWLockAcquire, mode, LW_EXCLUSIVE);</span>
+<span class="lineNum">      35 </span>                :<span class="lineCov">          1 :         will_be_called(LWLockAcquire);</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">          1 :         expect_value(LWLockRelease, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      37 </span>                :<span class="lineCov">          1 :         will_be_called(LWLockRelease);</span>
+<span class="lineNum">      38 </span>                :            :         /* basic enqueue */
+<span class="lineNum">      39 </span>                :<span class="lineCov">          1 :         ret = ForwardFsyncRequest(dummy, 1);</span>
+<span class="lineNum">      40 </span>                :<span class="lineCov">          1 :         assert_true(ret);</span>
+<span class="lineNum">      41 </span>                :<span class="lineCov">          1 :         assert_true(CheckpointerShmem-&gt;num_requests == 1);</span>
+<span class="lineNum">      42 </span>                :            :         /* fill up the queue */
+<span class="lineNum">      43 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          5 :         for (i=2; i&lt;=MAX_BGW_REQUESTS; i++)</span>
+<span class="lineNum">      44 </span>                :            :         {
+<span class="lineNum">      45 </span>                :<span class="lineCov">          4 :                 expect_value(LWLockAcquire, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      46 </span>                :<span class="lineCov">          4 :                 expect_value(LWLockAcquire, mode, LW_EXCLUSIVE);</span>
+<span class="lineNum">      47 </span>                :<span class="lineCov">          4 :                 will_be_called(LWLockAcquire);</span>
+<span class="lineNum">      48 </span>                :<span class="lineCov">          4 :                 expect_value(LWLockRelease, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      49 </span>                :<span class="lineCov">          4 :                 will_be_called(LWLockRelease);</span>
+<span class="lineNum">      50 </span>                :<span class="lineCov">          4 :                 ret = ForwardFsyncRequest(dummy, i);</span>
+<span class="lineNum">      51 </span>                :<span class="lineCov">          4 :                 assert_true(ret);</span>
+<span class="lineNum">      52 </span>                :<span class="lineCov">          4 :         }</span>
+<span class="lineNum">      53 </span>                :<span class="lineCov">          1 :         expect_value(LWLockAcquire, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      54 </span>                :<span class="lineCov">          1 :         expect_value(LWLockAcquire, mode, LW_EXCLUSIVE);</span>
+<span class="lineNum">      55 </span>                :<span class="lineCov">          1 :         will_be_called(LWLockAcquire);</span>
+<span class="lineNum">      56 </span>                :<span class="lineCov">          1 :         expect_value(LWLockRelease, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      57 </span>                :<span class="lineCov">          1 :         will_be_called(LWLockRelease);</span>
+<span class="lineNum">      58 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">      59 </span>                :<span class="lineCov">          1 :         expect_value(LWLockHeldByMe, lockid, CheckpointerCommLock);</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">          1 :         will_return(LWLockHeldByMe, true);</span>
+<span class="lineNum">      61 </span>                :            : #endif
+<span class="lineNum">      62 </span>                :            :         /*
+<span class="lineNum">      63 </span>                :            :          * This enqueue request should trigger compaction but no
+<span class="lineNum">      64 </span>                :            :          * duplicates are in the queue.  So the queue should remain
+<span class="lineNum">      65 </span>                :            :          * full.
+<span class="lineNum">      66 </span>                :            :          */
+<span class="lineNum">      67 </span>                :<span class="lineCov">          1 :         ret = ForwardFsyncRequest(dummy, 0);</span>
+<span class="lineNum">      68 </span>                :<span class="lineCov">          1 :         assert_false(ret);</span>
+<span class="lineNum">      69 </span>                :<span class="lineCov">          1 :         assert_true(CheckpointerShmem-&gt;num_requests == CheckpointerShmem-&gt;max_requests);</span>
+<span class="lineNum">      70 </span>                :<span class="lineCov">          1 :         free(CheckpointerShmem);</span>
+<span class="lineNum">      71 </span>                :<span class="lineCov">          1 : }</span>
+<a name="72"><span class="lineNum">      72 </span>                :            : </a>
+<span class="lineNum">      73 </span>                :            : int
+<span class="lineNum">      74 </span>                :            : main(int argc, char* argv[]) {
+<span class="lineNum">      75 </span>                :<span class="lineCov">          1 :         cmockery_parse_arguments(argc, argv);</span>
+<span class="lineNum">      76 </span>                :<span class="lineCov">          1 :         MemoryContextInit();</span>
+<span class="lineNum">      77 </span>                :            :         const UnitTest tests[] = {
+<span class="lineNum">      78 </span>                :            :                 unit_test(test__ForwardFsyncRequest_enqueue)
+<span class="lineNum">      79 </span>                :            :         };
+<span class="lineNum">      80 </span>                :<span class="lineCov">          1 :         return run_tests(tests);</span>
+<span class="lineNum">      81 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,557 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/nodeAppend.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - nodeAppend.c<span style="font-size: 80%;"> (source / <a href="nodeAppend.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">127</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">88</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nodeAppend.c
+<span class="lineNum">       4 </span>                :            :  *        routines to handle append nodes.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/executor/nodeAppend.c,v 1.73 2008/01/01 19:45:49 momjian Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : /* INTERFACE ROUTINES
+<span class="lineNum">      16 </span>                :            :  *              ExecInitAppend  - initialize the append node
+<span class="lineNum">      17 </span>                :            :  *              ExecAppend              - retrieve the next tuple from the node
+<span class="lineNum">      18 </span>                :            :  *              ExecEndAppend   - shut down the append node
+<span class="lineNum">      19 </span>                :            :  *              ExecReScanAppend - rescan the append node
+<span class="lineNum">      20 </span>                :            :  *
+<span class="lineNum">      21 </span>                :            :  *       NOTES
+<span class="lineNum">      22 </span>                :            :  *              Each append node contains a list of one or more subplans which
+<span class="lineNum">      23 </span>                :            :  *              must be iteratively processed (forwards or backwards).
+<span class="lineNum">      24 </span>                :            :  *              Tuples are retrieved by executing the 'whichplan'th subplan
+<span class="lineNum">      25 </span>                :            :  *              until the subplan stops returning tuples, at which point that
+<span class="lineNum">      26 </span>                :            :  *              plan is shut down and the next started up.
+<span class="lineNum">      27 </span>                :            :  *
+<span class="lineNum">      28 </span>                :            :  *              Append nodes don't make use of their left and right
+<span class="lineNum">      29 </span>                :            :  *              subtrees, rather they maintain a list of subplans so
+<span class="lineNum">      30 </span>                :            :  *              a typical append node looks like this in the plan tree:
+<span class="lineNum">      31 </span>                :            :  *
+<span class="lineNum">      32 </span>                :            :  *                                 ...
+<span class="lineNum">      33 </span>                :            :  *                                 /
+<span class="lineNum">      34 </span>                :            :  *                              Append -------+------+------+--- nil
+<span class="lineNum">      35 </span>                :            :  *                              /       \                 |              |              |
+<span class="lineNum">      36 </span>                :            :  *                        nil   nil              ...    ...    ...
+<span class="lineNum">      37 </span>                :            :  *                                                               subplans
+<span class="lineNum">      38 </span>                :            :  *
+<span class="lineNum">      39 </span>                :            :  *              Append nodes are currently used for unions, and to support
+<span class="lineNum">      40 </span>                :            :  *              inheritance queries, where several relations need to be scanned.
+<span class="lineNum">      41 </span>                :            :  *              For example, in our standard person/student/employee/student-emp
+<span class="lineNum">      42 </span>                :            :  *              example, where student and employee inherit from person
+<span class="lineNum">      43 </span>                :            :  *              and student-emp inherits from student and employee, the
+<span class="lineNum">      44 </span>                :            :  *              query:
+<span class="lineNum">      45 </span>                :            :  *
+<span class="lineNum">      46 </span>                :            :  *                              select name from person
+<span class="lineNum">      47 </span>                :            :  *
+<span class="lineNum">      48 </span>                :            :  *              generates the plan:
+<span class="lineNum">      49 </span>                :            :  *
+<span class="lineNum">      50 </span>                :            :  *                                |
+<span class="lineNum">      51 </span>                :            :  *                              Append -------+-------+--------+--------+
+<span class="lineNum">      52 </span>                :            :  *                              /       \                 |               |                |            |
+<span class="lineNum">      53 </span>                :            :  *                        nil   nil              Scan    Scan     Scan     Scan
+<span class="lineNum">      54 </span>                :            :  *                                                        |               |                |            |
+<span class="lineNum">      55 </span>                :            :  *                                                      person employee student student-emp
+<span class="lineNum">      56 </span>                :            :  */
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      61 </span>                :            : #include &quot;executor/execdebug.h&quot;
+<span class="lineNum">      62 </span>                :            : #include &quot;executor/nodeAppend.h&quot;
+<span class="lineNum">      63 </span>                :            : 
+<span class="lineNum">      64 </span>                :            : static bool exec_append_initialize_next(AppendState *appendstate);
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">      68 </span>                :            :  *              exec_append_initialize_next
+<span class="lineNum">      69 </span>                :            :  *
+<span class="lineNum">      70 </span>                :            :  *              Sets up the append state node for the &quot;next&quot; scan.
+<span class="lineNum">      71 </span>                :            :  *
+<span class="lineNum">      72 </span>                :            :  *              Returns t iff there is a &quot;next&quot; scan to process.
+<span class="lineNum">      73 </span>                :            :  * ----------------------------------------------------------------
+<a name="74"><span class="lineNum">      74 </span>                :            :  */</a>
+<span class="lineNum">      75 </span>                :            : static bool
+<span class="lineNum">      76 </span>                :            : exec_append_initialize_next(AppendState *appendstate)
+<span class="lineNum">      77 </span>                :            : {
+<span class="lineNum">      78 </span>                :            :         EState     *estate;
+<span class="lineNum">      79 </span>                :            :         int                     whichplan;
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>                :            :         /*
+<span class="lineNum">      82 </span>                :            :          * get information from the append node
+<span class="lineNum">      83 </span>                :            :          */
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :         estate = appendstate-&gt;ps.state;</span>
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         whichplan = appendstate-&gt;as_whichplan;</span>
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (whichplan &lt; appendstate-&gt;as_firstplan)</span>
+<span class="lineNum">      88 </span>                :            :         {
+<span class="lineNum">      89 </span>                :            :                 /*
+<span class="lineNum">      90 </span>                :            :                  * if scanning in reverse, we start at the last scan in the list and
+<span class="lineNum">      91 </span>                :            :                  * then proceed back to the first.. in any case we inform ExecAppend
+<span class="lineNum">      92 </span>                :            :                  * that we are at the end of the line by returning FALSE
+<span class="lineNum">      93 </span>                :            :                  */
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_whichplan = appendstate-&gt;as_firstplan;</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">      96 </span>                :            :         }
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (whichplan &gt; appendstate-&gt;as_lastplan)</span>
+<span class="lineNum">      98 </span>                :            :         {
+<span class="lineNum">      99 </span>                :            :                 /*
+<span class="lineNum">     100 </span>                :            :                  * as above, end the scan if we go beyond the last scan in our list..
+<span class="lineNum">     101 </span>                :            :                  */
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_whichplan = appendstate-&gt;as_lastplan;</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                 return FALSE;</span>
+<span class="lineNum">     104 </span>                :            :         }
+<span class="lineNum">     105 </span>                :            :         else
+<span class="lineNum">     106 </span>                :            :         {
+<span class="lineNum">     107 </span>                :            :                 /*
+<span class="lineNum">     108 </span>                :            :                  * initialize the scan
+<span class="lineNum">     109 </span>                :            :                  *
+<span class="lineNum">     110 </span>                :            :                  * If we are controlling the target relation, select the proper active
+<span class="lineNum">     111 </span>                :            :                  * ResultRelInfo and junk filter for this target.
+<span class="lineNum">     112 </span>                :            :                  */
+<span class="lineNum">     113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (((Append *) appendstate-&gt;ps.plan)-&gt;isTarget)</span>
+<span class="lineNum">     114 </span>                :            :                 {
+<span class="lineNum">     115 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(whichplan &lt; estate-&gt;es_num_result_relations);</span>
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :                         estate-&gt;es_result_relation_info =</span>
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                                 estate-&gt;es_result_relations + whichplan;</span>
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                         estate-&gt;es_junkFilter =</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                                 estate-&gt;es_result_relation_info-&gt;ri_junkFilter;</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     121 </span>                :            : 
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :                 return TRUE;</span>
+<span class="lineNum">     123 </span>                :            :         }
+<a name="124"><span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>                :            : static bool append_need_prj(Append *node)
+<span class="lineNum">     127 </span>                :            : {
+<span class="lineNum">     128 </span>                :            :         ListCell *lc;
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         int attno=1;</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(!node-&gt;isZapped)</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     133 </span>                :            : 
+<span class="lineNum">     134 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(node-&gt;plan.qual)</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     136 </span>                :            : 
+<span class="lineNum">     137 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, node-&gt;plan.targetlist)</span>
+<span class="lineNum">     138 </span>                :            :         {
+<span class="lineNum">     139 </span>                :            :                 Var *var;
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                 TargetEntry *te = (TargetEntry *) lfirst(lc);</span>
+<span class="lineNum">     141 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(!IsA(te-&gt;expr, Var))</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     143 </span>                :            :                 
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :                 var = (Var *) te-&gt;expr;</span>
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(var-&gt;varattno != attno)</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                 ++attno;</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     151 </span>                :            :                         
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     154 </span>                :            :                 
+<span class="lineNum">     155 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     156 </span>                :            :  *              ExecInitAppend
+<span class="lineNum">     157 </span>                :            :  *
+<span class="lineNum">     158 </span>                :            :  *              Begin all of the subscans of the append node.
+<span class="lineNum">     159 </span>                :            :  *
+<span class="lineNum">     160 </span>                :            :  *         (This is potentially wasteful, since the entire result of the
+<span class="lineNum">     161 </span>                :            :  *              append node may not be scanned, but this way all of the
+<span class="lineNum">     162 </span>                :            :  *              structures get allocated in the executor's top level memory
+<span class="lineNum">     163 </span>                :            :  *              block instead of that of the call to ExecAppend.)
+<span class="lineNum">     164 </span>                :            :  *
+<span class="lineNum">     165 </span>                :            :  *              Special case: during an EvalPlanQual recheck query of an inherited
+<span class="lineNum">     166 </span>                :            :  *              target relation, we only want to initialize and scan the single
+<span class="lineNum">     167 </span>                :            :  *              subplan that corresponds to the target relation being checked.
+<span class="lineNum">     168 </span>                :            :  * ----------------------------------------------------------------
+<a name="169"><span class="lineNum">     169 </span>                :            :  */</a>
+<span class="lineNum">     170 </span>                :            : AppendState *
+<span class="lineNum">     171 </span>                :            : ExecInitAppend(Append *node, EState *estate, int eflags)
+<span class="lineNum">     172 </span>                :            : {
+<span class="lineNum">     173 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         AppendState *appendstate = makeNode(AppendState);</span>
+<span class="lineNum">     174 </span>                :            :         PlanState **appendplanstates;
+<span class="lineNum">     175 </span>                :            :         int                     nplans;
+<span class="lineNum">     176 </span>                :            :         int                     i;
+<span class="lineNum">     177 </span>                :            :         Plan       *initNode;
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :            :         /* check for unsupported flags */
+<span class="lineNum">     180 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!(eflags &amp; EXEC_FLAG_MARK));</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         appendstate-&gt;eflags = eflags;</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :            :         /*
+<span class="lineNum">     185 </span>                :            :          * Set up empty vector of subplan states
+<span class="lineNum">     186 </span>                :            :          */
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         nplans = list_length(node-&gt;appendplans);</span>
+<span class="lineNum">     188 </span>                :            : 
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         appendplanstates = (PlanState **) palloc0(nplans * sizeof(PlanState *));</span>
+<span class="lineNum">     190 </span>                :            : 
+<span class="lineNum">     191 </span>                :            :         /*
+<span class="lineNum">     192 </span>                :            :          * create new AppendState for our append node
+<span class="lineNum">     193 </span>                :            :          */
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         appendstate-&gt;ps.plan = (Plan *) node;</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         appendstate-&gt;ps.state = estate;</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         appendstate-&gt;appendplans = appendplanstates;</span>
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :         appendstate-&gt;as_nplans = nplans;</span>
+<span class="lineNum">     198 </span>                :            : 
+<span class="lineNum">     199 </span>                :            :         /*
+<span class="lineNum">     200 </span>                :            :          * Do we want to scan just one subplan?  (Special case for EvalPlanQual)
+<span class="lineNum">     201 </span>                :            :          * XXX pretty dirty way of determining that this case applies ...
+<span class="lineNum">     202 </span>                :            :          */
+<span class="lineNum">     203 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;isTarget &amp;&amp; estate-&gt;es_evTuple != NULL)</span>
+<span class="lineNum">     204 </span>                :            :         {
+<span class="lineNum">     205 </span>                :            :                 int                     tplan;
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 tplan = estate-&gt;es_result_relation_info - estate-&gt;es_result_relations;</span>
+<span class="lineNum">     208 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(tplan &gt;= 0 &amp;&amp; tplan &lt; nplans);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_firstplan = tplan;</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_lastplan = tplan;</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     213 </span>                :            :         else
+<span class="lineNum">     214 </span>                :            :         {
+<span class="lineNum">     215 </span>                :            :                 /* normal case, scan all subplans */
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_firstplan = 0;</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_lastplan = nplans - 1;</span>
+<span class="lineNum">     218 </span>                :            :         }
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :            :         /*
+<span class="lineNum">     221 </span>                :            :          * Miscellaneous initialization
+<span class="lineNum">     222 </span>                :            :          *
+<span class="lineNum">     223 </span>                :            :          * Append plans don't have expression contexts because they never call
+<span class="lineNum">     224 </span>                :            :          * ExecQual or ExecProject.
+<span class="lineNum">     225 </span>                :            :          */
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>                :            : #define APPEND_NSLOTS 1
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :            :         /*
+<span class="lineNum">     230 </span>                :            :          * append nodes still have Result slots, which hold pointers to tuples, so
+<span class="lineNum">     231 </span>                :            :          * we have to initialize them.
+<span class="lineNum">     232 </span>                :            :          */
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :         ExecInitResultTupleSlot(estate, &amp;appendstate-&gt;ps);</span>
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>                :            :         /*
+<span class="lineNum">     236 </span>                :            :          * Initialize the subplan nodes.
+<span class="lineNum">     237 </span>                :            :          */
+<span class="lineNum">     238 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = appendstate-&gt;as_firstplan; i &lt;= appendstate-&gt;as_lastplan; i++)</span>
+<span class="lineNum">     239 </span>                :            :         {
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                 initNode = (Plan *) list_nth(node-&gt;appendplans, i);</span>
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :            :                 /*
+<span class="lineNum">     243 </span>                :            :                  * call ExecInitNode on each of the plans to be executed and save the
+<span class="lineNum">     244 </span>                :            :                  * results into the array &quot;appendplans&quot;.  Note we *must* set
+<span class="lineNum">     245 </span>                :            :                  * estate-&gt;es_result_relation_info correctly while we initialize each
+<span class="lineNum">     246 </span>                :            :                  * sub-plan; ExecContextForcesOids depends on that!
+<span class="lineNum">     247 </span>                :            :                  */
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;as_whichplan = i;</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                 exec_append_initialize_next(appendstate);</span>
+<span class="lineNum">     250 </span>                :            :                 
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                 appendplanstates[i] = ExecInitNode(initNode, estate, eflags);</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     253 </span>                :            : 
+<span class="lineNum">     254 </span>                :            :         /*
+<span class="lineNum">     255 </span>                :            :          * Initialize tuple type.  (Note: in an inherited UPDATE situation, the
+<span class="lineNum">     256 </span>                :            :          * tuple type computed here corresponds to the parent table, which is
+<span class="lineNum">     257 </span>                :            :          * really a lie since tuples returned from child subplans will not all
+<span class="lineNum">     258 </span>                :            :          * look the same.)
+<span class="lineNum">     259 </span>                :            :          */
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :         ExecAssignResultTypeFromTL(&amp;appendstate-&gt;ps);</span>
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            :         /* 
+<span class="lineNum">     263 </span>                :            :          * determine if need project 
+<span class="lineNum">     264 </span>                :            :          */
+<span class="lineNum">     265 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(!node-&gt;isTarget &amp;&amp; append_need_prj(node))</span>
+<span class="lineNum">     266 </span>                :            :         {
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                 ExecAssignExprContext(estate, &amp;appendstate-&gt;ps);</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;ps.targetlist = (List *)</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :                         ExecInitExpr((Expr *) node-&gt;plan.targetlist, (PlanState *) appendstate);</span>
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;ps.qual = (List *)</span>
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                         ExecInitExpr((Expr *) node-&gt;plan.qual, (PlanState *) appendstate);</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                 ExecAssignProjectionInfo(&amp;appendstate-&gt;ps, NULL);</span>
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     274 </span>                :            :         else
+<span class="lineNum">     275 </span>                :            :         {
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :                 appendstate-&gt;ps.ps_ProjInfo = NULL;</span>
+<span class="lineNum">     277 </span>                :            :         }
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>                :            :         /*
+<span class="lineNum">     280 </span>                :            :          * return the result from the first subplan's initialization
+<span class="lineNum">     281 </span>                :            :          */
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :         appendstate-&gt;as_whichplan = appendstate-&gt;as_firstplan;</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         exec_append_initialize_next(appendstate);</span>
+<span class="lineNum">     284 </span>                :            : 
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :         initGpmonPktForAppend((Plan *)node, &amp;appendstate-&gt;ps.gpmon_pkt, estate);</span>
+<span class="lineNum">     286 </span>                :            :         
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :         return appendstate;</span>
+<span class="lineNum">     288 </span>                :            : }
+<a name="289"><span class="lineNum">     289 </span>                :            : </a>
+<span class="lineNum">     290 </span>                :            : int
+<span class="lineNum">     291 </span>                :            : ExecCountSlotsAppend(Append *node)
+<span class="lineNum">     292 </span>                :            : {
+<span class="lineNum">     293 </span>                :            :         ListCell   *plan;
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :         int                     nSlots = 0;</span>
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(plan, node-&gt;appendplans)</span>
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                 nSlots += ExecCountSlotsNode((Plan *) lfirst(plan));</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         return nSlots + APPEND_NSLOTS;</span>
+<span class="lineNum">     299 </span>                :            : }
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     302 </span>                :            :  *         ExecAppend
+<span class="lineNum">     303 </span>                :            :  *
+<span class="lineNum">     304 </span>                :            :  *              Handles iteration over multiple subplans.
+<span class="lineNum">     305 </span>                :            :  * ----------------------------------------------------------------
+<a name="306"><span class="lineNum">     306 </span>                :            :  */</a>
+<span class="lineNum">     307 </span>                :            : TupleTableSlot *
+<span class="lineNum">     308 </span>                :            : ExecAppend(AppendState *node)
+<span class="lineNum">     309 </span>                :            : {
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     311 </span>                :            :         {
+<span class="lineNum">     312 </span>                :            :                 PlanState  *subnode;
+<span class="lineNum">     313 </span>                :            :                 TupleTableSlot *result;
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>                :            :                 /*
+<span class="lineNum">     316 </span>                :            :                  * figure out which subplan we are currently processing
+<span class="lineNum">     317 </span>                :            :                  */
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                 subnode = node-&gt;appendplans[node-&gt;as_whichplan];</span>
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(subnode != NULL);</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>                :            :                 /*
+<span class="lineNum">     323 </span>                :            :                  * get a tuple from the subplan
+<span class="lineNum">     324 </span>                :            :                  */
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :                 result = ExecProcNode(subnode);</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!TupIsNull(result))</span>
+<span class="lineNum">     328 </span>                :            :                 {
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(node-&gt;ps.ps_ProjInfo != NULL)</span>
+<span class="lineNum">     331 </span>                :            :                         {
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :                                 ExprContext *econtext = node-&gt;ps.ps_ExprContext;</span>
+<span class="lineNum">     333 </span>                :            :                                 ExprDoneCond isDone;
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                                 ResetExprContext(econtext);</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :                                 node-&gt;ps.ps_OuterTupleSlot = result;</span>
+<span class="lineNum">     338 </span>                :            : 
+<span class="lineNum">     339 </span>                :            :                                 /*
+<span class="lineNum">     340 </span>                :            :                                  * XXX gross hack. use outer tuple as scan tuple for projection
+<span class="lineNum">     341 </span>                :            :                                  */
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                                 econtext-&gt;ecxt_outertuple = result;</span>
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                                 econtext-&gt;ecxt_scantuple = result;</span>
+<span class="lineNum">     344 </span>                :            : 
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                                 result = ExecProject(node-&gt;ps.ps_ProjInfo, &amp;isDone);</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>                :            :                         /*
+<span class="lineNum">     349 </span>                :            :                          * If the subplan gave us something then return it as-is. We do
+<span class="lineNum">     350 </span>                :            :                          * NOT make use of the result slot that was set up in
+<span class="lineNum">     351 </span>                :            :                          * ExecInitAppend, first because there's no reason to and second
+<span class="lineNum">     352 </span>                :            :                          * because it may have the wrong tuple descriptor in
+<span class="lineNum">     353 </span>                :            :                          * inherited-UPDATE cases.
+<span class="lineNum">     354 </span>                :            :                          */
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                         Gpmon_Incr_Rows_Out(GpmonPktFromAppendState(node));</span>
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :                         CheckSendPlanStateGpmonPkt(&amp;node-&gt;ps);</span>
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :                         return result;</span>
+<span class="lineNum">     358 </span>                :            :                 }
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>                :            :                 /*
+<span class="lineNum">     362 </span>                :            :                  * Go on to the &quot;next&quot; subplan in the appropriate direction. If no
+<span class="lineNum">     363 </span>                :            :                  * more subplans, return the empty slot set up for us by
+<span class="lineNum">     364 </span>                :            :                  * ExecInitAppend.
+<span class="lineNum">     365 </span>                :            :                  */
+<span class="lineNum">     366 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ScanDirectionIsForward(node-&gt;ps.state-&gt;es_direction))</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                         node-&gt;as_whichplan++;</span>
+<span class="lineNum">     368 </span>                :            :                 else
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :                         node-&gt;as_whichplan--;</span>
+<span class="lineNum">     370 </span>                :            : 
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 CheckSendPlanStateGpmonPkt(&amp;node-&gt;ps);</span>
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!exec_append_initialize_next(node))</span>
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :                         return ExecClearTuple(node-&gt;ps.ps_ResultTupleSlot);</span>
+<span class="lineNum">     375 </span>                :            : 
+<span class="lineNum">     376 </span>                :            :                 /* Else loop back and try to get a tuple from the new subplan */
+<span class="lineNum">     377 </span>                :            :         }
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     381 </span>                :            :  *              ExecEndAppend
+<span class="lineNum">     382 </span>                :            :  *
+<span class="lineNum">     383 </span>                :            :  *              Shuts down the subscans of the append node.
+<span class="lineNum">     384 </span>                :            :  *
+<span class="lineNum">     385 </span>                :            :  *              Returns nothing of interest.
+<span class="lineNum">     386 </span>                :            :  * ----------------------------------------------------------------
+<a name="387"><span class="lineNum">     387 </span>                :            :  */</a>
+<span class="lineNum">     388 </span>                :            : void
+<span class="lineNum">     389 </span>                :            : ExecEndAppend(AppendState *node)
+<span class="lineNum">     390 </span>                :            : {
+<span class="lineNum">     391 </span>                :            :         PlanState **appendplans;
+<span class="lineNum">     392 </span>                :            :         int                     nplans;
+<span class="lineNum">     393 </span>                :            :         int                     i;
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :            :         /*
+<span class="lineNum">     396 </span>                :            :          * get information from the node
+<span class="lineNum">     397 </span>                :            :          */
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :         appendplans = node-&gt;appendplans;</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         nplans = node-&gt;as_nplans;</span>
+<span class="lineNum">     400 </span>                :            : 
+<span class="lineNum">     401 </span>                :            :         /*
+<span class="lineNum">     402 </span>                :            :          * shut down each of the subscans (that we've initialized)
+<span class="lineNum">     403 </span>                :            :          */
+<span class="lineNum">     404 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = nplans-1; i &gt;= 0; --i) </span>
+<span class="lineNum">     405 </span>                :            :         {
+<span class="lineNum">     406 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (appendplans[i])</span>
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :                         ExecEndNode(appendplans[i]);</span>
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :         EndPlanStateGpmonPkt(&amp;node-&gt;ps);</span>
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="412"><span class="lineNum">     412 </span>                :            : </a>
+<span class="lineNum">     413 </span>                :            : void
+<span class="lineNum">     414 </span>                :            : ExecReScanAppend(AppendState *node, ExprContext *exprCtxt)
+<span class="lineNum">     415 </span>                :            : {
+<span class="lineNum">     416 </span>                :            :         int                     i;
+<span class="lineNum">     417 </span>                :            : 
+<span class="lineNum">     418 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = node-&gt;as_firstplan; i &lt;= node-&gt;as_lastplan; i++)</span>
+<span class="lineNum">     419 </span>                :            :         {
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :                 PlanState  *subnode = node-&gt;appendplans[i];</span>
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :            :                 /*
+<span class="lineNum">     423 </span>                :            :                  * ExecReScan doesn't know about my subplans, so I have to do
+<span class="lineNum">     424 </span>                :            :                  * changed-parameter signaling myself.
+<span class="lineNum">     425 </span>                :            :                  */
+<span class="lineNum">     426 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;ps.chgParam != NULL)</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :                         UpdateChangedParamSet(subnode, node-&gt;ps.chgParam);</span>
+<span class="lineNum">     428 </span>                :            : 
+<span class="lineNum">     429 </span>                :            :                 /*
+<span class="lineNum">     430 </span>                :            :                  * If chgParam of subnode is not null then plan will be re-scanned by
+<span class="lineNum">     431 </span>                :            :                  * first ExecProcNode.  However, if caller is passing us an exprCtxt
+<span class="lineNum">     432 </span>                :            :                  * then forcibly rescan all the subnodes now, so that we can pass the
+<span class="lineNum">     433 </span>                :            :                  * exprCtxt down to the subnodes (needed for appendrel indexscan).
+<span class="lineNum">     434 </span>                :            :                  */
+<span class="lineNum">     435 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subnode-&gt;chgParam == NULL || exprCtxt != NULL)</span>
+<span class="lineNum">     436 </span>                :            :                 {
+<span class="lineNum">     437 </span>                :            :                         /* make sure estate is correct for this subnode (needed??) */
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                         node-&gt;as_whichplan = i;</span>
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :                         exec_append_initialize_next(node);</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                         ExecReScan(subnode, exprCtxt);</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :         node-&gt;as_whichplan = node-&gt;as_firstplan;</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :         exec_append_initialize_next(node);</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="446"><span class="lineNum">     446 </span>                :            : </a>
+<span class="lineNum">     447 </span>                :            : void
+<span class="lineNum">     448 </span>                :            : initGpmonPktForAppend(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *estate)
+<span class="lineNum">     449 </span>                :            : {
+<span class="lineNum">     450 </span>                :            :         int last_plan;
+<span class="lineNum">     451 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(planNode != NULL &amp;&amp; gpmon_pkt != NULL &amp;&amp; IsA(planNode, Append));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     452 </span>                :            : 
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         last_plan = list_length(((Append*)planNode)-&gt;appendplans) - 1;</span>
+<span class="lineNum">     454 </span>                :            : 
+<span class="lineNum">     455 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (((Append*)planNode)-&gt;isTarget &amp;&amp; estate-&gt;es_evTuple != NULL)</span>
+<span class="lineNum">     456 </span>                :            :         {
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                 last_plan = estate-&gt;es_result_relation_info - estate-&gt;es_result_relations;</span>
+<span class="lineNum">     458 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(last_plan &gt;= 0 &amp;&amp; last_plan &lt; list_length(((Append*)planNode)-&gt;appendplans));</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :         InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);</span>
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

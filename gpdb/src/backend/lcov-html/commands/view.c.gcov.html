@@ -1,0 +1,614 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - commands/view.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">commands</a> - view.c<span style="font-size: 80%;"> (source / <a href="view.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">154</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">98</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * view.c
+<span class="lineNum">       4 </span>                :            :  *        use rewrite rules to construct views
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2006-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/commands/view.c,v 1.104 2008/01/01 19:45:49 momjian Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;catalog/dependency.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;catalog/namespace.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/oid_dispatch.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;catalog/pg_depend.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;commands/defrem.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;commands/tablecmds.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;commands/view.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;nodes/makefuncs.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;parser/analyze.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;parser/parse_expr.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;parser/parse_relation.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;rewrite/rewriteDefine.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;rewrite/rewriteManip.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;rewrite/rewriteSupport.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;utils/acl.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : static void checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc);
+<span class="lineNum">      45 </span>                :            : static bool isViewOnTempTable_walker(Node *node, void *context);
+<span class="lineNum">      46 </span>                :            : 
+<span class="lineNum">      47 </span>                :            : /*---------------------------------------------------------------------
+<span class="lineNum">      48 </span>                :            :  * isViewOnTempTable
+<span class="lineNum">      49 </span>                :            :  *
+<span class="lineNum">      50 </span>                :            :  * Returns true iff any of the relations underlying this view are
+<span class="lineNum">      51 </span>                :            :  * temporary tables.
+<span class="lineNum">      52 </span>                :            :  *---------------------------------------------------------------------
+<a name="53"><span class="lineNum">      53 </span>                :            :  */</a>
+<span class="lineNum">      54 </span>                :            : static bool
+<span class="lineNum">      55 </span>                :            : isViewOnTempTable(Query *viewParse)
+<span class="lineNum">      56 </span>                :            : {
+<span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :         return isViewOnTempTable_walker((Node *) viewParse, NULL);</span>
+<span class="lineNum">      58 </span>                :            : }
+<a name="59"><span class="lineNum">      59 </span>                :            : </a>
+<span class="lineNum">      60 </span>                :            : static bool
+<span class="lineNum">      61 </span>                :            : isViewOnTempTable_walker(Node *node, void *context)
+<span class="lineNum">      62 </span>                :            : {
+<span class="lineNum">      63 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Query))</span>
+<span class="lineNum">      67 </span>                :            :         {
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :                 Query      *query = (Query *) node;</span>
+<span class="lineNum">      69 </span>                :            :                 ListCell   *rtable;
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(rtable, query-&gt;rtable)</span>
+<span class="lineNum">      72 </span>                :            :                 {
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :                         RangeTblEntry *rte = lfirst(rtable);</span>
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (rte-&gt;rtekind == RTE_RELATION)</span>
+<span class="lineNum">      76 </span>                :            :                         {
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                                 Relation        rel = heap_open(rte-&gt;relid, AccessShareLock);</span>
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :                                 bool            istemp = rel-&gt;rd_istemp;</span>
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :                                 heap_close(rel, AccessShareLock);</span>
+<span class="lineNum">      81 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (istemp)</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :                                         return true;</span>
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">      85 </span>                :            : 
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                 return query_tree_walker(query,</span>
+<span class="lineNum">      87 </span>                :            :                                                                  isViewOnTempTable_walker,
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :                                                                  context,</span>
+<span class="lineNum">      89 </span>                :            :                                                                  QTW_IGNORE_JOINALIASES);
+<span class="lineNum">      90 </span>                :            :         }
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node,</span>
+<span class="lineNum">      93 </span>                :            :                                                                   isViewOnTempTable_walker,
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :                                                                   context);</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            : /*---------------------------------------------------------------------
+<span class="lineNum">      98 </span>                :            :  * DefineVirtualRelation
+<span class="lineNum">      99 </span>                :            :  *
+<span class="lineNum">     100 </span>                :            :  * Create the &quot;view&quot; relation. `DefineRelation' does all the work,
+<span class="lineNum">     101 </span>                :            :  * we just provide the correct arguments ... at least when we're
+<span class="lineNum">     102 </span>                :            :  * creating a view.  If we're updating an existing view, we have to
+<span class="lineNum">     103 </span>                :            :  * work harder.
+<span class="lineNum">     104 </span>                :            :  *---------------------------------------------------------------------
+<a name="105"><span class="lineNum">     105 </span>                :            :  */</a>
+<span class="lineNum">     106 </span>                :            : static Oid
+<span class="lineNum">     107 </span>                :            : DefineVirtualRelation(const RangeVar *relation, List *tlist, bool replace)
+<span class="lineNum">     108 </span>                :            : {
+<span class="lineNum">     109 </span>                :            :         Oid                     viewOid,
+<span class="lineNum">     110 </span>                :            :                                 namespaceId;
+<span class="lineNum">     111 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         CreateStmt *createStmt = makeNode(CreateStmt);</span>
+<span class="lineNum">     112 </span>                :            :         List       *attrList;
+<span class="lineNum">     113 </span>                :            :         ListCell   *t;
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :<span class="lineNoCov">          0 :         createStmt-&gt;ownerid = GetUserId();</span>
+<span class="lineNum">     116 </span>                :            : 
+<span class="lineNum">     117 </span>                :            :         /*
+<span class="lineNum">     118 </span>                :            :          * create a list of ColumnDef nodes based on the names and types of the
+<span class="lineNum">     119 </span>                :            :          * (non-junk) targetlist items from the view's SELECT list.
+<span class="lineNum">     120 </span>                :            :          */
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :         attrList = NIL;</span>
+<span class="lineNum">     122 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(t, tlist)</span>
+<span class="lineNum">     123 </span>                :            :         {
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 TargetEntry *tle = lfirst(t);</span>
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!tle-&gt;resjunk)</span>
+<span class="lineNum">     127 </span>                :            :                 {
+<span class="lineNum">     128 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ColumnDef  *def = makeNode(ColumnDef);</span>
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                         def-&gt;colname = pstrdup(tle-&gt;resname);</span>
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                         def-&gt;typeName = makeTypeNameFromOid(exprType((Node *) tle-&gt;expr),</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                                                                                          exprTypmod((Node *) tle-&gt;expr));</span>
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                         def-&gt;inhcount = 0;</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                         def-&gt;is_local = true;</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                         def-&gt;is_not_null = false;</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                         def-&gt;raw_default = NULL;</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :                         def-&gt;cooked_default = NULL;</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                         def-&gt;constraints = NIL;</span>
+<span class="lineNum">     139 </span>                :            : 
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                         attrList = lappend(attrList, def);</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     143 </span>                :            : 
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (attrList == NIL)</span>
+<span class="lineNum">     145 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     146 </span>                :            :                                 (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+<span class="lineNum">     147 </span>                :            :                                  errmsg(&quot;view must have at least one column&quot;)));
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :            :         /*
+<span class="lineNum">     150 </span>                :            :          * Check to see if we want to replace an existing view.
+<span class="lineNum">     151 </span>                :            :          */
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         namespaceId = RangeVarGetCreationNamespace(relation);</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         viewOid = get_relname_relid(relation-&gt;relname, namespaceId);</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(viewOid) &amp;&amp; replace)</span>
+<span class="lineNum">     156 </span>                :            :         {
+<span class="lineNum">     157 </span>                :            :                 Relation        rel;
+<span class="lineNum">     158 </span>                :            :                 TupleDesc       descriptor;
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            :                 /*
+<span class="lineNum">     161 </span>                :            :                  * Yes.  Get exclusive lock on the existing view ...
+<span class="lineNum">     162 </span>                :            :                  */
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                 rel = relation_open(viewOid, AccessExclusiveLock);</span>
+<span class="lineNum">     164 </span>                :            : 
+<span class="lineNum">     165 </span>                :            :                 /*
+<span class="lineNum">     166 </span>                :            :                  * Make sure it *is* a view, and do permissions checks.
+<span class="lineNum">     167 </span>                :            :                  */
+<span class="lineNum">     168 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rel-&gt;rd_rel-&gt;relkind != RELKIND_VIEW)</span>
+<span class="lineNum">     169 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     170 </span>                :            :                                         (errcode(ERRCODE_WRONG_OBJECT_TYPE),
+<span class="lineNum">     171 </span>                :            :                                          errmsg(&quot;\&quot;%s\&quot; is not a view&quot;,
+<span class="lineNum">     172 </span>                :            :                                                         RelationGetRelationName(rel))));
+<span class="lineNum">     173 </span>                :            : 
+<span class="lineNum">     174 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!pg_class_ownercheck(viewOid, GetUserId()))</span>
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :                         aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_CLASS,</span>
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :                                                    RelationGetRelationName(rel));</span>
+<span class="lineNum">     177 </span>                :            : 
+<span class="lineNum">     178 </span>                :            :                 /*
+<span class="lineNum">     179 </span>                :            :                  * Due to the namespace visibility rules for temporary objects, we
+<span class="lineNum">     180 </span>                :            :                  * should only end up replacing a temporary view with another
+<span class="lineNum">     181 </span>                :            :                  * temporary view, and vice versa.
+<span class="lineNum">     182 </span>                :            :                  */
+<span class="lineNum">     183 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(relation-&gt;istemp == rel-&gt;rd_istemp);</span>
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>                :            :                 /*
+<span class="lineNum">     186 </span>                :            :                  * Create a tuple descriptor to compare against the existing view, and
+<span class="lineNum">     187 </span>                :            :                  * verify it matches.
+<span class="lineNum">     188 </span>                :            :                  */
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                 descriptor = BuildDescForRelation(attrList);</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :                 checkViewTupleDesc(descriptor, rel-&gt;rd_att);</span>
+<span class="lineNum">     191 </span>                :            : 
+<span class="lineNum">     192 </span>                :            :                 /*
+<span class="lineNum">     193 </span>                :            :                  * Seems okay, so return the OID of the pre-existing view.
+<span class="lineNum">     194 </span>                :            :                  */
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                 relation_close(rel, NoLock);    /* keep the lock! */</span>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :                 return viewOid;</span>
+<span class="lineNum">     198 </span>                :            :         }
+<span class="lineNum">     199 </span>                :            :         else
+<span class="lineNum">     200 </span>                :            :         {
+<span class="lineNum">     201 </span>                :            :                 /*
+<span class="lineNum">     202 </span>                :            :                  * now set the parameters for keys/inheritance etc. All of these are
+<span class="lineNum">     203 </span>                :            :                  * uninteresting for views...
+<span class="lineNum">     204 </span>                :            :                  */
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;relation = (RangeVar *) relation;</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;tableElts = attrList;</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;inhRelations = NIL;</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;inhOids = NIL;</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;parentOidCount = 0;</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;constraints = NIL;</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;options = list_make1(defWithOids(false));</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;oncommit = ONCOMMIT_NOOP;</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;tablespacename = NULL;</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                 createStmt-&gt;relKind = RELKIND_VIEW;</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :            :                 /*
+<span class="lineNum">     217 </span>                :            :                  * finally create the relation (this will error out if there's an
+<span class="lineNum">     218 </span>                :            :                  * existing view, so we don't need more code to complain if &quot;replace&quot;
+<span class="lineNum">     219 </span>                :            :                  * is false).
+<span class="lineNum">     220 </span>                :            :                  */
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                 return DefineRelation(createStmt, RELKIND_VIEW, RELSTORAGE_VIRTUAL, false);</span>
+<span class="lineNum">     222 </span>                :            :         }
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            : /*
+<span class="lineNum">     226 </span>                :            :  * Verify that tupledesc associated with proposed new view definition
+<span class="lineNum">     227 </span>                :            :  * matches tupledesc of old view.  This is basically a cut-down version
+<span class="lineNum">     228 </span>                :            :  * of equalTupleDescs(), with code added to generate specific complaints.
+<a name="229"><span class="lineNum">     229 </span>                :            :  */</a>
+<span class="lineNum">     230 </span>                :            : static void
+<span class="lineNum">     231 </span>                :            : checkViewTupleDesc(TupleDesc newdesc, TupleDesc olddesc)
+<span class="lineNum">     232 </span>                :            : {
+<span class="lineNum">     233 </span>                :            :         int                     i;
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (newdesc-&gt;natts != olddesc-&gt;natts)</span>
+<span class="lineNum">     236 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     237 </span>                :            :                                 (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+<span class="lineNum">     238 </span>                :            :                                  errmsg(&quot;cannot change number of columns in view&quot;)));
+<span class="lineNum">     239 </span>                :            :         /* we can ignore tdhasoid */
+<span class="lineNum">     240 </span>                :            : 
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; newdesc-&gt;natts; i++)</span>
+<span class="lineNum">     242 </span>                :            :         {
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 Form_pg_attribute newattr = newdesc-&gt;attrs[i];</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 Form_pg_attribute oldattr = olddesc-&gt;attrs[i];</span>
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>                :            :                 /* XXX not right, but we don't support DROP COL on view anyway */
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (newattr-&gt;attisdropped != oldattr-&gt;attisdropped)</span>
+<span class="lineNum">     248 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     249 </span>                :            :                                         (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+<span class="lineNum">     250 </span>                :            :                                          errmsg(&quot;cannot change number of columns in view&quot;)));
+<span class="lineNum">     251 </span>                :            : 
+<span class="lineNum">     252 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (strcmp(NameStr(newattr-&gt;attname), NameStr(oldattr-&gt;attname)) != 0)</span>
+<span class="lineNum">     253 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     254 </span>                :            :                                         (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+<span class="lineNum">     255 </span>                :            :                                          errmsg(&quot;cannot change name of view column \&quot;%s\&quot;&quot;,
+<span class="lineNum">     256 </span>                :            :                                                         NameStr(oldattr-&gt;attname))));
+<span class="lineNum">     257 </span>                :            :                 /* XXX would it be safe to allow atttypmod to change?  Not sure */
+<span class="lineNum">     258 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (newattr-&gt;atttypid != oldattr-&gt;atttypid ||</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                         newattr-&gt;atttypmod != oldattr-&gt;atttypmod)</span>
+<span class="lineNum">     260 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     261 </span>                :            :                                         (errcode(ERRCODE_INVALID_TABLE_DEFINITION),
+<span class="lineNum">     262 </span>                :            :                                          errmsg(&quot;cannot change data type of view column \&quot;%s\&quot;&quot;,
+<span class="lineNum">     263 </span>                :            :                                                         NameStr(oldattr-&gt;attname))));
+<span class="lineNum">     264 </span>                :            :                 /* We can ignore the remaining attributes of an attribute... */
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :            :         /*
+<span class="lineNum">     268 </span>                :            :          * We ignore the constraint fields.  The new view desc can't have any
+<span class="lineNum">     269 </span>                :            :          * constraints, and the only ones that could be on the old view are
+<span class="lineNum">     270 </span>                :            :          * defaults, which we are happy to leave in place.
+<span class="lineNum">     271 </span>                :            :          */
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="273"><span class="lineNum">     273 </span>                :            : </a>
+<span class="lineNum">     274 </span>                :            : static void
+<span class="lineNum">     275 </span>                :            : DefineViewRules(Oid viewOid, Query *viewParse, bool replace)
+<span class="lineNum">     276 </span>                :            : {
+<span class="lineNum">     277 </span>                :            :         /*
+<span class="lineNum">     278 </span>                :            :          * Set up the ON SELECT rule.  Since the query has already been through
+<span class="lineNum">     279 </span>                :            :          * parse analysis, we use DefineQueryRewrite() directly.
+<span class="lineNum">     280 </span>                :            :          */
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :         DefineQueryRewrite(pstrdup(ViewSelectRuleName),</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                                            viewOid,</span>
+<span class="lineNum">     283 </span>                :            :                                            NULL,
+<span class="lineNum">     284 </span>                :            :                                            CMD_SELECT,
+<span class="lineNum">     285 </span>                :            :                                            true,
+<span class="lineNum">     286 </span>                :<span class="lineNoCov">          0 :                                            replace,</span>
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :                                            list_make1(viewParse));</span>
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :            :         /*
+<span class="lineNum">     290 </span>                :            :          * Someday: automatic ON INSERT, etc
+<span class="lineNum">     291 </span>                :            :          */
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>                :            : /*---------------------------------------------------------------
+<span class="lineNum">     295 </span>                :            :  * UpdateRangeTableOfViewParse
+<span class="lineNum">     296 </span>                :            :  *
+<span class="lineNum">     297 </span>                :            :  * Update the range table of the given parsetree.
+<span class="lineNum">     298 </span>                :            :  * This update consists of adding two new entries IN THE BEGINNING
+<span class="lineNum">     299 </span>                :            :  * of the range table (otherwise the rule system will die a slow,
+<span class="lineNum">     300 </span>                :            :  * horrible and painful death, and we do not want that now, do we?)
+<span class="lineNum">     301 </span>                :            :  * one for the OLD relation and one for the NEW one (both of
+<span class="lineNum">     302 </span>                :            :  * them refer in fact to the &quot;view&quot; relation).
+<span class="lineNum">     303 </span>                :            :  *
+<span class="lineNum">     304 </span>                :            :  * Of course we must also increase the 'varnos' of all the Var nodes
+<span class="lineNum">     305 </span>                :            :  * by 2...
+<span class="lineNum">     306 </span>                :            :  *
+<span class="lineNum">     307 </span>                :            :  * These extra RT entries are not actually used in the query,
+<span class="lineNum">     308 </span>                :            :  * except for run-time permission checking.
+<span class="lineNum">     309 </span>                :            :  *---------------------------------------------------------------
+<a name="310"><span class="lineNum">     310 </span>                :            :  */</a>
+<span class="lineNum">     311 </span>                :            : static Query *
+<span class="lineNum">     312 </span>                :            : UpdateRangeTableOfViewParse(Oid viewOid, Query *viewParse)
+<span class="lineNum">     313 </span>                :            : {
+<span class="lineNum">     314 </span>                :            :         Relation        viewRel;
+<span class="lineNum">     315 </span>                :            :         List       *new_rt;
+<span class="lineNum">     316 </span>                :            :         RangeTblEntry *rt_entry1,
+<span class="lineNum">     317 </span>                :            :                            *rt_entry2;
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>                :            :         /*
+<span class="lineNum">     320 </span>                :            :          * Make a copy of the given parsetree.  It's not so much that we don't
+<span class="lineNum">     321 </span>                :            :          * want to scribble on our input, it's that the parser has a bad habit of
+<span class="lineNum">     322 </span>                :            :          * outputting multiple links to the same subtree for constructs like
+<span class="lineNum">     323 </span>                :            :          * BETWEEN, and we mustn't have OffsetVarNodes increment the varno of a
+<span class="lineNum">     324 </span>                :            :          * Var node twice.      copyObject will expand any multiply-referenced subtree
+<span class="lineNum">     325 </span>                :            :          * into multiple copies.
+<span class="lineNum">     326 </span>                :            :          */
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :         viewParse = (Query *) copyObject(viewParse);</span>
+<span class="lineNum">     328 </span>                :            : 
+<span class="lineNum">     329 </span>                :            :         /* need to open the rel for addRangeTableEntryForRelation */
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :         viewRel = relation_open(viewOid, AccessShareLock);</span>
+<span class="lineNum">     331 </span>                :            : 
+<span class="lineNum">     332 </span>                :            :         /*
+<span class="lineNum">     333 </span>                :            :          * Create the 2 new range table entries and form the new range table...
+<span class="lineNum">     334 </span>                :            :          * OLD first, then NEW....
+<span class="lineNum">     335 </span>                :            :          */
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         rt_entry1 = addRangeTableEntryForRelation(NULL, viewRel,</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :                                                                                           makeAlias(&quot;*OLD*&quot;, NIL),</span>
+<span class="lineNum">     338 </span>                :            :                                                                                           false, false);
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :         rt_entry2 = addRangeTableEntryForRelation(NULL, viewRel,</span>
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :                                                                                           makeAlias(&quot;*NEW*&quot;, NIL),</span>
+<span class="lineNum">     341 </span>                :            :                                                                                           false, false);
+<span class="lineNum">     342 </span>                :            :         /* Must override addRangeTableEntry's default access-check flags */
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :         rt_entry1-&gt;requiredPerms = 0;</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         rt_entry2-&gt;requiredPerms = 0;</span>
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :         new_rt = lcons(rt_entry1, lcons(rt_entry2, viewParse-&gt;rtable));</span>
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 :         viewParse-&gt;rtable = new_rt;</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :            :         /*
+<span class="lineNum">     351 </span>                :            :          * Now offset all var nodes by 2, and jointree RT indexes too.
+<span class="lineNum">     352 </span>                :            :          */
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :         OffsetVarNodes((Node *) viewParse, 2, 0);</span>
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :         relation_close(viewRel, AccessShareLock);</span>
+<span class="lineNum">     356 </span>                :            : 
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :         return viewParse;</span>
+<span class="lineNum">     358 </span>                :            : }
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            : /*
+<span class="lineNum">     361 </span>                :            :  * DefineView
+<span class="lineNum">     362 </span>                :            :  *              Execute a CREATE VIEW command.
+<a name="363"><span class="lineNum">     363 </span>                :            :  */</a>
+<span class="lineNum">     364 </span>                :            : void
+<span class="lineNum">     365 </span>                :            : DefineView(ViewStmt *stmt, const char *queryString)
+<span class="lineNum">     366 </span>                :            : {
+<span class="lineNum">     367 </span>                :            :         Query      *viewParse_orig;
+<span class="lineNum">     368 </span>                :            :         Query      *viewParse;
+<span class="lineNum">     369 </span>                :            :         Oid                     viewOid;
+<span class="lineNum">     370 </span>                :            :         RangeVar   *view;
+<span class="lineNum">     371 </span>                :            : 
+<span class="lineNum">     372 </span>                :            :         /*
+<span class="lineNum">     373 </span>                :            :          * Run parse analysis to convert the raw parse tree to a Query.  Note this
+<span class="lineNum">     374 </span>                :            :          * also acquires sufficient locks on the source table(s).
+<span class="lineNum">     375 </span>                :            :          *
+<span class="lineNum">     376 </span>                :            :          * Since parse analysis scribbles on its input, copy the raw parse tree;
+<span class="lineNum">     377 </span>                :            :          * this ensures we don't corrupt a prepared statement, for example.
+<span class="lineNum">     378 </span>                :            :          *
+<span class="lineNum">     379 </span>                :            :          * GPDB: Parse analysis is only performed in the dispatcher, the segments
+<span class="lineNum">     380 </span>                :            :          * receive an already-analysed version from the dispatcher.
+<span class="lineNum">     381 </span>                :            :          */
+<span class="lineNum">     382 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role != GP_ROLE_EXECUTE)</span>
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                 viewParse = parse_analyze((Node *) copyObject(stmt-&gt;query),</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                                                                   queryString, NULL, 0);</span>
+<span class="lineNum">     385 </span>                :            :         else
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :                 viewParse = (Query *) stmt-&gt;query;</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         viewParse_orig = copyObject(viewParse);</span>
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>                :            :         /*
+<span class="lineNum">     390 </span>                :            :          * The grammar should ensure that the result is a single SELECT Query.
+<span class="lineNum">     391 </span>                :            :          */
+<span class="lineNum">     392 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsA(viewParse, Query) ||</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :                 viewParse-&gt;commandType != CMD_SELECT)</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;unexpected parse analysis result&quot;);</span>
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>                :            :         /*
+<span class="lineNum">     397 </span>                :            :          * Don't allow creating a view that contains dynamically typed functions.
+<span class="lineNum">     398 </span>                :            :          * We cannot guarantee that the future return type would be the same when
+<span class="lineNum">     399 </span>                :            :          * the view was used, as what it was now.
+<span class="lineNum">     400 </span>                :            :          */
+<span class="lineNum">     401 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (viewParse-&gt;hasDynamicFunctions)</span>
+<span class="lineNum">     402 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     403 </span>                :            :                                 (errcode(ERRCODE_INDETERMINATE_DATATYPE),
+<span class="lineNum">     404 </span>                :            :                                  errmsg(&quot;CREATE VIEW statements cannot include calls to &quot;
+<span class="lineNum">     405 </span>                :            :                                                 &quot;dynamically typed function&quot;)));
+<span class="lineNum">     406 </span>                :            : 
+<span class="lineNum">     407 </span>                :            :         /*
+<span class="lineNum">     408 </span>                :            :          * If a list of column names was given, run through and insert these into
+<span class="lineNum">     409 </span>                :            :          * the actual query tree. - thomas 2000-03-08
+<span class="lineNum">     410 </span>                :            :          */
+<span class="lineNum">     411 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (stmt-&gt;aliases != NIL)</span>
+<span class="lineNum">     412 </span>                :            :         {
+<span class="lineNum">     413 </span>                :<span class="lineNoCov">          0 :                 ListCell   *alist_item = list_head(stmt-&gt;aliases);</span>
+<span class="lineNum">     414 </span>                :            :                 ListCell   *targetList;
+<span class="lineNum">     415 </span>                :            : 
+<span class="lineNum">     416 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(targetList, viewParse-&gt;targetList)</span>
+<span class="lineNum">     417 </span>                :            :                 {
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                         TargetEntry *te = (TargetEntry *) lfirst(targetList);</span>
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(IsA(te, TargetEntry));</span>
+<span class="lineNum">     421 </span>                :            :                         /* junk columns don't get aliases */
+<span class="lineNum">     422 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (te-&gt;resjunk)</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                                 continue;</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                         te-&gt;resname = pstrdup(strVal(lfirst(alist_item)));</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                         alist_item = lnext(alist_item);</span>
+<span class="lineNum">     426 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (alist_item == NULL)</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :                                 break;                  /* done assigning aliases */</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     429 </span>                :            : 
+<span class="lineNum">     430 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (alist_item != NULL)</span>
+<span class="lineNum">     431 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     432 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     433 </span>                :            :                                          errmsg(&quot;CREATE VIEW specifies more column &quot;
+<span class="lineNum">     434 </span>                :            :                                                         &quot;names than columns&quot;)));
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :            :         /*
+<span class="lineNum">     438 </span>                :            :          * If the user didn't explicitly ask for a temporary view, check whether
+<span class="lineNum">     439 </span>                :            :          * we need one implicitly.      We allow TEMP to be inserted automatically as
+<span class="lineNum">     440 </span>                :            :          * long as the CREATE command is consistent with that --- no explicit
+<span class="lineNum">     441 </span>                :            :          * schema name.
+<span class="lineNum">     442 </span>                :            :          */
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :         view = stmt-&gt;view;</span>
+<span class="lineNum">     444 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!view-&gt;istemp &amp;&amp; isViewOnTempTable(viewParse))</span>
+<span class="lineNum">     445 </span>                :            :         {
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :                 view = copyObject(view);        /* don't corrupt original command */</span>
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :                 view-&gt;istemp = true;</span>
+<span class="lineNum">     448 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (Gp_role != GP_ROLE_EXECUTE)</span>
+<span class="lineNum">     449 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(NOTICE,</span>
+<span class="lineNum">     450 </span>                :            :                                         (errmsg(&quot;view \&quot;%s\&quot; will be a temporary view&quot;,
+<span class="lineNum">     451 </span>                :            :                                                         view-&gt;relname)));
+<span class="lineNum">     452 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     453 </span>                :            : 
+<span class="lineNum">     454 </span>                :            :         /*
+<span class="lineNum">     455 </span>                :            :          * Create the view relation
+<span class="lineNum">     456 </span>                :            :          *
+<span class="lineNum">     457 </span>                :            :          * NOTE: if it already exists and replace is false, the xact will be
+<span class="lineNum">     458 </span>                :            :          * aborted.
+<span class="lineNum">     459 </span>                :            :          */
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :         viewOid = DefineVirtualRelation(view, viewParse-&gt;targetList,</span>
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :                                                                         stmt-&gt;replace);</span>
+<span class="lineNum">     462 </span>                :            : 
+<span class="lineNum">     463 </span>                :            :         /*
+<span class="lineNum">     464 </span>                :            :          * The relation we have just created is not visible to any other commands
+<span class="lineNum">     465 </span>                :            :          * running with the same transaction &amp; command id. So, increment the
+<span class="lineNum">     466 </span>                :            :          * command id counter (but do NOT pfree any memory!!!!)
+<span class="lineNum">     467 </span>                :            :          */
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :         CommandCounterIncrement();</span>
+<span class="lineNum">     469 </span>                :            : 
+<span class="lineNum">     470 </span>                :            :         /*
+<span class="lineNum">     471 </span>                :            :          * The range table of 'viewParse' does not contain entries for the &quot;OLD&quot;
+<span class="lineNum">     472 </span>                :            :          * and &quot;NEW&quot; relations. So... add them!
+<span class="lineNum">     473 </span>                :            :          */
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :         viewParse = UpdateRangeTableOfViewParse(viewOid, viewParse);</span>
+<span class="lineNum">     475 </span>                :            : 
+<span class="lineNum">     476 </span>                :            :         /*
+<span class="lineNum">     477 </span>                :            :          * Now create the rules associated with the view.
+<span class="lineNum">     478 </span>                :            :          */
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :         DefineViewRules(viewOid, viewParse, stmt-&gt;replace);</span>
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     482 </span>                :            :         {
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :                 ViewStmt *dispatchStmt = (ViewStmt *) copyObject(stmt);</span>
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                 dispatchStmt-&gt;query = (Node *) viewParse_orig;</span>
+<span class="lineNum">     485 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchUtilityStatement((Node *) dispatchStmt,</span>
+<span class="lineNum">     486 </span>                :            :                                                                         DF_CANCEL_ON_ERROR|
+<span class="lineNum">     487 </span>                :            :                                                                         DF_WITH_SNAPSHOT|
+<span class="lineNum">     488 </span>                :            :                                                                         DF_NEED_TWO_PHASE,
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 :                                                                         GetAssignedOidsForDispatch(),</span>
+<span class="lineNum">     490 </span>                :            :                                                                         NULL);
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     493 </span>                :            : 
+<span class="lineNum">     494 </span>                :            : /*
+<span class="lineNum">     495 </span>                :            :  * RemoveView
+<span class="lineNum">     496 </span>                :            :  *
+<span class="lineNum">     497 </span>                :            :  * Remove a view given its name
+<span class="lineNum">     498 </span>                :            :  *
+<span class="lineNum">     499 </span>                :            :  * We just have to drop the relation; the associated rules will be
+<span class="lineNum">     500 </span>                :            :  * cleaned up automatically.
+<a name="501"><span class="lineNum">     501 </span>                :            :  */</a>
+<span class="lineNum">     502 </span>                :            : void
+<span class="lineNum">     503 </span>                :            : RemoveView(const RangeVar *view, DropBehavior behavior)
+<span class="lineNum">     504 </span>                :            : {
+<span class="lineNum">     505 </span>                :            :         Oid                     viewOid;
+<span class="lineNum">     506 </span>                :            :         ObjectAddress object;
+<span class="lineNum">     507 </span>                :            : 
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :         viewOid = RangeVarGetRelid(view, false);</span>
+<span class="lineNum">     509 </span>                :            : 
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :         object.classId = RelationRelationId;</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :         object.objectId = viewOid;</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :         object.objectSubId = 0;</span>
+<span class="lineNum">     513 </span>                :            : 
+<span class="lineNum">     514 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     515 </span>                :            :         {
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :                 LockRelationOid(RelationRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                 LockRelationOid(TypeRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                 LockRelationOid(DependRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 :         performDeletion(&amp;object, behavior);</span>
+<span class="lineNum">     522 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

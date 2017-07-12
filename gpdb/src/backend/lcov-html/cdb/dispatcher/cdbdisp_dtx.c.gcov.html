@@ -1,0 +1,510 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - cdb/dispatcher/cdbdisp_dtx.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">cdb/dispatcher</a> - cdbdisp_dtx.c<span style="font-size: 80%;"> (source / <a href="cdbdisp_dtx.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">145</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">65</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : </a>
+<span class="lineNum">       2 </span>                :            : /*-------------------------------------------------------------------------
+<span class="lineNum">       3 </span>                :            :  *
+<span class="lineNum">       4 </span>                :            :  * cdbdisp_dtx.c
+<span class="lineNum">       5 </span>                :            :  *        Functions to dispatch DTX commands to QExecutors.
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * Copyright (c) 2005-2008, Greenplum inc
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      11 </span>                :            :  */
+<span class="lineNum">      12 </span>                :            : 
+<span class="lineNum">      13 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;cdb/cdbconn.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;cdb/cdbdisp.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;cdb/cdbdisp_dtx.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;cdb/cdbdisp_thread.h&quot; /* for CdbDispatchCmdThreads and DispatchCommandParms */
+<span class="lineNum">      20 </span>                :            : #include &quot;cdb/cdbdispatchresult.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;cdb/cdbgang.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;cdb/cdbutil.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;cdb/cdbtm.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;utils/palloc.h&quot;
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : #include &quot;storage/procarray.h&quot;        /* updateSharedLocalSnapshot */
+<span class="lineNum">      28 </span>                :            : #include &quot;gp-libpq-fe.h&quot;
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : /*
+<span class="lineNum">      31 </span>                :            :  * Parameter structure for DTX protocol commands
+<span class="lineNum">      32 </span>                :            :  */
+<span class="lineNum">      33 </span>                :            : typedef struct DispatchCommandDtxProtocolParms
+<span class="lineNum">      34 </span>                :            : {
+<span class="lineNum">      35 </span>                :            :         DtxProtocolCommand      dtxProtocolCommand;
+<span class="lineNum">      36 </span>                :            :         int     flags;
+<span class="lineNum">      37 </span>                :            :         char *dtxProtocolCommandLoggingStr;
+<span class="lineNum">      38 </span>                :            :         char gid[TMGIDSIZE];
+<span class="lineNum">      39 </span>                :            :         DistributedTransactionId gxid;
+<span class="lineNum">      40 </span>                :            :         char *serializedDtxContextInfo;
+<span class="lineNum">      41 </span>                :            :         int serializedDtxContextInfoLen;
+<span class="lineNum">      42 </span>                :            : } DispatchCommandDtxProtocolParms;
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : /*
+<span class="lineNum">      45 </span>                :            :  * STATIC STATE VARIABLES should not be declared!
+<span class="lineNum">      46 </span>                :            :  * global state will break the ability to run cursors.
+<span class="lineNum">      47 </span>                :            :  * only globals with a higher granularity than a running
+<span class="lineNum">      48 </span>                :            :  * command (i.e: transaction, session) are ok.
+<span class="lineNum">      49 </span>                :            :  */
+<span class="lineNum">      50 </span>                :            : static DtxContextInfo TempQDDtxContextInfo = DtxContextInfo_StaticInit;
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : static char *
+<span class="lineNum">      53 </span>                :            : buildGpDtxProtocolCommand(struct CdbDispatcherState *ds,
+<span class="lineNum">      54 </span>                :            :                                                   DispatchCommandDtxProtocolParms * pDtxProtocolParms,
+<span class="lineNum">      55 </span>                :            :                                                   int *finalLen);
+<span class="lineNum">      56 </span>                :            : 
+<span class="lineNum">      57 </span>                :            : /*
+<span class="lineNum">      58 </span>                :            :  * CdbDispatchDtxProtocolCommand:
+<span class="lineNum">      59 </span>                :            :  * Sends a non-cancelable command to all segment dbs
+<span class="lineNum">      60 </span>                :            :  *
+<span class="lineNum">      61 </span>                :            :  * Returns a malloc'ed array containing the PGresult objects thus
+<span class="lineNum">      62 </span>                :            :  * produced; the caller must PQclear() them and free() the array.
+<span class="lineNum">      63 </span>                :            :  * A NULL entry follows the last used entry in the array.
+<span class="lineNum">      64 </span>                :            :  *
+<span class="lineNum">      65 </span>                :            :  * Any error messages - whether or not they are associated with
+<span class="lineNum">      66 </span>                :            :  * PGresult objects - are appended to a StringInfo buffer provided
+<span class="lineNum">      67 </span>                :            :  * by the caller.
+<a name="68"><span class="lineNum">      68 </span>                :            :  */</a>
+<span class="lineNum">      69 </span>                :            : struct pg_result **
+<span class="lineNum">      70 </span>                :            : CdbDispatchDtxProtocolCommand(DtxProtocolCommand dtxProtocolCommand,
+<span class="lineNum">      71 </span>                :            :                                                                    int flags,
+<span class="lineNum">      72 </span>                :            :                                                                    char *dtxProtocolCommandLoggingStr,
+<span class="lineNum">      73 </span>                :            :                                                                    char *gid,
+<span class="lineNum">      74 </span>                :            :                                                                    DistributedTransactionId gxid,
+<span class="lineNum">      75 </span>                :            :                                                                    StringInfo errmsgbuf,
+<span class="lineNum">      76 </span>                :            :                                                                    int *numresults,
+<span class="lineNum">      77 </span>                :            :                                                                    bool *badGangs,
+<span class="lineNum">      78 </span>                :            :                                                                    CdbDispatchDirectDesc *direct,
+<span class="lineNum">      79 </span>                :            :                                                                    char *serializedDtxContextInfo,
+<span class="lineNum">      80 </span>                :            :                                                                    int serializedDtxContextInfoLen)
+<span class="lineNum">      81 </span>                :            : {
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         CdbDispatcherState ds = {NULL, NULL, NULL};</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :         CdbDispatchResults* pr = NULL;</span>
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         CdbPgResults cdb_pgresults = {NULL, 0};</span>
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :            :         DispatchCommandDtxProtocolParms dtxProtocolParms;
+<span class="lineNum">      88 </span>                :            :         Gang *primaryGang;
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :         char *queryText = NULL;</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         int queryTextLen = 0;</span>
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elog((Debug_print_full_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">      93 </span>                :            :                  &quot;CdbDispatchDtxProtocolCommand: %s for gid = %s, direct content #: %d&quot;,
+<span class="lineNum">      94 </span>                :            :                  dtxProtocolCommandLoggingStr, gid,
+<span class="lineNum">      95 </span>                :            :                  direct-&gt;directed_dispatch ? direct-&gt;content[0] : -1);
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         *badGangs = false;</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(&amp;dtxProtocolParms, 0, sizeof(dtxProtocolParms));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :         dtxProtocolParms.dtxProtocolCommand = dtxProtocolCommand;</span>
+<span class="lineNum">     101 </span>                :<span class="lineNoCov">          0 :         dtxProtocolParms.flags = flags;</span>
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :         dtxProtocolParms.dtxProtocolCommandLoggingStr =</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                 dtxProtocolCommandLoggingStr;</span>
+<span class="lineNum">     104 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strlen(gid) &gt;= TMGIDSIZE)</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 elog(PANIC, &quot;Distribute transaction identifier too long (%d)&quot;, (int) strlen(gid));</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         memcpy(dtxProtocolParms.gid, gid, TMGIDSIZE);</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :         dtxProtocolParms.gxid = gxid;</span>
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :         dtxProtocolParms.serializedDtxContextInfo = serializedDtxContextInfo;</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :         dtxProtocolParms.serializedDtxContextInfoLen = serializedDtxContextInfoLen;</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            :         /*
+<span class="lineNum">     112 </span>                :            :          * Allocate a primary QE for every available segDB in the system.
+<span class="lineNum">     113 </span>                :            :          */
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :         primaryGang = AllocateWriterGang();</span>
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(primaryGang);</span>
+<span class="lineNum">     117 </span>                :            : 
+<span class="lineNum">     118 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (primaryGang-&gt;dispatcherActive)</span>
+<span class="lineNum">     119 </span>                :            :         {
+<span class="lineNum">     120 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     121 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     122 </span>                :            :                                  errmsg(&quot;query plan with multiple segworker groups is not supported&quot;),
+<span class="lineNum">     123 </span>                :            :                                  errhint(&quot;dispatching DTX commands to a busy gang&quot;)));
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>                :            :         /*
+<span class="lineNum">     127 </span>                :            :          * Dispatch the command.
+<span class="lineNum">     128 </span>                :            :          */
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         queryText = buildGpDtxProtocolCommand(&amp;ds, &amp;dtxProtocolParms, &amp;queryTextLen);</span>
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :         cdbdisp_makeDispatcherState(&amp;ds, /* slice count */ 1, /* cancelOnError */ false,</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                                                                 queryText, queryTextLen);</span>
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         ds.primaryResults-&gt;writer_gang = primaryGang;</span>
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_TRY();</span>
+<span class="lineNum">     136 </span>                :            :         {
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :                 cdbdisp_dispatchToGang(&amp;ds, primaryGang, -1, direct);</span>
+<span class="lineNum">     138 </span>                :            : 
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                 cdbdisp_waitDispatchFinish(&amp;ds);</span>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :            :                 /*
+<span class="lineNum">     142 </span>                :            :                  * Wait for all QEs to finish.  Don't cancel.
+<span class="lineNum">     143 </span>                :            :                  */
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :                 pr = cdbdisp_getDispatchResults(&amp;ds, errmsgbuf);</span>
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!GangOK(primaryGang))</span>
+<span class="lineNum">     147 </span>                :            :                 {
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :                         *badGangs = true;</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                         elog((Debug_print_full_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     150 </span>                :            :                                         &quot;CdbDispatchDtxProtocolCommand: Bad gang from dispatch of %s for gid = %s&quot;,
+<span class="lineNum">     151 </span>                :            :                                         dtxProtocolCommandLoggingStr, gid);
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     153 </span>                :            :                 /*
+<span class="lineNum">     154 </span>                :            :                  * No errors happens in QEs
+<span class="lineNum">     155 </span>                :            :                  */
+<span class="lineNum">     156 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pr)</span>
+<span class="lineNum">     157 </span>                :            :                 {
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                         cdbdisp_returnResults(pr, &amp;cdb_pgresults);</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :                 cdbdisp_destroyDispatcherState(&amp;ds);</span>
+<span class="lineNum">     162 </span>                :            :         }
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         PG_CATCH();</span>
+<span class="lineNum">     164 </span>                :            :         {
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                 cdbdisp_cancelDispatch(&amp;ds);</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                 cdbdisp_destroyDispatcherState(&amp;ds);</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :                 PG_RE_THROW();</span>
+<span class="lineNum">     168 </span>                :            :         }
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :         PG_END_TRY();</span>
+<span class="lineNum">     170 </span>                :            : 
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :         *numresults = cdb_pgresults.numResults;</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         return cdb_pgresults.pg_results;</span>
+<span class="lineNum">     173 </span>                :            : }
+<a name="174"><span class="lineNum">     174 </span>                :            : </a>
+<span class="lineNum">     175 </span>                :            : char *
+<span class="lineNum">     176 </span>                :            : qdSerializeDtxContextInfo(int *size, bool wantSnapshot, bool inCursor,
+<span class="lineNum">     177 </span>                :            :                                                   int txnOptions, char *debugCaller)
+<span class="lineNum">     178 </span>                :            : {
+<span class="lineNum">     179 </span>                :            :         char *serializedDtxContextInfo;
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :         Snapshot snapshot = NULL;</span>
+<span class="lineNum">     182 </span>                :            :         int     serializedLen;
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :         DtxContextInfo *pDtxContextInfo = NULL;</span>
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>                :            :         /*
+<span class="lineNum">     186 </span>                :            :          * If we already have a LatestSnapshot set then no reason to try
+<span class="lineNum">     187 </span>                :            :          * and get a new one. just use that one. But... there is one important
+<span class="lineNum">     188 </span>                :            :          * reason why this HAS to be here. ROLLBACK stmts get dispatched to QEs
+<span class="lineNum">     189 </span>                :            :          * in the abort transaction code. This code tears down enough stuff such
+<span class="lineNum">     190 </span>                :            :          * that you can't call GetTransactionSnapshot() within that code. So we
+<span class="lineNum">     191 </span>                :            :          * need to use the LatestSnapshot since we can't re-gen a new one.
+<span class="lineNum">     192 </span>                :            :          *
+<span class="lineNum">     193 </span>                :            :          * It is also very possible that for a single user statement which may
+<span class="lineNum">     194 </span>                :            :          * only generate a single snapshot that we will dispatch multiple statements
+<span class="lineNum">     195 </span>                :            :          * to our qExecs. Something like:
+<span class="lineNum">     196 </span>                :            :          *
+<span class="lineNum">     197 </span>                :            :          *                                        QD                      QEs
+<span class="lineNum">     198 </span>                :            :          *                                        |                               |
+<span class="lineNum">     199 </span>                :            :          * User SQL Statement ---&gt;|          BEGIN     |
+<span class="lineNum">     200 </span>                :            :          *                                        |--------------&gt;|
+<span class="lineNum">     201 </span>                :            :          *                                        |             STMT      |
+<span class="lineNum">     202 </span>                :            :          *                                        |--------------&gt;|
+<span class="lineNum">     203 </span>                :            :          *                                        |    PREPARE    |
+<span class="lineNum">     204 </span>                :            :          *                                        |--------------&gt;|
+<span class="lineNum">     205 </span>                :            :          *                                        |    COMMIT     |
+<span class="lineNum">     206 </span>                :            :          *                                        |--------------&gt;|
+<span class="lineNum">     207 </span>                :            :          *                                        |                               |
+<span class="lineNum">     208 </span>                :            :          *
+<span class="lineNum">     209 </span>                :            :          * This may seem like a problem because all four of those will dispatch
+<span class="lineNum">     210 </span>                :            :          * the same snapshot with the same curcid. But... this is OK because
+<span class="lineNum">     211 </span>                :            :          * BEGIN, PREPARE, and COMMIT don't need Snapshots on the QEs.
+<span class="lineNum">     212 </span>                :            :          *
+<span class="lineNum">     213 </span>                :            :          * NOTE: This will be a problem if we ever need to dispatch more than one
+<span class="lineNum">     214 </span>                :            :          * statement to the qExecs and more than one needs a snapshot!
+<span class="lineNum">     215 </span>                :            :          */
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         *size = 0;</span>
+<span class="lineNum">     217 </span>                :            : 
+<span class="lineNum">     218 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (wantSnapshot)</span>
+<span class="lineNum">     219 </span>                :            :         {
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (LatestSnapshot == NULL &amp;&amp;</span>
+<span class="lineNum">     222 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         SerializableSnapshot == NULL &amp;&amp; !IsAbortInProgress())</span>
+<span class="lineNum">     223 </span>                :            :                 {
+<span class="lineNum">     224 </span>                :            :                         /*
+<span class="lineNum">     225 </span>                :            :                          * unfortunately, the dtm issues a select for prepared xacts at the
+<span class="lineNum">     226 </span>                :            :                          * beginning and this is before a snapshot has been set up, so we need
+<span class="lineNum">     227 </span>                :            :                          * one for that but not for when we don't have a valid XID.
+<span class="lineNum">     228 </span>                :            :                          *
+<span class="lineNum">     229 </span>                :            :                          * but we CAN'T do this if an ABORT is in progress... instead we'll send
+<span class="lineNum">     230 </span>                :            :                          * a NONE since the qExecs don't need the information to do a ROLLBACK.
+<span class="lineNum">     231 </span>                :            :                          */
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                         elog((Debug_print_full_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     233 </span>                :            :                                  &quot;qdSerializeDtxContextInfo calling GetTransactionSnapshot to make snapshot&quot;);
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>                :<span class="lineNoCov">          0 :                         GetTransactionSnapshot();</span>
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     237 </span>                :            : 
+<span class="lineNum">     238 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (LatestSnapshot != NULL)</span>
+<span class="lineNum">     239 </span>                :            :                 {
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                         elog((Debug_print_full_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     241 </span>                :            :                                  &quot;qdSerializeDtxContextInfo using LatestSnapshot&quot;);
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                         snapshot = LatestSnapshot;</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                         elog((Debug_print_snapshot_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     245 </span>                :            :                                  &quot;[Distributed Snapshot #%u] *QD Use Latest* currcid = %d (gxid = %u, '%s')&quot;,
+<span class="lineNum">     246 </span>                :            :                                  LatestSnapshot-&gt;distribSnapshotWithLocalMapping.ds.distribSnapshotId,
+<span class="lineNum">     247 </span>                :            :                                  LatestSnapshot-&gt;curcid,
+<span class="lineNum">     248 </span>                :            :                                  getDistributedTransactionId(),
+<span class="lineNum">     249 </span>                :            :                                  DtxContextToString(DistributedTransactionContext));
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     251 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (SerializableSnapshot != NULL)</span>
+<span class="lineNum">     252 </span>                :            :                 {
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :                         elog((Debug_print_full_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     254 </span>                :            :                                  &quot;qdSerializeDtxContextInfo using SerializableSnapshot&quot;);
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                         snapshot = SerializableSnapshot;</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                         elog((Debug_print_snapshot_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     258 </span>                :            :                                  &quot;[Distributed Snapshot #%u] *QD Use Serializable* currcid = %d (gxid = %u, '%s')&quot;,
+<span class="lineNum">     259 </span>                :            :                                  SerializableSnapshot-&gt;distribSnapshotWithLocalMapping.ds.distribSnapshotId,
+<span class="lineNum">     260 </span>                :            :                                  SerializableSnapshot-&gt;curcid,
+<span class="lineNum">     261 </span>                :            :                                  getDistributedTransactionId(),
+<span class="lineNum">     262 </span>                :            :                                  DtxContextToString(DistributedTransactionContext));
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (DistributedTransactionContext)</span>
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span><span class="branchNoExec" title="Branch 8 was not executed"> # </span> 
+<span class="lineNum">         </span>         <span class="branchNoExec" title="Branch 9 was not executed"> # </span><span class="branchNoExec" title="Branch 10 was not executed"> # </span>]
+<span class="lineNum">     268 </span>                :            :         {
+<span class="lineNum">     269 </span>                :            :                 case DTX_CONTEXT_QD_DISTRIBUTED_CAPABLE:
+<span class="lineNum">     270 </span>                :            :                 case DTX_CONTEXT_LOCAL_ONLY:
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                         DtxContextInfo_CreateOnMaster(&amp;TempQDDtxContextInfo,</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                                                                                   txnOptions, snapshot);</span>
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                         TempQDDtxContextInfo.cursorContext = inCursor;</span>
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (DistributedTransactionContext ==</span>
+<span class="lineNum">     277 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 DTX_CONTEXT_QD_DISTRIBUTED_CAPABLE &amp;&amp; snapshot != NULL)</span>
+<span class="lineNum">     278 </span>                :            :                         {
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                                 updateSharedLocalSnapshot(&amp;TempQDDtxContextInfo, snapshot,</span>
+<span class="lineNum">     280 </span>                :            :                                                                                   &quot;qdSerializeDtxContextInfo&quot;);
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :                         pDtxContextInfo = &amp;TempQDDtxContextInfo;</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>                :            :                 case DTX_CONTEXT_QD_RETRY_PHASE_2:
+<span class="lineNum">     287 </span>                :            :                 case DTX_CONTEXT_QE_ENTRY_DB_SINGLETON:
+<span class="lineNum">     288 </span>                :            :                 case DTX_CONTEXT_QE_AUTO_COMMIT_IMPLICIT:
+<span class="lineNum">     289 </span>                :            :                 case DTX_CONTEXT_QE_TWO_PHASE_EXPLICIT_WRITER:
+<span class="lineNum">     290 </span>                :            :                 case DTX_CONTEXT_QE_TWO_PHASE_IMPLICIT_WRITER:
+<span class="lineNum">     291 </span>                :            :                 case DTX_CONTEXT_QE_READER:
+<span class="lineNum">     292 </span>                :            :                 case DTX_CONTEXT_QE_PREPARED:
+<span class="lineNum">     293 </span>                :            :                 case DTX_CONTEXT_QE_FINISH_PREPARED:
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                         elog(FATAL, &quot;Unexpected distribute transaction context: '%s'&quot;,</span>
+<span class="lineNum">     295 </span>                :            :                                  DtxContextToString(DistributedTransactionContext));
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :            :                 default:
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                         elog(FATAL, &quot;Unrecognized DTX transaction context: %d&quot;,</span>
+<span class="lineNum">     299 </span>                :            :                                  (int) DistributedTransactionContext);
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         serializedLen = DtxContextInfo_SerializeSize(pDtxContextInfo);</span>
+<span class="lineNum">     303 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(serializedLen &gt; 0);</span>
+<span class="lineNum">     304 </span>                :            : 
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         *size = serializedLen;</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :         serializedDtxContextInfo = palloc(*size);</span>
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :         DtxContextInfo_Serialize(serializedDtxContextInfo, pDtxContextInfo);</span>
+<span class="lineNum">     309 </span>                :            : 
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :         elog((Debug_print_full_dtm ? LOG : DEBUG5),</span>
+<span class="lineNum">     311 </span>                :            :                  &quot;qdSerializeDtxContextInfo (called by %s) returning a snapshot of %d bytes (ptr is %s)&quot;,
+<span class="lineNum">     312 </span>                :            :                  debugCaller, *size,
+<span class="lineNum">     313 </span>                :            :                  (serializedDtxContextInfo != NULL ? &quot;Non-NULL&quot; : &quot;NULL&quot;));
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         return serializedDtxContextInfo;</span>
+<span class="lineNum">     315 </span>                :            : }
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :            : /*
+<span class="lineNum">     318 </span>                :            :  * Build a dtx protocol command string to be dispatched to QE.
+<a name="319"><span class="lineNum">     319 </span>                :            :  */</a>
+<span class="lineNum">     320 </span>                :            : static char *
+<span class="lineNum">     321 </span>                :            : buildGpDtxProtocolCommand(struct CdbDispatcherState *ds,
+<span class="lineNum">     322 </span>                :            :                                                   DispatchCommandDtxProtocolParms * pDtxProtocolParms,
+<span class="lineNum">     323 </span>                :            :                                                   int *finalLen)
+<span class="lineNum">     324 </span>                :            : {
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :         int     dtxProtocolCommand = (int) pDtxProtocolParms-&gt;dtxProtocolCommand;</span>
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :         int     flags = pDtxProtocolParms-&gt;flags;</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :         char *dtxProtocolCommandLoggingStr = pDtxProtocolParms-&gt;dtxProtocolCommandLoggingStr;</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :         char *gid = pDtxProtocolParms-&gt;gid;</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :         int     gxid = pDtxProtocolParms-&gt;gxid;</span>
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :         char *serializedDtxContextInfo = pDtxProtocolParms-&gt;serializedDtxContextInfo;</span>
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         int     serializedDtxContextInfoLen = pDtxProtocolParms-&gt;serializedDtxContextInfoLen;</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :         int     tmp = 0;</span>
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :         int     len = 0;</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :         int     loggingStrLen = strlen(dtxProtocolCommandLoggingStr) + 1;</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         int     gidLen = strlen(gid) + 1;</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :         int     total_query_len = 1 /* 'T' */ +</span>
+<span class="lineNum">     338 </span>                :            :                 sizeof(len) +
+<span class="lineNum">     339 </span>                :            :                 sizeof(dtxProtocolCommand) +
+<span class="lineNum">     340 </span>                :            :                 sizeof(flags) +
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                 sizeof(loggingStrLen) +</span>
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                 loggingStrLen +</span>
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                 sizeof(gidLen) +</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                 gidLen +</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                 sizeof(gxid) +</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                 sizeof(serializedDtxContextInfoLen) +</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                 serializedDtxContextInfoLen;</span>
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :         char *shared_query = NULL;</span>
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :         char *pos = NULL;</span>
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ds-&gt;dispatchStateContext == NULL)</span>
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                 ds-&gt;dispatchStateContext = AllocSetContextCreate(TopMemoryContext,</span>
+<span class="lineNum">     354 </span>                :            :                                                                                                                  &quot;Dispatch Context&quot;,
+<span class="lineNum">     355 </span>                :            :                                                                                                                  ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     356 </span>                :            :                                                                                                                  ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     357 </span>                :            :                                                                                                                  ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :         shared_query = MemoryContextAlloc(ds-&gt;dispatchStateContext, total_query_len);</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         pos = shared_query;</span>
+<span class="lineNum">     361 </span>                :            : 
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :         *pos++ = 'T';</span>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(len); /* placeholder for message length */</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(dtxProtocolCommand);</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(tmp);</span>
+<span class="lineNum">     369 </span>                :            : 
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(flags);</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(tmp);</span>
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(loggingStrLen);</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(tmp);</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, dtxProtocolCommandLoggingStr, loggingStrLen);</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         pos += loggingStrLen;</span>
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(gidLen);</span>
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(tmp);</span>
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, gid, gidLen);</span>
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :         pos += gidLen;</span>
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(gxid);</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(tmp);</span>
+<span class="lineNum">     391 </span>                :            : 
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(serializedDtxContextInfoLen);</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :         memcpy(pos, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         pos += sizeof(tmp);</span>
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (serializedDtxContextInfoLen &gt; 0)</span>
+<span class="lineNum">     397 </span>                :            :         {
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :                 memcpy(pos, serializedDtxContextInfo, serializedDtxContextInfoLen);</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :                 pos += serializedDtxContextInfoLen;</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :         len = pos - shared_query - 1;</span>
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>                :            :         /*
+<span class="lineNum">     405 </span>                :            :          * fill in length placeholder
+<span class="lineNum">     406 </span>                :            :          */
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :         tmp = htonl(len);</span>
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :         memcpy(shared_query + 1, &amp;tmp, sizeof(tmp));</span>
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (finalLen)</span>
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 :                 *finalLen = len + 1;</span>
+<span class="lineNum">     412 </span>                :            : 
+<span class="lineNum">     413 </span>                :<span class="lineNoCov">          0 :         return shared_query;</span>
+<span class="lineNum">     414 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

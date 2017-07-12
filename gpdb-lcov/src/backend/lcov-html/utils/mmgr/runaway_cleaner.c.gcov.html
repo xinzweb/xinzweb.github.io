@@ -1,0 +1,377 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mmgr/runaway_cleaner.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/mmgr</a> - runaway_cleaner.c<span style="font-size: 80%;"> (source / <a href="runaway_cleaner.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">60</td>
+            <td class="headerCovTableEntry">68</td>
+            <td class="headerCovTableEntryMed">88.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntryLo">66.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">72</td>
+            <td class="headerCovTableEntry">130</td>
+            <td class="headerCovTableEntryLo">55.4 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * runaway_cleaner.c
+<span class="lineNum">       4 </span>                :            :  *       Implementation of the runaway cleaner that checks if a session is marked
+<span class="lineNum">       5 </span>                :            :  *       as runaway (i.e., consuming too much vmem) by the red-zone handler
+<span class="lineNum">       6 </span>                :            :  *       (redzone_handler.c). The runaway cleaner cleans up such session by triggering
+<span class="lineNum">       7 </span>                :            :  *       an elog(ERROR, ...) which rolls back transaction and releases memory. Once
+<span class="lineNum">       8 </span>                :            :  *       cleanup is finished, the runaway cleaner also informs the red zone handler
+<span class="lineNum">       9 </span>                :            :  *       so that a new runaway session can be chosen if necessary.
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * Copyright (c) 2014 Pivotal Inc. All Rights Reserved
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : 
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;port/atomics.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;utils/faultinjector.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;utils/session_state.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;utils/vmem_tracker.h&quot;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : /* External dependencies within the runaway cleanup framework */
+<span class="lineNum">      26 </span>                :            : extern bool vmemTrackerInited;
+<span class="lineNum">      27 </span>                :            : extern bool isProcessActive;
+<span class="lineNum">      28 </span>                :            : extern EventVersion activationVersion;
+<span class="lineNum">      29 </span>                :            : extern EventVersion deactivationVersion;
+<span class="lineNum">      30 </span>                :            : extern volatile uint32 *isRunawayDetector;
+<span class="lineNum">      31 </span>                :            : extern volatile EventVersion *latestRunawayVersion;
+<span class="lineNum">      32 </span>                :            : 
+<span class="lineNum">      33 </span>                :            : /*
+<span class="lineNum">      34 </span>                :            :  * The cleanupCountdown in the SessionState determines how many
+<span class="lineNum">      35 </span>                :            :  * processes we need to cleanup to declare a session clean. If it
+<span class="lineNum">      36 </span>                :            :  * reaches 0, we mark the session clean. However, -1 indicates
+<span class="lineNum">      37 </span>                :            :  * that the session is either done cleaning previous runaway event
+<span class="lineNum">      38 </span>                :            :  * or it never started a cleaning.
+<span class="lineNum">      39 </span>                :            :  */
+<span class="lineNum">      40 </span>                :            : #define CLEANUP_COUNTDOWN_BEFORE_RUNAWAY -1
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : /* The runaway version for which this process started cleaning up */
+<span class="lineNum">      43 </span>                :            : static EventVersion beginCleanupRunawayVersion = 0;
+<span class="lineNum">      44 </span>                :            : 
+<span class="lineNum">      45 </span>                :            : /* The runaway version for which this process finished cleaning up */
+<span class="lineNum">      46 </span>                :            : static EventVersion endCleanupRunawayVersion = 0;
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : void RunawayCleaner_Init(void);
+<span class="lineNum">      49 </span>                :            : void RunawayCleaner_StartCleanup(void);
+<span class="lineNum">      50 </span>                :            : bool RunawayCleaner_IsCleanupInProgress(void);
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : /*
+<span class="lineNum">      53 </span>                :            :  * Initializes the per-process states of the runaway cleaner.
+<a name="54"><span class="lineNum">      54 </span>                :            :  */</a>
+<span class="lineNum">      55 </span>                :            : void
+<span class="lineNum">      56 </span>                :            : RunawayCleaner_Init()
+<span class="lineNum">      57 </span>                :            : {
+<span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :         beginCleanupRunawayVersion = 0;</span>
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :         endCleanupRunawayVersion = 0;</span>
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      61 </span>                :            : 
+<a name="62"><span class="lineNum">      62 </span>                :            : /* Returns true if the current process should start a runaway cleanup */</a>
+<span class="lineNum">      63 </span>                :            : static bool
+<span class="lineNum">      64 </span>                :            : RunawayCleaner_ShouldStartRunawayCleanup()
+<span class="lineNum">      65 </span>                :            : {
+<span class="lineNum">      66 </span>[<span class="branchCov" title="Branch 0 was taken 16 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 14 times"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">         16 :         if (NULL != MySessionState &amp;&amp; MySessionState-&gt;runawayStatus != RunawayStatus_NotRunaway &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 10 times"> + </span><span class="branchCov" title="Branch 5 was taken 4 times"> + </span>]
+<span class="lineNum">      67 </span>                :<span class="lineCov">         14 :                         beginCleanupRunawayVersion != *latestRunawayVersion)</span>
+<span class="lineNum">      68 </span>                :            :         {
+<span class="lineNum">      69 </span>[<span class="branchCov" title="Branch 0 was taken 10 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 8 times"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">         10 :                 AssertImply(isProcessActive, activationVersion &gt;= deactivationVersion);</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 8 times"> + </span>]
+<span class="lineNum">      70 </span>[<span class="branchCov" title="Branch 0 was taken 10 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchCov" title="Branch 3 was taken 8 times"> + </span>]:<span class="lineCov">         10 :                 AssertImply(!isProcessActive, deactivationVersion &gt;= activationVersion);</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 2 times"> + </span>]
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            :                 /*
+<span class="lineNum">      73 </span>                :            :                  * We are marked as runaway. Therefore, if the runaway event happened before deactivation,
+<span class="lineNum">      74 </span>                :            :                  * we must have a version counter increment
+<span class="lineNum">      75 </span>                :            :                  */
+<span class="lineNum">      76 </span>[<span class="branchCov" title="Branch 0 was taken 10 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 10 times"> + </span>]:<span class="lineCov">         10 :                 AssertImply(*latestRunawayVersion &lt; deactivationVersion &amp;&amp; !isProcessActive, activationVersion &lt; deactivationVersion);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>[<span class="branchCov" title="Branch 0 was taken 8 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 6 times"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">         10 :                 if (isProcessActive &amp;&amp; *latestRunawayVersion &gt; activationVersion)</span>
+<span class="lineNum">      79 </span>                :            :                 {
+<span class="lineNum">      80 </span>                :            :                         /* Active process and the runaway event came after the activation */
+<span class="lineNum">      81 </span>                :<span class="lineCov">          6 :                         return true;</span>
+<span class="lineNum">      82 </span>                :            :                 }
+<span class="lineNum">      83 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          4 :                 else if (!isProcessActive &amp;&amp; *latestRunawayVersion &lt; deactivationVersion &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :                                 *latestRunawayVersion &gt; activationVersion)</span>
+<span class="lineNum">      85 </span>                :            :                 {
+<span class="lineNum">      86 </span>                :            :                         /*
+<span class="lineNum">      87 </span>                :            :                          * The process is deactivated, but there is a pending runaway event before
+<span class="lineNum">      88 </span>                :            :                          * the deactivation for which this process never cleaned up
+<span class="lineNum">      89 </span>                :            :                          */
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">      91 </span>                :            :                 }
+<span class="lineNum">      92 </span>                :<span class="lineCov">          4 :         }</span>
+<span class="lineNum">      93 </span>                :            : 
+<span class="lineNum">      94 </span>                :<span class="lineCov">         10 :         return false;</span>
+<span class="lineNum">      95 </span>                :<span class="lineCov">         16 : }</span>
+<span class="lineNum">      96 </span>                :            : /*
+<span class="lineNum">      97 </span>                :            :  * Starts a runaway cleanup by triggering an ERROR if the VMEM tracker is active
+<span class="lineNum">      98 </span>                :            :  * and a commit is not already in progress. Otherwise, it marks the process as clean
+<a name="99"><span class="lineNum">      99 </span>                :            :  */</a>
+<span class="lineNum">     100 </span>                :            : void
+<span class="lineNum">     101 </span>                :            : RunawayCleaner_StartCleanup()
+<span class="lineNum">     102 </span>                :            : {
+<span class="lineNum">     103 </span>                :            :         /*
+<span class="lineNum">     104 </span>                :            :          * Cleanup can be attempted from multiple places, such as before deactivating
+<span class="lineNum">     105 </span>                :            :          * a process (if a pending runaway event) or periodically from CHECK_FOR_INTERRUPTS
+<span class="lineNum">     106 </span>                :            :          * (indirectly via RedZoneHandler_DetectRunaway). We don't carry multiple cleanup
+<span class="lineNum">     107 </span>                :            :          * for a single runaway event. Every time we *start* a cleanup process, we set the
+<span class="lineNum">     108 </span>                :            :          * beginCleanupRunawayVersion to the runaway version for which we started cleaning
+<span class="lineNum">     109 </span>                :            :          * up. Later on, if we reenter this method (e.g., another CHECK_FOR_INTERRUPTS()
+<span class="lineNum">     110 </span>                :            :          * during cleanup), we can observe that the cleanup already started from this runaway
+<span class="lineNum">     111 </span>                :            :          * event, and therefore we skip duplicate cleanup
+<span class="lineNum">     112 </span>                :            :          */
+<span class="lineNum">     113 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">         16 :         if (RunawayCleaner_ShouldStartRunawayCleanup())</span>
+<span class="lineNum">     114 </span>                :            :         {
+<span class="lineNum">     115 </span>[<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 6 times"> + </span>]:<span class="lineCov">          6 :                 Assert(beginCleanupRunawayVersion &lt; *latestRunawayVersion);</span>
+<span class="lineNum">     116 </span>[<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 6 times"> + </span>]:<span class="lineCov">          6 :                 Assert(endCleanupRunawayVersion &lt; *latestRunawayVersion);</span>
+<span class="lineNum">     117 </span>                :            :                 /* We don't want to cleanup multiple times for same runaway event */
+<span class="lineNum">     118 </span>                :<span class="lineCov">          6 :                 beginCleanupRunawayVersion = *latestRunawayVersion;</span>
+<span class="lineNum">     119 </span>                :            : 
+<span class="lineNum">     120 </span>[<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          6 :                 if (CritSectionCount == 0 &amp;&amp; InterruptHoldoffCount == 0 &amp;&amp; vmemTrackerInited &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     121 </span>                :<span class="lineCov">          2 :                         gp_command_count &gt; 0 /* Cleaning up QEs that are not executing a valid command</span>
+<span class="lineNum">     122 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :                         may cause the QD to get stuck [MPP-24950] */ &amp;&amp;</span>
+<span class="lineNum">     123 </span>                :            :                         /* Super user is terminated only when it's the primary runaway consumer (i.e., the top consumer) */
+<span class="lineNum">     124 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          2 :                         (!superuser() || MySessionState-&gt;runawayStatus == RunawayStatus_PrimaryRunawaySession))</span>
+<span class="lineNum">     125 </span>                :            :                 {
+<span class="lineNum">     126 </span>                :<span class="lineCov">          2 :                         SIMPLE_FAULT_INJECTOR(RunawayCleanup);</span>
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineCov">          2 :                         ereport(ERROR, (errmsg(&quot;Canceling query because of high VMEM usage. Used: %dMB, available %dMB, red zone: %dMB&quot;,</span>
+<span class="lineNum">     129 </span>                :            :                                         VmemTracker_ConvertVmemChunksToMB(MySessionState-&gt;sessionVmem), VmemTracker_GetAvailableVmemMB(),
+<span class="lineNum">     130 </span>                :            :                                         RedZoneHandler_GetRedZoneLimitMB()), errprintstack(true)));
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :            :                 /*
+<span class="lineNum">     134 </span>                :            :                  * If we cannot error out because of a critical section or because we are a super user
+<span class="lineNum">     135 </span>                :            :                  * or for some other reason (such as the QE is not running any valid command, i.e.,
+<span class="lineNum">     136 </span>                :            :                  * gp_command_count is not positive) simply declare this process as clean
+<span class="lineNum">     137 </span>                :            :                  */
+<span class="lineNum">     138 </span>                :<span class="lineCov">          4 :                 RunawayCleaner_RunawayCleanupDoneForProcess(true /* ignoredCleanup */);</span>
+<span class="lineNum">     139 </span>                :<span class="lineCov">          4 :         }</span>
+<span class="lineNum">     140 </span>                :<span class="lineCov">         14 : }</span>
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :            : /*
+<span class="lineNum">     143 </span>                :            :  * Resets the runaway flag and enables runaway detector.
+<span class="lineNum">     144 </span>                :            :  *
+<span class="lineNum">     145 </span>                :            :  * Note: this method should not need any additional locks.
+<span class="lineNum">     146 </span>                :            :  * Either the MySessionState entry is being released, and
+<span class="lineNum">     147 </span>                :            :  * we already have a lock on SessionState, and therefore,
+<span class="lineNum">     148 </span>                :            :  * no new runaway detector can run until the lock is released.
+<span class="lineNum">     149 </span>                :            :  *
+<span class="lineNum">     150 </span>                :            :  * Alternatively, we may reset this while still in a live
+<span class="lineNum">     151 </span>                :            :  * session. In such case, our runaway event versioning should
+<span class="lineNum">     152 </span>                :            :  * ensure that every process of this session would do another round
+<span class="lineNum">     153 </span>                :            :  * of cleanup if it is detected as a runaway session again.
+<a name="154"><span class="lineNum">     154 </span>                :            :  */</a>
+<span class="lineNum">     155 </span>                :            : void
+<span class="lineNum">     156 </span>                :            : RunawayCleaner_RunawayCleanupDoneForSession()
+<span class="lineNum">     157 </span>                :            : {
+<span class="lineNum">     158 </span>[<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 4 times"> + </span>]:<span class="lineCov">          4 :         Assert(NULL != MySessionState);</span>
+<span class="lineNum">     159 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          4 :         if (MySessionState-&gt;runawayStatus != RunawayStatus_NotRunaway)</span>
+<span class="lineNum">     160 </span>                :            :         {
+<span class="lineNum">     161 </span>                :            :                 /* The last runaway cleanup should have finished */
+<span class="lineNum">     162 </span>[<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 4 times"> + </span>]:<span class="lineCov">          4 :                 Assert(endCleanupRunawayVersion == beginCleanupRunawayVersion);</span>
+<span class="lineNum">     163 </span>[<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 4 times"> + </span>]:<span class="lineCov">          4 :                 Assert(endCleanupRunawayVersion == *latestRunawayVersion);</span>
+<span class="lineNum">     164 </span>[<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 4 times"> + </span>]:<span class="lineCov">          4 :                 Assert(CLEANUP_COUNTDOWN_BEFORE_RUNAWAY == MySessionState-&gt;cleanupCountdown);</span>
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :<span class="lineCov">          4 :                 MySessionState-&gt;runawayStatus = RunawayStatus_NotRunaway;</span>
+<span class="lineNum">     167 </span>                :<span class="lineCov">          4 :                 MySessionState-&gt;sessionVmemRunaway = 0;</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">          4 :                 MySessionState-&gt;commandCountRunaway = 0;</span>
+<span class="lineNum">     169 </span>                :            : 
+<span class="lineNum">     170 </span>                :            :                 /*
+<span class="lineNum">     171 </span>                :            :                  * Reset the exclusive runaway detector flag so that
+<span class="lineNum">     172 </span>                :            :                  * another runaway detector can be chosen
+<span class="lineNum">     173 </span>                :            :                  */
+<span class="lineNum">     174 </span>                :<span class="lineCov">          4 :                 *isRunawayDetector = 0;</span>
+<span class="lineNum">     175 </span>                :<span class="lineCov">          4 :         }</span>
+<span class="lineNum">     176 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">     177 </span>                :            : 
+<span class="lineNum">     178 </span>                :            : /*
+<span class="lineNum">     179 </span>                :            :  * Marks the current process as clean. If all the processes are marked
+<span class="lineNum">     180 </span>                :            :  * as clean for this session (i.e., cleanupCountdown == 0 in the
+<span class="lineNum">     181 </span>                :            :  * MySessionState) then we reset session's runaway status as well as
+<span class="lineNum">     182 </span>                :            :  * the runaway detector flag (i.e., a new runaway detector can run).
+<span class="lineNum">     183 </span>                :            :  *
+<span class="lineNum">     184 </span>                :            :  * Parameters:
+<span class="lineNum">     185 </span>                :            :  *              ignoredCleanup: whether the cleanup was ignored, i.e., no elog(ERROR, ...)
+<span class="lineNum">     186 </span>                :            :  *              was thrown. In such case a deactivated process is not reactivated as the
+<span class="lineNum">     187 </span>                :            :  *              deactivation didn't get interrupted.
+<a name="188"><span class="lineNum">     188 </span>                :            :  */</a>
+<span class="lineNum">     189 </span>                :            : void
+<span class="lineNum">     190 </span>                :            : RunawayCleaner_RunawayCleanupDoneForProcess(bool ignoredCleanup)
+<span class="lineNum">     191 </span>                :            : {
+<span class="lineNum">     192 </span>                :            :         /*
+<span class="lineNum">     193 </span>                :            :          * We don't do anything if we don't have an ongoing cleanup, or we already finished
+<span class="lineNum">     194 </span>                :            :          * cleanup once for the current runaway event
+<span class="lineNum">     195 </span>                :            :          */
+<span class="lineNum">     196 </span>[<span class="branchCov" title="Branch 0 was taken 16 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 4 times"> + </span><span class="branchCov" title="Branch 3 was taken 12 times"> + </span>]:<span class="lineCov">         16 :         if (beginCleanupRunawayVersion != *latestRunawayVersion ||</span>
+<span class="lineNum">     197 </span>                :<span class="lineCov">         16 :                         endCleanupRunawayVersion == beginCleanupRunawayVersion)</span>
+<span class="lineNum">     198 </span>                :            :         {
+<span class="lineNum">     199 </span>                :            :                 /* Either we never started cleanup, or we already finished */
+<span class="lineNum">     200 </span>                :<span class="lineCov">          4 :                 return;</span>
+<span class="lineNum">     201 </span>                :            :         }
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            :         /* Disable repeating call */
+<span class="lineNum">     204 </span>                :<span class="lineCov">         12 :         endCleanupRunawayVersion = beginCleanupRunawayVersion;</span>
+<span class="lineNum">     205 </span>                :            : 
+<span class="lineNum">     206 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 12 times"> + </span>]:<span class="lineCov">         12 :         Assert(NULL != MySessionState);</span>
+<span class="lineNum">     207 </span>                :            :         /*
+<span class="lineNum">     208 </span>                :            :          * As the current cleanup holds leverage on the  cleanupCountdown,
+<span class="lineNum">     209 </span>                :            :          * the session must stay as runaway at least until the current
+<span class="lineNum">     210 </span>                :            :          * process marks itself clean
+<span class="lineNum">     211 </span>                :            :          */
+<span class="lineNum">     212 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 12 times"> + </span>]:<span class="lineCov">         12 :         Assert(MySessionState-&gt;runawayStatus != RunawayStatus_NotRunaway);</span>
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>                :            :         /* We only cleanup if we were active when the runaway event happened */
+<span class="lineNum">     215 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchCov" title="Branch 3 was taken 10 times"> + </span>]:<span class="lineCov">         12 :         Assert((!isProcessActive &amp;&amp; *latestRunawayVersion &lt; deactivationVersion &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchNoCov" title="Branch 6 was not taken"> - </span><span class="branchCov" title="Branch 7 was taken 2 times"> + </span>]
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 8 was taken 10 times"> + </span><span class="branchNoCov" title="Branch 9 was not taken"> - </span>][<span class="branchCov" title="Branch 10 was taken 10 times"> + </span><span class="branchNoCov" title="Branch 11 was not taken"> - </span>]
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 12 was not taken"> - </span><span class="branchCov" title="Branch 13 was taken 10 times"> + </span>]
+<span class="lineNum">     216 </span>                :            :                         *latestRunawayVersion &gt; activationVersion) ||
+<span class="lineNum">     217 </span>                :            :                         (*latestRunawayVersion &gt; activationVersion &amp;&amp;
+<span class="lineNum">     218 </span>                :            :                         (activationVersion &gt;= deactivationVersion &amp;&amp; isProcessActive)));
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :            :         /*
+<span class="lineNum">     221 </span>                :            :          * We don't reactivate if the process is already active or a deactivated
+<span class="lineNum">     222 </span>                :            :          * process never errored out during deactivation (i.e., failed to complete
+<span class="lineNum">     223 </span>                :            :          * deactivation)
+<span class="lineNum">     224 </span>                :            :          */
+<span class="lineNum">     225 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         12 :         if (!isProcessActive &amp;&amp; !ignoredCleanup)</span>
+<span class="lineNum">     226 </span>                :            :         {
+<span class="lineNum">     227 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          2 :                 Assert(1 == *isRunawayDetector);</span>
+<span class="lineNum">     228 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          2 :                 Assert(0 &lt; MySessionState-&gt;cleanupCountdown);</span>
+<span class="lineNum">     229 </span>                :            :                 /*
+<span class="lineNum">     230 </span>                :            :                  * As the process threw ERROR instead of going into ReadCommand() blocking
+<span class="lineNum">     231 </span>                :            :                  * state, we have to reactivate the process from its current Deactivated
+<span class="lineNum">     232 </span>                :            :                  * state
+<span class="lineNum">     233 </span>                :            :                  */
+<span class="lineNum">     234 </span>                :<span class="lineCov">          2 :                 IdleTracker_ActivateProcess();</span>
+<span class="lineNum">     235 </span>                :<span class="lineCov">          2 :         }</span>
+<span class="lineNum">     236 </span>                :            : 
+<span class="lineNum">     237 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 12 times"> + </span>]:<span class="lineCov">         12 :         Assert(0 &lt; MySessionState-&gt;cleanupCountdown);</span>
+<span class="lineNum">     238 </span>                :            : #if USE_ASSERT_CHECKING
+<span class="lineNum">     239 </span>                :<span class="lineCov">         12 :         int cleanProgress =</span>
+<span class="lineNum">     240 </span>                :            : #endif
+<span class="lineNum">     241 </span>                :<span class="lineCov">         12 :                         pg_atomic_add_fetch_u32((pg_atomic_uint32 *)&amp;MySessionState-&gt;cleanupCountdown, -1);</span>
+<span class="lineNum">     242 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 12 times"> + </span>]:<span class="lineCov">         12 :         Assert(0 &lt;= cleanProgress);</span>
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :<span class="lineCov">         12 :         uint32 expected = 0;</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">         12 :         bool finalCleaner = pg_atomic_compare_exchange_u32((pg_atomic_uint32 *) &amp;MySessionState-&gt;cleanupCountdown,</span>
+<span class="lineNum">     246 </span>                :            :                         &amp;expected, CLEANUP_COUNTDOWN_BEFORE_RUNAWAY);
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">         12 :         if (finalCleaner)</span>
+<span class="lineNum">     249 </span>                :            :         {
+<span class="lineNum">     250 </span>                :            :                 /*
+<span class="lineNum">     251 </span>                :            :                  * The final cleaner is responsible to reset the runaway flag,
+<span class="lineNum">     252 </span>                :            :                  * and enable the runaway detection process.
+<span class="lineNum">     253 </span>                :            :                  */
+<span class="lineNum">     254 </span>                :<span class="lineCov">          2 :                 RunawayCleaner_RunawayCleanupDoneForSession();</span>
+<span class="lineNum">     255 </span>                :<span class="lineCov">          2 :         }</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :            :         /*
+<span class="lineNum">     258 </span>                :            :          * Finally we are done with all critical cleanup, which includes releasing all our memory and
+<span class="lineNum">     259 </span>                :            :          * releasing our cleanup counter so that another session can be marked as runaway, if needed.
+<span class="lineNum">     260 </span>                :            :          * Now, we have some head room to actually record our usage.
+<span class="lineNum">     261 </span>                :            :          */
+<span class="lineNum">     262 </span>                :<span class="lineCov">         12 :         write_stderr(&quot;Logging memory usage because of runaway cleanup. Note, this is a post-cleanup logging and may be incomplete.&quot;);</span>
+<span class="lineNum">     263 </span>                :<span class="lineCov">         12 :         MemoryAccounting_SaveToLog();</span>
+<span class="lineNum">     264 </span>                :<span class="lineCov">         12 :         MemoryContextStats(TopMemoryContext);</span>
+<span class="lineNum">     265 </span>                :<span class="lineCov">         16 : }</span>
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :            : /*
+<span class="lineNum">     268 </span>                :            :  * Returns true if a cleanup is in progress (i.e., endCleanupRunawayVersion
+<span class="lineNum">     269 </span>                :            :  * is smaller than beginCleanupRunawayVersion).
+<a name="270"><span class="lineNum">     270 </span>                :            :  */</a>
+<span class="lineNum">     271 </span>                :            : bool
+<span class="lineNum">     272 </span>                :            : RunawayCleaner_IsCleanupInProgress()
+<span class="lineNum">     273 </span>                :            : {
+<span class="lineNum">     274 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(endCleanupRunawayVersion &lt;= beginCleanupRunawayVersion);</span>
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :         return endCleanupRunawayVersion &lt; beginCleanupRunawayVersion;</span>
+<span class="lineNum">     276 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

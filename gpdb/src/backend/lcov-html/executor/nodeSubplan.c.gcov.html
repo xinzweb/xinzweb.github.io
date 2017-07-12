@@ -1,0 +1,1386 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/nodeSubplan.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - nodeSubplan.c<span style="font-size: 80%;"> (source / <a href="nodeSubplan.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">46</td>
+            <td class="headerCovTableEntry">518</td>
+            <td class="headerCovTableEntryLo">8.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryLo">10.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntry">324</td>
+            <td class="headerCovTableEntryLo">6.5 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nodeSubplan.c
+<span class="lineNum">       4 </span>                :            :  *        routines to support subselects
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2005-2010, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/executor/nodeSubplan.c,v 1.95 2008/10/04 21:56:53 tgl Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : /*
+<span class="lineNum">      16 </span>                :            :  *       INTERFACE ROUTINES
+<span class="lineNum">      17 </span>                :            :  *              ExecSubPlan  - process a subselect
+<span class="lineNum">      18 </span>                :            :  *              ExecInitSubPlan - initialize a subselect
+<span class="lineNum">      19 </span>                :            :  */
+<span class="lineNum">      20 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      21 </span>                :            : 
+<span class="lineNum">      22 </span>                :            : #include &lt;math.h&gt;
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : #include &quot;executor/executor.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;executor/nodeSubplan.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;nodes/makefuncs.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;utils/array.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;cdb/cdbexplain.h&quot;             /* cdbexplain_recvExecStats */
+<span class="lineNum">      33 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;cdb/cdbdisp.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;cdb/ml_ipc.h&quot;
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>                :            : static Datum ExecHashSubPlan(SubPlanState *node,
+<span class="lineNum">      40 </span>                :            :                                 ExprContext *econtext,
+<span class="lineNum">      41 </span>                :            :                                 bool *isNull);
+<span class="lineNum">      42 </span>                :            : static Datum ExecScanSubPlan(SubPlanState *node,
+<span class="lineNum">      43 </span>                :            :                                 ExprContext *econtext,
+<span class="lineNum">      44 </span>                :            :                                 bool *isNull);
+<span class="lineNum">      45 </span>                :            : static void buildSubPlanHash(SubPlanState *node, ExprContext *econtext);
+<span class="lineNum">      46 </span>                :            : static bool findPartialMatch(TupleHashTable hashtable, TupleTableSlot *slot,
+<span class="lineNum">      47 </span>                :            :                                  FmgrInfo *eqfunctions);
+<span class="lineNum">      48 </span>                :            : static bool slotAllNulls(TupleTableSlot *slot);
+<span class="lineNum">      49 </span>                :            : static bool slotNoNulls(TupleTableSlot *slot);
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">      53 </span>                :            :  *              ExecSubPlan
+<span class="lineNum">      54 </span>                :            :  * ----------------------------------------------------------------
+<a name="55"><span class="lineNum">      55 </span>                :            :  */</a>
+<span class="lineNum">      56 </span>                :            : Datum
+<span class="lineNum">      57 </span>                :            : ExecSubPlan(SubPlanState *node,
+<span class="lineNum">      58 </span>                :            :                         ExprContext *econtext,
+<span class="lineNum">      59 </span>                :            :                         bool *isNull,
+<span class="lineNum">      60 </span>                :            :                         ExprDoneCond *isDone)
+<span class="lineNum">      61 </span>                :            : {
+<span class="lineNum">      62 </span>                :<span class="lineNoCov">          0 :         SubPlan    *subplan = (SubPlan *) node-&gt;xprstate.expr;</span>
+<span class="lineNum">      63 </span>                :            :         Datum           result;
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            :         /* Set default values for result flags: non-null, not a set result */
+<span class="lineNum">      66 </span>                :<span class="lineNoCov">          0 :         *isNull = false;</span>
+<span class="lineNum">      67 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (isDone)</span>
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :                 *isDone = ExprSingleResult;</span>
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            :         /* Sanity checks */
+<span class="lineNum">      71 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;subLinkType == CTE_SUBLINK)</span>
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;CTE subplans should not be executed via ExecSubPlan&quot;);</span>
+<span class="lineNum">      73 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;setParam != NIL)</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cannot set parent params from subquery&quot;);</span>
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            :         /* Remember that we're recursing into a sub-plan */
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :         node-&gt;planstate-&gt;state-&gt;currentSubplanLevel++;</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :            :         /* Select appropriate evaluation strategy */
+<span class="lineNum">      80 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;useHashTable)</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :                 result = ExecHashSubPlan(node, econtext, isNull);</span>
+<span class="lineNum">      82 </span>                :            :         else
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :                 result = ExecScanSubPlan(node, econtext, isNull);</span>
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         node-&gt;planstate-&gt;state-&gt;currentSubplanLevel--;</span>
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">      88 </span>                :            : }
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : /*
+<span class="lineNum">      91 </span>                :            :  * ExecHashSubPlan: store subselect result in an in-memory hash table
+<a name="92"><span class="lineNum">      92 </span>                :            :  */</a>
+<span class="lineNum">      93 </span>                :            : static Datum
+<span class="lineNum">      94 </span>                :            : ExecHashSubPlan(SubPlanState *node,
+<span class="lineNum">      95 </span>                :            :                                 ExprContext *econtext,
+<span class="lineNum">      96 </span>                :            :                                 bool *isNull)
+<span class="lineNum">      97 </span>                :            : {
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :         SubPlan    *subplan = (SubPlan *) node-&gt;xprstate.expr;</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :         PlanState  *planstate = node-&gt;planstate;</span>
+<span class="lineNum">     100 </span>                :            :         TupleTableSlot *slot;
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :            :         /* Shouldn't have any direct correlation Vars */
+<span class="lineNum">     103 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;parParam != NIL || node-&gt;args != NIL)</span>
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;hashed subplan with direct correlation not supported&quot;);</span>
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>                :            :         /*
+<span class="lineNum">     107 </span>                :            :          * If first time through or we need to rescan the subplan, build the hash
+<span class="lineNum">     108 </span>                :            :          * table.
+<span class="lineNum">     109 </span>                :            :          */
+<span class="lineNum">     110 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;hashtable == NULL || planstate-&gt;chgParam != NULL)</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                 buildSubPlanHash(node, econtext);</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :            :         /*
+<span class="lineNum">     114 </span>                :            :          * The result for an empty subplan is always FALSE; no need to evaluate
+<span class="lineNum">     115 </span>                :            :          * lefthand side.
+<span class="lineNum">     116 </span>                :            :          */
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :         *isNull = false;</span>
+<span class="lineNum">     118 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!node-&gt;havehashrows &amp;&amp; !node-&gt;havenullrows)</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                 return BoolGetDatum(false);</span>
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :            :         /*
+<span class="lineNum">     122 </span>                :            :          * Evaluate lefthand expressions and form a projection tuple. First we
+<span class="lineNum">     123 </span>                :            :          * have to set the econtext to use (hack alert!).
+<span class="lineNum">     124 </span>                :            :          */
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :         node-&gt;projLeft-&gt;pi_exprContext = econtext;</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :         slot = ExecProject(node-&gt;projLeft, NULL);</span>
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>                :            :         /*
+<span class="lineNum">     129 </span>                :            :          * Note: because we are typically called in a per-tuple context, we have
+<span class="lineNum">     130 </span>                :            :          * to explicitly clear the projected tuple before returning. Otherwise,
+<span class="lineNum">     131 </span>                :            :          * we'll have a double-free situation: the per-tuple context will probably
+<span class="lineNum">     132 </span>                :            :          * be reset before we're called again, and then the tuple slot will think
+<span class="lineNum">     133 </span>                :            :          * it still needs to free the tuple.
+<span class="lineNum">     134 </span>                :            :          */
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            :         /*
+<span class="lineNum">     137 </span>                :            :          * If the LHS is all non-null, probe for an exact match in the main hash
+<span class="lineNum">     138 </span>                :            :          * table.  If we find one, the result is TRUE. Otherwise, scan the
+<span class="lineNum">     139 </span>                :            :          * partly-null table to see if there are any rows that aren't provably
+<span class="lineNum">     140 </span>                :            :          * unequal to the LHS; if so, the result is UNKNOWN.  (We skip that part
+<span class="lineNum">     141 </span>                :            :          * if we don't care about UNKNOWN.) Otherwise, the result is FALSE.
+<span class="lineNum">     142 </span>                :            :          *
+<span class="lineNum">     143 </span>                :            :          * Note: the reason we can avoid a full scan of the main hash table is
+<span class="lineNum">     144 </span>                :            :          * that the combining operators are assumed never to yield NULL when both
+<span class="lineNum">     145 </span>                :            :          * inputs are non-null.  If they were to do so, we might need to produce
+<span class="lineNum">     146 </span>                :            :          * UNKNOWN instead of FALSE because of an UNKNOWN result in comparing the
+<span class="lineNum">     147 </span>                :            :          * LHS to some main-table entry --- which is a comparison we will not even
+<span class="lineNum">     148 </span>                :            :          * make, unless there's a chance match of hash keys.
+<span class="lineNum">     149 </span>                :            :          */
+<span class="lineNum">     150 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (slotNoNulls(slot))</span>
+<span class="lineNum">     151 </span>                :            :         {
+<span class="lineNum">     152 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;havehashrows &amp;&amp;</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                         FindTupleHashEntry(node-&gt;hashtable,</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                                                            slot,</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :                                                            node-&gt;cur_eq_funcs,</span>
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                                                            node-&gt;lhs_hash_funcs) != NULL)</span>
+<span class="lineNum">     157 </span>                :            :                 {
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                         ExecClearTuple(slot);</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                         return BoolGetDatum(true);</span>
+<span class="lineNum">     160 </span>                :            :                 }
+<span class="lineNum">     161 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;havenullrows &amp;&amp;</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                         findPartialMatch(node-&gt;hashnulls, slot, node-&gt;cur_eq_funcs))</span>
+<span class="lineNum">     163 </span>                :            :                 {
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                         ExecClearTuple(slot);</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                         *isNull = true;</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                         return BoolGetDatum(false);</span>
+<span class="lineNum">     167 </span>                :            :                 }
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                 ExecClearTuple(slot);</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                 return BoolGetDatum(false);</span>
+<span class="lineNum">     170 </span>                :            :         }
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :            :         /*
+<span class="lineNum">     173 </span>                :            :          * When the LHS is partly or wholly NULL, we can never return TRUE. If we
+<span class="lineNum">     174 </span>                :            :          * don't care about UNKNOWN, just return FALSE.  Otherwise, if the LHS is
+<span class="lineNum">     175 </span>                :            :          * wholly NULL, immediately return UNKNOWN.  (Since the combining
+<span class="lineNum">     176 </span>                :            :          * operators are strict, the result could only be FALSE if the sub-select
+<span class="lineNum">     177 </span>                :            :          * were empty, but we already handled that case.) Otherwise, we must scan
+<span class="lineNum">     178 </span>                :            :          * both the main and partly-null tables to see if there are any rows that
+<span class="lineNum">     179 </span>                :            :          * aren't provably unequal to the LHS; if so, the result is UNKNOWN.
+<span class="lineNum">     180 </span>                :            :          * Otherwise, the result is FALSE.
+<span class="lineNum">     181 </span>                :            :          */
+<span class="lineNum">     182 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;hashnulls == NULL)</span>
+<span class="lineNum">     183 </span>                :            :         {
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                 ExecClearTuple(slot);</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                 return BoolGetDatum(false);</span>
+<span class="lineNum">     186 </span>                :            :         }
+<span class="lineNum">     187 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (slotAllNulls(slot))</span>
+<span class="lineNum">     188 </span>                :            :         {
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                 ExecClearTuple(slot);</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :                 *isNull = true;</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :                 return BoolGetDatum(false);</span>
+<span class="lineNum">     192 </span>                :            :         }
+<span class="lineNum">     193 </span>                :            :         /* Scan partly-null table first, since more likely to get a match */
+<span class="lineNum">     194 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;havenullrows &amp;&amp;</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                 findPartialMatch(node-&gt;hashnulls, slot, node-&gt;cur_eq_funcs))</span>
+<span class="lineNum">     196 </span>                :            :         {
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :                 ExecClearTuple(slot);</span>
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :                 *isNull = true;</span>
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :                 return BoolGetDatum(false);</span>
+<span class="lineNum">     200 </span>                :            :         }
+<span class="lineNum">     201 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;havehashrows &amp;&amp;</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :                 findPartialMatch(node-&gt;hashtable, slot, node-&gt;cur_eq_funcs))</span>
+<span class="lineNum">     203 </span>                :            :         {
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                 ExecClearTuple(slot);</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                 *isNull = true;</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                 return BoolGetDatum(false);</span>
+<span class="lineNum">     207 </span>                :            :         }
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         ExecClearTuple(slot);</span>
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :         return BoolGetDatum(false);</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :            : /*
+<span class="lineNum">     213 </span>                :            :  * ExecScanSubPlan: default case where we have to rescan subplan each time
+<a name="214"><span class="lineNum">     214 </span>                :            :  */</a>
+<span class="lineNum">     215 </span>                :            : static Datum
+<span class="lineNum">     216 </span>                :            : ExecScanSubPlan(SubPlanState *node,
+<span class="lineNum">     217 </span>                :            :                                 ExprContext *econtext,
+<span class="lineNum">     218 </span>                :            :                                 bool *isNull)
+<span class="lineNum">     219 </span>                :            : {
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :         SubPlan    *subplan = (SubPlan *) node-&gt;xprstate.expr;</span>
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :         PlanState  *planstate = node-&gt;planstate;</span>
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         SubLinkType subLinkType = subplan-&gt;subLinkType;</span>
+<span class="lineNum">     223 </span>                :            :         MemoryContext oldcontext;
+<span class="lineNum">     224 </span>                :            :         TupleTableSlot *slot;
+<span class="lineNum">     225 </span>                :            :         Datum           result;
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :         bool            found = false;  /* TRUE if got at least one subplan tuple */</span>
+<span class="lineNum">     227 </span>                :            :         ListCell   *pvar;
+<span class="lineNum">     228 </span>                :            :         ListCell   *l;
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :         ArrayBuildState *astate = NULL;</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>                :            :         /*
+<span class="lineNum">     232 </span>                :            :          * We are probably in a short-lived expression-evaluation context. Switch
+<span class="lineNum">     233 </span>                :            :          * to the per-query context for manipulating the child plan's chgParam,
+<span class="lineNum">     234 </span>                :            :          * calling ExecProcNode on it, etc.
+<span class="lineNum">     235 </span>                :            :          */
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :         oldcontext = MemoryContextSwitchTo(econtext-&gt;ecxt_per_query_memory);</span>
+<span class="lineNum">     237 </span>                :            : 
+<span class="lineNum">     238 </span>                :            :         /*
+<span class="lineNum">     239 </span>                :            :          * Set Params of this plan from parent plan correlation values. (Any
+<span class="lineNum">     240 </span>                :            :          * calculation we have to do is done in the parent econtext, since the
+<span class="lineNum">     241 </span>                :            :          * Param values don't need to have per-query lifetime.)
+<span class="lineNum">     242 </span>                :            :          */
+<span class="lineNum">     243 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(list_length(subplan-&gt;parParam) == list_length(node-&gt;args));</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         forboth(l, subplan-&gt;parParam, pvar, node-&gt;args)</span>
+<span class="lineNum">     246 </span>                :            :         {
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :                 int                     paramid = lfirst_int(l);</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :                 ParamExecData *prm = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                 prm-&gt;value = ExecEvalExprSwitchContext((ExprState *) lfirst(pvar),</span>
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :                                                                                            econtext,</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :                                                                                            &amp;(prm-&gt;isnull),</span>
+<span class="lineNum">     253 </span>                :            :                                                                                            NULL);
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :                 planstate-&gt;chgParam = bms_add_member(planstate-&gt;chgParam, paramid);</span>
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :            :         /*
+<span class="lineNum">     258 </span>                :            :          * Now that we've set up its parameters, we can reset the subplan.
+<span class="lineNum">     259 </span>                :            :          */
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :         ExecReScan(planstate, NULL);</span>
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            :         /*
+<span class="lineNum">     263 </span>                :            :          * For all sublink types except EXPR_SUBLINK and ARRAY_SUBLINK, the result
+<span class="lineNum">     264 </span>                :            :          * is boolean as are the results of the combining operators. We combine
+<span class="lineNum">     265 </span>                :            :          * results across tuples (if the subplan produces more than one) using OR
+<span class="lineNum">     266 </span>                :            :          * semantics for ANY_SUBLINK or AND semantics for ALL_SUBLINK.
+<span class="lineNum">     267 </span>                :            :          * (ROWCOMPARE_SUBLINK doesn't allow multiple tuples from the subplan.)
+<span class="lineNum">     268 </span>                :            :          * NULL results from the combining operators are handled according to the
+<span class="lineNum">     269 </span>                :            :          * usual SQL semantics for OR and AND.  The result for no input tuples is
+<span class="lineNum">     270 </span>                :            :          * FALSE for ANY_SUBLINK, TRUE for {ALL_SUBLINK, NOT_EXISTS_SUBLINK}, NULL for
+<span class="lineNum">     271 </span>                :            :          * ROWCOMPARE_SUBLINK.
+<span class="lineNum">     272 </span>                :            :          *
+<span class="lineNum">     273 </span>                :            :          * For EXPR_SUBLINK we require the subplan to produce no more than one
+<span class="lineNum">     274 </span>                :            :          * tuple, else an error is raised.      If zero tuples are produced, we return
+<span class="lineNum">     275 </span>                :            :          * NULL.  Assuming we get a tuple, we just use its first column (there can
+<span class="lineNum">     276 </span>                :            :          * be only one non-junk column in this case).
+<span class="lineNum">     277 </span>                :            :          *
+<span class="lineNum">     278 </span>                :            :          * For ARRAY_SUBLINK we allow the subplan to produce any number of tuples,
+<span class="lineNum">     279 </span>                :            :          * and form an array of the first column's values.  Note in particular
+<span class="lineNum">     280 </span>                :            :          * that we produce a zero-element array if no tuples are produced (this is
+<span class="lineNum">     281 </span>                :            :          * a change from pre-8.3 behavior of returning NULL).
+<span class="lineNum">     282 </span>                :            :          */
+<span class="lineNum">     283 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         result = BoolGetDatum(subLinkType == ALL_SUBLINK || subLinkType == NOT_EXISTS_SUBLINK);</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :         *isNull = false;</span>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (slot = ExecProcNode(planstate);</span>
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :                  !TupIsNull(slot);</span>
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :                  slot = ExecProcNode(planstate))</span>
+<span class="lineNum">     289 </span>                :            :         {
+<span class="lineNum">     290 </span>                :            :                 Datum           rowresult;
+<span class="lineNum">     291 </span>                :            :                 bool            rownull;
+<span class="lineNum">     292 </span>                :            :                 int                     col;
+<span class="lineNum">     293 </span>                :            :                 ListCell   *plst;
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == EXISTS_SUBLINK || subLinkType == NOT_EXISTS_SUBLINK)</span>
+<span class="lineNum">     296 </span>                :            :                 {
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                         bool val = true;</span>
+<span class="lineNum">     299 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (subLinkType == NOT_EXISTS_SUBLINK)</span>
+<span class="lineNum">     300 </span>                :            :                         {
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :                                 val = false;</span>
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :                         result = BoolGetDatum(val);</span>
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     305 </span>                :            :                 }
+<span class="lineNum">     306 </span>                :            : 
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == EXPR_SUBLINK)</span>
+<span class="lineNum">     308 </span>                :            :                 {
+<span class="lineNum">     309 </span>                :            :                         /* cannot allow multiple input tuples for EXPR sublink */
+<span class="lineNum">     310 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (found)</span>
+<span class="lineNum">     311 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">     312 </span>                :            :                                                 (errcode(ERRCODE_CARDINALITY_VIOLATION),
+<span class="lineNum">     313 </span>                :            :                                                  errmsg(&quot;more than one row returned by a subquery used as an expression&quot;)));
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">     315 </span>                :            : 
+<span class="lineNum">     316 </span>                :            :                         /*
+<span class="lineNum">     317 </span>                :            :                          * We need to copy the subplan's tuple in case the result is of
+<span class="lineNum">     318 </span>                :            :                          * pass-by-ref type --- our return value will point into this
+<span class="lineNum">     319 </span>                :            :                          * copied tuple!  Can't use the subplan's instance of the tuple
+<span class="lineNum">     320 </span>                :            :                          * since it won't still be valid after next ExecProcNode() call.
+<span class="lineNum">     321 </span>                :            :                          * node-&gt;curTuple keeps track of the copied tuple for eventual
+<span class="lineNum">     322 </span>                :            :                          * freeing.
+<span class="lineNum">     323 </span>                :            :                          */
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                         MemoryContextSwitchTo(econtext-&gt;ecxt_per_query_memory);</span>
+<span class="lineNum">     325 </span>                :            : 
+<span class="lineNum">     326 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (node-&gt;curTuple)</span>
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :                                 pfree(node-&gt;curTuple);</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                         node-&gt;curTuple = ExecCopySlotMemTuple(slot);</span>
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :                         MemoryContextSwitchTo(econtext-&gt;ecxt_per_query_memory);</span>
+<span class="lineNum">     331 </span>                :            : 
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :                         result = memtuple_getattr(node-&gt;curTuple, slot-&gt;tts_mt_bind, 1, isNull);</span>
+<span class="lineNum">     333 </span>                :            :                         /* keep scanning subplan to make sure there's only one tuple */
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     335 </span>                :            :                 }
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == ARRAY_SUBLINK)</span>
+<span class="lineNum">     338 </span>                :            :                 {
+<span class="lineNum">     339 </span>                :            :                         Datum           dvalue;
+<span class="lineNum">     340 </span>                :            :                         bool            disnull;
+<span class="lineNum">     341 </span>                :            : 
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">     343 </span>                :            :                         /* stash away current value */
+<span class="lineNum">     344 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(subplan-&gt;firstColType == slot-&gt;tts_tupleDescriptor-&gt;attrs[0]-&gt;atttypid);</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                         dvalue = slot_getattr(slot, 1, &amp;disnull);</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                         astate = accumArrayResult(astate, dvalue, disnull,</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                                                                           subplan-&gt;firstColType, oldcontext);</span>
+<span class="lineNum">     348 </span>                :            :                         /* keep scanning subplan to collect all values */
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     350 </span>                :            :                 }
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>                :            :                 /* cannot allow multiple input tuples for ROWCOMPARE sublink either */
+<span class="lineNum">     353 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == ROWCOMPARE_SUBLINK &amp;&amp; found)</span>
+<span class="lineNum">     354 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     355 </span>                :            :                                         (errcode(ERRCODE_CARDINALITY_VIOLATION),
+<span class="lineNum">     356 </span>                :            :                                          errmsg(&quot;more than one row returned by a subquery used as an expression&quot;)));
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :                 found = true;</span>
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            :                 /*
+<span class="lineNum">     361 </span>                :            :                  * For ALL, ANY, and ROWCOMPARE sublinks, load up the Params
+<span class="lineNum">     362 </span>                :            :                  * representing the columns of the sub-select, and then evaluate the
+<span class="lineNum">     363 </span>                :            :                  * combining expression.
+<span class="lineNum">     364 </span>                :            :                  */
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :                 col = 1;</span>
+<span class="lineNum">     366 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(plst, subplan-&gt;paramIds)</span>
+<span class="lineNum">     367 </span>                :            :                 {
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                         int                     paramid = lfirst_int(plst);</span>
+<span class="lineNum">     369 </span>                :            :                         ParamExecData *prmdata;
+<span class="lineNum">     370 </span>                :            : 
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                         prmdata = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">     372 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(prmdata-&gt;execPlan == NULL);</span>
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :                         prmdata-&gt;value = slot_getattr(slot, col, &amp;(prmdata-&gt;isnull));</span>
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :                         col++;</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     376 </span>                :            : 
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :                 rowresult = ExecEvalExprSwitchContext(node-&gt;testexpr, econtext,</span>
+<span class="lineNum">     378 </span>                :            :                                                                                           &amp;rownull, NULL);
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == ANY_SUBLINK)</span>
+<span class="lineNum">     381 </span>                :            :                 {
+<span class="lineNum">     382 </span>                :            :                         /* combine across rows per OR semantics */
+<span class="lineNum">     383 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (rownull)</span>
+<span class="lineNum">     384 </span>                :<span class="lineNoCov">          0 :                                 *isNull = true;</span>
+<span class="lineNum">     385 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (DatumGetBool(rowresult))</span>
+<span class="lineNum">     386 </span>                :            :                         {
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :                                 result = BoolGetDatum(true);</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :                                 *isNull = false;</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :                                 break;                  /* needn't look at any more rows */</span>
+<span class="lineNum">     390 </span>                :            :                         }
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     392 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (subLinkType == ALL_SUBLINK)</span>
+<span class="lineNum">     393 </span>                :            :                 {
+<span class="lineNum">     394 </span>                :            :                         /* combine across rows per AND semantics */
+<span class="lineNum">     395 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (rownull)</span>
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :                                 *isNull = true;</span>
+<span class="lineNum">     397 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (!DatumGetBool(rowresult))</span>
+<span class="lineNum">     398 </span>                :            :                         {
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :                                 result = BoolGetDatum(false);</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :                                 *isNull = false;</span>
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :                                 break;                  /* needn't look at any more rows */</span>
+<span class="lineNum">     402 </span>                :            :                         }
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     404 </span>                :            :                 else
+<span class="lineNum">     405 </span>                :            :                 {
+<span class="lineNum">     406 </span>                :            :                         /* must be ROWCOMPARE_SUBLINK */
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :                         result = rowresult;</span>
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :                         *isNull = rownull;</span>
+<span class="lineNum">     409 </span>                :            :                 }
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     411 </span>                :            : 
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     413 </span>                :            : 
+<span class="lineNum">     414 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subLinkType == ARRAY_SUBLINK)</span>
+<span class="lineNum">     415 </span>                :            :         {
+<span class="lineNum">     416 </span>                :            :                 /* We return the result in the caller's context */
+<span class="lineNum">     417 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (astate != NULL)</span>
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                         result = makeArrayResult(astate, oldcontext);</span>
+<span class="lineNum">     419 </span>                :            :                 else
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :                         result = PointerGetDatum(construct_empty_array(subplan-&gt;firstColType));</span>
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     422 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (!found)</span>
+<span class="lineNum">     423 </span>                :            :         {
+<span class="lineNum">     424 </span>                :            :                 /*
+<span class="lineNum">     425 </span>                :            :                  * deal with empty subplan result.      result/isNull were previously
+<span class="lineNum">     426 </span>                :            :                  * initialized correctly for all sublink types except EXPR and
+<span class="lineNum">     427 </span>                :            :                  * ROWCOMPARE; for those, return NULL.
+<span class="lineNum">     428 </span>                :            :                  */
+<span class="lineNum">     429 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == EXPR_SUBLINK ||</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 :                         subLinkType == ROWCOMPARE_SUBLINK)</span>
+<span class="lineNum">     431 </span>                :            :                 {
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :                         result = (Datum) 0;</span>
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                         *isNull = true;</span>
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     438 </span>                :            : }
+<span class="lineNum">     439 </span>                :            : 
+<span class="lineNum">     440 </span>                :            : /*
+<span class="lineNum">     441 </span>                :            :  * buildSubPlanHash: load hash table by scanning subplan output.
+<a name="442"><span class="lineNum">     442 </span>                :            :  */</a>
+<span class="lineNum">     443 </span>                :            : static void
+<span class="lineNum">     444 </span>                :            : buildSubPlanHash(SubPlanState *node, ExprContext *econtext)
+<span class="lineNum">     445 </span>                :            : {
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :         SubPlan    *subplan = (SubPlan *) node-&gt;xprstate.expr;</span>
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         PlanState  *planstate = node-&gt;planstate;</span>
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 :         int                     ncols = list_length(subplan-&gt;paramIds);</span>
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :         ExprContext *innerecontext = node-&gt;innerecontext;</span>
+<span class="lineNum">     450 </span>                :            :         MemoryContext oldcontext;
+<span class="lineNum">     451 </span>                :            :         int                     nbuckets;
+<span class="lineNum">     452 </span>                :            :         TupleTableSlot *slot;
+<span class="lineNum">     453 </span>                :            : 
+<span class="lineNum">     454 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(subplan-&gt;subLinkType == ANY_SUBLINK);</span>
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            :         /*
+<span class="lineNum">     457 </span>                :            :          * If we already had any hash tables, destroy 'em; then create empty hash
+<span class="lineNum">     458 </span>                :            :          * table(s).
+<span class="lineNum">     459 </span>                :            :          *
+<span class="lineNum">     460 </span>                :            :          * If we need to distinguish accurately between FALSE and UNKNOWN (i.e.,
+<span class="lineNum">     461 </span>                :            :          * NULL) results of the IN operation, then we have to store subplan output
+<span class="lineNum">     462 </span>                :            :          * rows that are partly or wholly NULL.  We store such rows in a separate
+<span class="lineNum">     463 </span>                :            :          * hash table that we expect will be much smaller than the main table. (We
+<span class="lineNum">     464 </span>                :            :          * can use hashing to eliminate partly-null rows that are not distinct. We
+<span class="lineNum">     465 </span>                :            :          * keep them separate to minimize the cost of the inevitable full-table
+<span class="lineNum">     466 </span>                :            :          * searches; see findPartialMatch.)
+<span class="lineNum">     467 </span>                :            :          *
+<span class="lineNum">     468 </span>                :            :          * If it's not necessary to distinguish FALSE and UNKNOWN, then we don't
+<span class="lineNum">     469 </span>                :            :          * need to store subplan output rows that contain NULL.
+<span class="lineNum">     470 </span>                :            :          */
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 :         MemoryContextReset(node-&gt;hashtablecxt);</span>
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :         node-&gt;hashtable = NULL;</span>
+<span class="lineNum">     473 </span>                :<span class="lineNoCov">          0 :         node-&gt;hashnulls = NULL;</span>
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :         node-&gt;havehashrows = false;</span>
+<span class="lineNum">     475 </span>                :<span class="lineNoCov">          0 :         node-&gt;havenullrows = false;</span>
+<span class="lineNum">     476 </span>                :            : 
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :         nbuckets = (int) ceil(planstate-&gt;plan-&gt;plan_rows);</span>
+<span class="lineNum">     478 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (nbuckets &lt; 1)</span>
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 :                 nbuckets = 1;</span>
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :         node-&gt;hashtable = BuildTupleHashTable(ncols,</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :                                                                                   node-&gt;keyColIdx,</span>
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :                                                                                   node-&gt;tab_eq_funcs,</span>
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                                                                                   node-&gt;tab_hash_funcs,</span>
+<span class="lineNum">     485 </span>                :<span class="lineNoCov">          0 :                                                                                   nbuckets,</span>
+<span class="lineNum">     486 </span>                :            :                                                                                   sizeof(TupleHashEntryData),
+<span class="lineNum">     487 </span>                :<span class="lineNoCov">          0 :                                                                                   node-&gt;hashtablecxt,</span>
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :                                                                                   node-&gt;hashtempcxt);</span>
+<span class="lineNum">     489 </span>                :            : 
+<span class="lineNum">     490 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!subplan-&gt;unknownEqFalse)</span>
+<span class="lineNum">     491 </span>                :            :         {
+<span class="lineNum">     492 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ncols == 1)</span>
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :                         nbuckets = 1;           /* there can only be one entry */</span>
+<span class="lineNum">     494 </span>                :            :                 else
+<span class="lineNum">     495 </span>                :            :                 {
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :                         nbuckets /= 16;</span>
+<span class="lineNum">     497 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (nbuckets &lt; 1)</span>
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :                                 nbuckets = 1;</span>
+<span class="lineNum">     499 </span>                :            :                 }
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                 node-&gt;hashnulls = BuildTupleHashTable(ncols,</span>
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                                                                                           node-&gt;keyColIdx,</span>
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :                                                                                           node-&gt;tab_eq_funcs,</span>
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :                                                                                           node-&gt;tab_hash_funcs,</span>
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :                                                                                           nbuckets,</span>
+<span class="lineNum">     505 </span>                :            :                                                                                           sizeof(TupleHashEntryData),
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :                                                                                           node-&gt;hashtablecxt,</span>
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :                                                                                           node-&gt;hashtempcxt);</span>
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     509 </span>                :            : 
+<span class="lineNum">     510 </span>                :            :         /*
+<span class="lineNum">     511 </span>                :            :          * We are probably in a short-lived expression-evaluation context. Switch
+<span class="lineNum">     512 </span>                :            :          * to the per-query context for manipulating the child plan.
+<span class="lineNum">     513 </span>                :            :          */
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :         oldcontext = MemoryContextSwitchTo(econtext-&gt;ecxt_per_query_memory);</span>
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>                :            :         /*
+<span class="lineNum">     517 </span>                :            :          * Reset subplan to start.
+<span class="lineNum">     518 </span>                :            :          */
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         ExecReScan(planstate, NULL);</span>
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>                :            :         /*
+<span class="lineNum">     522 </span>                :            :          * Scan the subplan and load the hash table(s).  Note that when there are
+<span class="lineNum">     523 </span>                :            :          * duplicate rows coming out of the sub-select, only one copy is stored.
+<span class="lineNum">     524 </span>                :            :          */
+<span class="lineNum">     525 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (slot = ExecProcNode(planstate);</span>
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :                  !TupIsNull(slot);</span>
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :                  slot = ExecProcNode(planstate))</span>
+<span class="lineNum">     528 </span>                :            :         {
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :                 int                     col = 1;</span>
+<span class="lineNum">     530 </span>                :            :                 ListCell   *plst;
+<span class="lineNum">     531 </span>                :            :                 bool            isnew;
+<span class="lineNum">     532 </span>                :            : 
+<span class="lineNum">     533 </span>                :            :                 /*
+<span class="lineNum">     534 </span>                :            :                  * Load up the Params representing the raw sub-select outputs, then
+<span class="lineNum">     535 </span>                :            :                  * form the projection tuple to store in the hashtable.
+<span class="lineNum">     536 </span>                :            :                  */
+<span class="lineNum">     537 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(plst, subplan-&gt;paramIds)</span>
+<span class="lineNum">     538 </span>                :            :                 {
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :                         int                     paramid = lfirst_int(plst);</span>
+<span class="lineNum">     540 </span>                :            :                         ParamExecData *prmdata;
+<span class="lineNum">     541 </span>                :            : 
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :                         prmdata = &amp;(innerecontext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">     543 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(prmdata-&gt;execPlan == NULL);</span>
+<span class="lineNum">     544 </span>                :<span class="lineNoCov">          0 :                         prmdata-&gt;value = slot_getattr(slot, col,</span>
+<span class="lineNum">     545 </span>                :<span class="lineNoCov">          0 :                                                                                   &amp;(prmdata-&gt;isnull));</span>
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :                         col++;</span>
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :                 slot = ExecProject(node-&gt;projRight, NULL);</span>
+<span class="lineNum">     549 </span>                :            : 
+<span class="lineNum">     550 </span>                :            :                 /*
+<span class="lineNum">     551 </span>                :            :                  * If result contains any nulls, store separately or not at all.
+<span class="lineNum">     552 </span>                :            :                  */
+<span class="lineNum">     553 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (slotNoNulls(slot))</span>
+<span class="lineNum">     554 </span>                :            :                 {
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                         (void) LookupTupleHashEntry(node-&gt;hashtable, slot, &amp;isnew);</span>
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 :                         node-&gt;havehashrows = true;</span>
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     558 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (node-&gt;hashnulls)</span>
+<span class="lineNum">     559 </span>                :            :                 {
+<span class="lineNum">     560 </span>                :<span class="lineNoCov">          0 :                         (void) LookupTupleHashEntry(node-&gt;hashnulls, slot, &amp;isnew);</span>
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                         node-&gt;havenullrows = true;</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            :                 /*
+<span class="lineNum">     565 </span>                :            :                  * Reset innerecontext after each inner tuple to free any memory used
+<span class="lineNum">     566 </span>                :            :                  * during ExecProject.
+<span class="lineNum">     567 </span>                :            :                  */
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                 ResetExprContext(innerecontext);</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>                :            :         /*
+<span class="lineNum">     572 </span>                :            :          * Since the projected tuples are in the sub-query's context and not the
+<span class="lineNum">     573 </span>                :            :          * main context, we'd better clear the tuple slot before there's any
+<span class="lineNum">     574 </span>                :            :          * chance of a reset of the sub-query's context.  Else we will have the
+<span class="lineNum">     575 </span>                :            :          * potential for a double free attempt.  (XXX possibly no longer needed,
+<span class="lineNum">     576 </span>                :            :          * but can't hurt.)
+<span class="lineNum">     577 </span>                :            :          */
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         ExecClearTuple(node-&gt;projRight-&gt;pi_slot);</span>
+<span class="lineNum">     579 </span>                :            : 
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     582 </span>                :            : 
+<span class="lineNum">     583 </span>                :            : /*
+<span class="lineNum">     584 </span>                :            :  * findPartialMatch: does the hashtable contain an entry that is not
+<span class="lineNum">     585 </span>                :            :  * provably distinct from the tuple?
+<span class="lineNum">     586 </span>                :            :  *
+<span class="lineNum">     587 </span>                :            :  * We have to scan the whole hashtable; we can't usefully use hashkeys
+<span class="lineNum">     588 </span>                :            :  * to guide probing, since we might get partial matches on tuples with
+<span class="lineNum">     589 </span>                :            :  * hashkeys quite unrelated to what we'd get from the given tuple.
+<span class="lineNum">     590 </span>                :            :  *
+<span class="lineNum">     591 </span>                :            :  * Caller must provide the equality functions to use, since in cross-type
+<span class="lineNum">     592 </span>                :            :  * cases these are different from the hashtable's internal functions.
+<a name="593"><span class="lineNum">     593 </span>                :            :  */</a>
+<span class="lineNum">     594 </span>                :            : static bool
+<span class="lineNum">     595 </span>                :            : findPartialMatch(TupleHashTable hashtable, TupleTableSlot *slot,
+<span class="lineNum">     596 </span>                :            :                                  FmgrInfo *eqfunctions)
+<span class="lineNum">     597 </span>                :            : {
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :         int                     numCols = hashtable-&gt;numCols;</span>
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :         AttrNumber *keyColIdx = hashtable-&gt;keyColIdx;</span>
+<span class="lineNum">     600 </span>                :            :         TupleHashIterator hashiter;
+<span class="lineNum">     601 </span>                :            :         TupleHashEntry entry;
+<span class="lineNum">     602 </span>                :            : 
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :         InitTupleHashIterator(hashtable, &amp;hashiter);</span>
+<span class="lineNum">     604 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while ((entry = ScanTupleHashTable(&amp;hashiter)) != NULL)</span>
+<span class="lineNum">     605 </span>                :            :         {
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                 ExecStoreMinimalTuple(entry-&gt;firstTuple, hashtable-&gt;tableslot, false);</span>
+<span class="lineNum">     607 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!execTuplesUnequal(slot, hashtable-&gt;tableslot,</span>
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                                                            numCols, keyColIdx,</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                                                            eqfunctions,</span>
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :                                                            hashtable-&gt;tempcxt))</span>
+<span class="lineNum">     611 </span>                :            :                 {
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                         TermTupleHashIterator(&amp;hashiter);</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     614 </span>                :            :                 }
+<span class="lineNum">     615 </span>                :            :         }
+<span class="lineNum">     616 </span>                :            :         /* No TermTupleHashIterator call needed here */
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     619 </span>                :            : 
+<span class="lineNum">     620 </span>                :            : /*
+<span class="lineNum">     621 </span>                :            :  * slotAllNulls: is the slot completely NULL?
+<span class="lineNum">     622 </span>                :            :  *
+<span class="lineNum">     623 </span>                :            :  * This does not test for dropped columns, which is OK because we only
+<span class="lineNum">     624 </span>                :            :  * use it on projected tuples.
+<a name="625"><span class="lineNum">     625 </span>                :            :  */</a>
+<span class="lineNum">     626 </span>                :            : static bool
+<span class="lineNum">     627 </span>                :            : slotAllNulls(TupleTableSlot *slot)
+<span class="lineNum">     628 </span>                :            : {
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :         int                     ncols = slot-&gt;tts_tupleDescriptor-&gt;natts;</span>
+<span class="lineNum">     630 </span>                :            :         int                     i;
+<span class="lineNum">     631 </span>                :            : 
+<span class="lineNum">     632 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 1; i &lt;= ncols; i++)</span>
+<span class="lineNum">     633 </span>                :            :         {
+<span class="lineNum">     634 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!slot_attisnull(slot, i))</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     639 </span>                :            : 
+<span class="lineNum">     640 </span>                :            : /*
+<span class="lineNum">     641 </span>                :            :  * slotNoNulls: is the slot entirely not NULL?
+<span class="lineNum">     642 </span>                :            :  *
+<span class="lineNum">     643 </span>                :            :  * This does not test for dropped columns, which is OK because we only
+<span class="lineNum">     644 </span>                :            :  * use it on projected tuples.
+<a name="645"><span class="lineNum">     645 </span>                :            :  */</a>
+<span class="lineNum">     646 </span>                :            : static bool
+<span class="lineNum">     647 </span>                :            : slotNoNulls(TupleTableSlot *slot)
+<span class="lineNum">     648 </span>                :            : {
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :         int                     ncols = slot-&gt;tts_tupleDescriptor-&gt;natts;</span>
+<span class="lineNum">     650 </span>                :            :         int                     i;
+<span class="lineNum">     651 </span>                :            : 
+<span class="lineNum">     652 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 1; i &lt;= ncols; i++)</span>
+<span class="lineNum">     653 </span>                :            :         {
+<span class="lineNum">     654 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (slot_attisnull(slot, i))</span>
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     657 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     659 </span>                :            : 
+<span class="lineNum">     660 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     661 </span>                :            :  *              ExecInitSubPlan
+<span class="lineNum">     662 </span>                :            :  *
+<span class="lineNum">     663 </span>                :            :  * Create a SubPlanState for a SubPlan; this is the SubPlan-specific part
+<span class="lineNum">     664 </span>                :            :  * of ExecInitExpr().  We split it out so that it can be used for InitPlans
+<span class="lineNum">     665 </span>                :            :  * as well as regular SubPlans.  Note that we don't link the SubPlan into
+<span class="lineNum">     666 </span>                :            :  * the parent's subPlan list, because that shouldn't happen for InitPlans.
+<span class="lineNum">     667 </span>                :            :  * Instead, ExecInitExpr() does that one part.
+<span class="lineNum">     668 </span>                :            :  * ----------------------------------------------------------------
+<a name="669"><span class="lineNum">     669 </span>                :            :  */</a>
+<span class="lineNum">     670 </span>                :            : SubPlanState *
+<span class="lineNum">     671 </span>                :            : ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
+<span class="lineNum">     672 </span>                :            : {
+<span class="lineNum">     673 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         SubPlanState *sstate = makeNode(SubPlanState);</span>
+<span class="lineNum">     674 </span>                :<span class="lineNoCov">          0 :         EState     *estate = parent-&gt;state;</span>
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;xprstate.evalfunc = (ExprStateEvalFunc) ExecSubPlan;</span>
+<span class="lineNum">     677 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;xprstate.expr = (Expr *) subplan;</span>
+<span class="lineNum">     678 </span>                :            : 
+<span class="lineNum">     679 </span>                :            :         /* Link the SubPlanState to already-initialized subplan */
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;planstate = (PlanState *) list_nth(estate-&gt;es_subplanstates,</span>
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 :                                                                                            subplan-&gt;plan_id - 1);</span>
+<span class="lineNum">     682 </span>                :            : 
+<span class="lineNum">     683 </span>                :            :         /* Initialize subexpressions */
+<span class="lineNum">     684 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;testexpr = ExecInitExpr((Expr *) subplan-&gt;testexpr, parent);</span>
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;args = (List *) ExecInitExpr((Expr *) subplan-&gt;args, parent);</span>
+<span class="lineNum">     686 </span>                :            : 
+<span class="lineNum">     687 </span>                :            :         /*
+<span class="lineNum">     688 </span>                :            :          * initialize my state
+<span class="lineNum">     689 </span>                :            :          */
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;curTuple = NULL;</span>
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;curArray = PointerGetDatum(NULL);</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;projLeft = NULL;</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;projRight = NULL;</span>
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;hashtable = NULL;</span>
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;hashnulls = NULL;</span>
+<span class="lineNum">     696 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;hashtablecxt = NULL;</span>
+<span class="lineNum">     697 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;hashtempcxt = NULL;</span>
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;innerecontext = NULL;</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;keyColIdx = NULL;</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;tab_hash_funcs = NULL;</span>
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;tab_eq_funcs = NULL;</span>
+<span class="lineNum">     702 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;lhs_hash_funcs = NULL;</span>
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :         sstate-&gt;cur_eq_funcs = NULL;</span>
+<span class="lineNum">     704 </span>                :            : 
+<span class="lineNum">     705 </span>                :            :         /*
+<span class="lineNum">     706 </span>                :            :          * If this plan is un-correlated or undirect correlated one and want to
+<span class="lineNum">     707 </span>                :            :          * set params for parent plan then mark parameters as needing evaluation.
+<span class="lineNum">     708 </span>                :            :          *
+<span class="lineNum">     709 </span>                :            :          * A CTE subplan's output parameter is never to be evaluated in the normal
+<span class="lineNum">     710 </span>                :            :          * way, so skip this in that case.
+<span class="lineNum">     711 </span>                :            :          *
+<span class="lineNum">     712 </span>                :            :          * Note that in the case of un-correlated subqueries we don't care about
+<span class="lineNum">     713 </span>                :            :          * setting parent-&gt;chgParam here: indices take care about it, for others -
+<span class="lineNum">     714 </span>                :            :          * it doesn't matter...
+<span class="lineNum">     715 </span>                :            :          */
+<span class="lineNum">     716 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;setParam != NIL &amp;&amp; subplan-&gt;subLinkType != CTE_SUBLINK)</span>
+<span class="lineNum">     717 </span>                :            :         {
+<span class="lineNum">     718 </span>                :            :                 ListCell   *lst;
+<span class="lineNum">     719 </span>                :            : 
+<span class="lineNum">     720 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(lst, subplan-&gt;setParam)</span>
+<span class="lineNum">     721 </span>                :            :                 {
+<span class="lineNum">     722 </span>                :<span class="lineNoCov">          0 :                         int                     paramid = lfirst_int(lst);</span>
+<span class="lineNum">     723 </span>                :<span class="lineNoCov">          0 :                         ParamExecData *prmExec = &amp;(estate-&gt;es_param_exec_vals[paramid]);</span>
+<span class="lineNum">     724 </span>                :            : 
+<span class="lineNum">     725 </span>                :            :                         /**
+<span class="lineNum">     726 </span>                :            :                          * If we need to evaluate a parameter, save the planstate to do so.
+<span class="lineNum">     727 </span>                :            :                          */
+<span class="lineNum">     728 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ((Gp_role != GP_ROLE_EXECUTE || !subplan-&gt;is_initplan))</span>
+<span class="lineNum">     729 </span>                :            :                         {
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                                 prmExec-&gt;execPlan = sstate;</span>
+<span class="lineNum">     731 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     732 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     734 </span>                :            : 
+<span class="lineNum">     735 </span>                :            :         /*
+<span class="lineNum">     736 </span>                :            :          * If we are going to hash the subquery output, initialize relevant stuff.
+<span class="lineNum">     737 </span>                :            :          * (We don't create the hashtable until needed, though.)
+<span class="lineNum">     738 </span>                :            :          */
+<span class="lineNum">     739 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;useHashTable)</span>
+<span class="lineNum">     740 </span>                :            :         {
+<span class="lineNum">     741 </span>                :            :                 int                     ncols,
+<span class="lineNum">     742 </span>                :            :                                         i;
+<span class="lineNum">     743 </span>                :            :                 TupleDesc       tupDesc;
+<span class="lineNum">     744 </span>                :            :                 TupleTableSlot *slot;
+<span class="lineNum">     745 </span>                :            :                 List       *oplist,
+<span class="lineNum">     746 </span>                :            :                                    *lefttlist,
+<span class="lineNum">     747 </span>                :            :                                    *righttlist,
+<span class="lineNum">     748 </span>                :            :                                    *leftptlist,
+<span class="lineNum">     749 </span>                :            :                                    *rightptlist;
+<span class="lineNum">     750 </span>                :            :                 ListCell   *l;
+<span class="lineNum">     751 </span>                :            : 
+<span class="lineNum">     752 </span>                :            :                 /* We need a memory context to hold the hash table(s) */
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;hashtablecxt =</span>
+<span class="lineNum">     754 </span>                :<span class="lineNoCov">          0 :                         AllocSetContextCreate(CurrentMemoryContext,</span>
+<span class="lineNum">     755 </span>                :            :                                                                   &quot;Subplan HashTable Context&quot;,
+<span class="lineNum">     756 </span>                :            :                                                                   ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     757 </span>                :            :                                                                   ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     758 </span>                :            :                                                                   ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     759 </span>                :            :                 /* and a small one for the hash tables to use as temp storage */
+<span class="lineNum">     760 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;hashtempcxt =</span>
+<span class="lineNum">     761 </span>                :<span class="lineNoCov">          0 :                         AllocSetContextCreate(CurrentMemoryContext,</span>
+<span class="lineNum">     762 </span>                :            :                                                                   &quot;Subplan HashTable Temp Context&quot;,
+<span class="lineNum">     763 </span>                :            :                                                                   ALLOCSET_SMALL_MINSIZE,
+<span class="lineNum">     764 </span>                :            :                                                                   ALLOCSET_SMALL_INITSIZE,
+<span class="lineNum">     765 </span>                :            :                                                                   ALLOCSET_SMALL_MAXSIZE);
+<span class="lineNum">     766 </span>                :            :                 /* and a short-lived exprcontext for function evaluation */
+<span class="lineNum">     767 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;innerecontext = CreateExprContext(estate);</span>
+<span class="lineNum">     768 </span>                :            :                 /* Silly little array of column numbers 1..n */
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :                 ncols = list_length(subplan-&gt;paramIds);</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;keyColIdx = (AttrNumber *) palloc(ncols * sizeof(AttrNumber));</span>
+<span class="lineNum">     771 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (i = 0; i &lt; ncols; i++)</span>
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                         sstate-&gt;keyColIdx[i] = i + 1;</span>
+<span class="lineNum">     773 </span>                :            : 
+<span class="lineNum">     774 </span>                :            :                 /*
+<span class="lineNum">     775 </span>                :            :                  * We use ExecProject to evaluate the lefthand and righthand
+<span class="lineNum">     776 </span>                :            :                  * expression lists and form tuples.  (You might think that we could
+<span class="lineNum">     777 </span>                :            :                  * use the sub-select's output tuples directly, but that is not the
+<span class="lineNum">     778 </span>                :            :                  * case if we had to insert any run-time coercions of the sub-select's
+<span class="lineNum">     779 </span>                :            :                  * output datatypes; anyway this avoids storing any resjunk columns
+<span class="lineNum">     780 </span>                :            :                  * that might be in the sub-select's output.) Run through the
+<span class="lineNum">     781 </span>                :            :                  * combining expressions to build tlists for the lefthand and
+<span class="lineNum">     782 </span>                :            :                  * righthand sides.  We need both the ExprState list (for ExecProject)
+<span class="lineNum">     783 </span>                :            :                  * and the underlying parse Exprs (for ExecTypeFromTL).
+<span class="lineNum">     784 </span>                :            :                  *
+<span class="lineNum">     785 </span>                :            :                  * We also extract the combining operators themselves to initialize
+<span class="lineNum">     786 </span>                :            :                  * the equality and hashing functions for the hash tables.
+<span class="lineNum">     787 </span>                :            :                  */
+<span class="lineNum">     788 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsA(sstate-&gt;testexpr-&gt;expr, OpExpr))</span>
+<span class="lineNum">     789 </span>                :            :                 {
+<span class="lineNum">     790 </span>                :            :                         /* single combining operator */
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                         oplist = list_make1(sstate-&gt;testexpr);</span>
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     793 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (and_clause((Node *) sstate-&gt;testexpr-&gt;expr))</span>
+<span class="lineNum">     794 </span>                :            :                 {
+<span class="lineNum">     795 </span>                :            :                         /* multiple combining operators */
+<span class="lineNum">     796 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(IsA(sstate-&gt;testexpr, BoolExprState));</span>
+<span class="lineNum">     797 </span>                :<span class="lineNoCov">          0 :                         oplist = ((BoolExprState *) sstate-&gt;testexpr)-&gt;args;</span>
+<span class="lineNum">     798 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     799 </span>                :            :                 else
+<span class="lineNum">     800 </span>                :            :                 {
+<span class="lineNum">     801 </span>                :            :                         /* shouldn't see anything else in a hashable subplan */
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;unrecognized testexpr type: %d&quot;,</span>
+<span class="lineNum">     803 </span>                :            :                                  (int) nodeTag(sstate-&gt;testexpr-&gt;expr));
+<span class="lineNum">     804 </span>                :<span class="lineNoCov">          0 :                         oplist = NIL;           /* keep compiler quiet */</span>
+<span class="lineNum">     805 </span>                :            :                 }
+<span class="lineNum">     806 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(list_length(oplist) == ncols);</span>
+<span class="lineNum">     807 </span>                :            : 
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                 lefttlist = righttlist = NIL;</span>
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :                 leftptlist = rightptlist = NIL;</span>
+<span class="lineNum">     810 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;tab_hash_funcs = (FmgrInfo *) palloc(ncols * sizeof(FmgrInfo));</span>
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;tab_eq_funcs = (FmgrInfo *) palloc(ncols * sizeof(FmgrInfo));</span>
+<span class="lineNum">     812 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;lhs_hash_funcs = (FmgrInfo *) palloc(ncols * sizeof(FmgrInfo));</span>
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;cur_eq_funcs = (FmgrInfo *) palloc(ncols * sizeof(FmgrInfo));</span>
+<span class="lineNum">     814 </span>                :<span class="lineNoCov">          0 :                 i = 1;</span>
+<span class="lineNum">     815 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(l, oplist)</span>
+<span class="lineNum">     816 </span>                :            :                 {
+<span class="lineNum">     817 </span>                :<span class="lineNoCov">          0 :                         FuncExprState *fstate = (FuncExprState *) lfirst(l);</span>
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :                         OpExpr     *opexpr = (OpExpr *) fstate-&gt;xprstate.expr;</span>
+<span class="lineNum">     819 </span>                :            :                         ExprState  *exstate;
+<span class="lineNum">     820 </span>                :            :                         Expr       *expr;
+<span class="lineNum">     821 </span>                :            :                         TargetEntry *tle;
+<span class="lineNum">     822 </span>                :            :                         GenericExprState *tlestate;
+<span class="lineNum">     823 </span>                :            :                         Oid                     rhs_eq_oper;
+<span class="lineNum">     824 </span>                :            :                         Oid                     left_hashfn;
+<span class="lineNum">     825 </span>                :            :                         Oid                     right_hashfn;
+<span class="lineNum">     826 </span>                :            : 
+<span class="lineNum">     827 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(IsA(fstate, FuncExprState));</span>
+<span class="lineNum">     828 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(IsA(opexpr, OpExpr));</span>
+<span class="lineNum">     829 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(list_length(fstate-&gt;args) == 2);</span>
+<span class="lineNum">     830 </span>                :            : 
+<span class="lineNum">     831 </span>                :            :                         /* Process lefthand argument */
+<span class="lineNum">     832 </span>                :<span class="lineNoCov">          0 :                         exstate = (ExprState *) linitial(fstate-&gt;args);</span>
+<span class="lineNum">     833 </span>                :<span class="lineNoCov">          0 :                         expr = exstate-&gt;expr;</span>
+<span class="lineNum">     834 </span>                :<span class="lineNoCov">          0 :                         tle = makeTargetEntry(expr,</span>
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :                                                                   i,</span>
+<span class="lineNum">     836 </span>                :            :                                                                   NULL,
+<span class="lineNum">     837 </span>                :            :                                                                   false);
+<span class="lineNum">     838 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         tlestate = makeNode(GenericExprState);</span>
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                         tlestate-&gt;xprstate.expr = (Expr *) tle;</span>
+<span class="lineNum">     840 </span>                :<span class="lineNoCov">          0 :                         tlestate-&gt;xprstate.evalfunc = NULL;</span>
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :                         tlestate-&gt;arg = exstate;</span>
+<span class="lineNum">     842 </span>                :<span class="lineNoCov">          0 :                         lefttlist = lappend(lefttlist, tlestate);</span>
+<span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :                         leftptlist = lappend(leftptlist, tle);</span>
+<span class="lineNum">     844 </span>                :            : 
+<span class="lineNum">     845 </span>                :            :                         /* Process righthand argument */
+<span class="lineNum">     846 </span>                :<span class="lineNoCov">          0 :                         exstate = (ExprState *) lsecond(fstate-&gt;args);</span>
+<span class="lineNum">     847 </span>                :<span class="lineNoCov">          0 :                         expr = exstate-&gt;expr;</span>
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :                         tle = makeTargetEntry(expr,</span>
+<span class="lineNum">     849 </span>                :<span class="lineNoCov">          0 :                                                                   i,</span>
+<span class="lineNum">     850 </span>                :            :                                                                   NULL,
+<span class="lineNum">     851 </span>                :            :                                                                   false);
+<span class="lineNum">     852 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         tlestate = makeNode(GenericExprState);</span>
+<span class="lineNum">     853 </span>                :<span class="lineNoCov">          0 :                         tlestate-&gt;xprstate.expr = (Expr *) tle;</span>
+<span class="lineNum">     854 </span>                :<span class="lineNoCov">          0 :                         tlestate-&gt;xprstate.evalfunc = NULL;</span>
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :                         tlestate-&gt;arg = exstate;</span>
+<span class="lineNum">     856 </span>                :<span class="lineNoCov">          0 :                         righttlist = lappend(righttlist, tlestate);</span>
+<span class="lineNum">     857 </span>                :<span class="lineNoCov">          0 :                         rightptlist = lappend(rightptlist, tle);</span>
+<span class="lineNum">     858 </span>                :            : 
+<span class="lineNum">     859 </span>                :            :                         /* Lookup the equality function (potentially cross-type) */
+<span class="lineNum">     860 </span>                :<span class="lineNoCov">          0 :                         fmgr_info(opexpr-&gt;opfuncid, &amp;sstate-&gt;cur_eq_funcs[i - 1]);</span>
+<span class="lineNum">     861 </span>                :<span class="lineNoCov">          0 :                         sstate-&gt;cur_eq_funcs[i - 1].fn_expr = (Node *) opexpr;</span>
+<span class="lineNum">     862 </span>                :            : 
+<span class="lineNum">     863 </span>                :            :                         /* Look up the equality function for the RHS type */
+<span class="lineNum">     864 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!get_compatible_hash_operators(opexpr-&gt;opno,</span>
+<span class="lineNum">     865 </span>                :            :                                                                                            NULL, &amp;rhs_eq_oper))
+<span class="lineNum">     866 </span>                :<span class="lineNoCov">          0 :                                 elog(ERROR, &quot;could not find compatible hash operator for operator %u&quot;,</span>
+<span class="lineNum">     867 </span>                :            :                                          opexpr-&gt;opno);
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :                         fmgr_info(get_opcode(rhs_eq_oper), &amp;sstate-&gt;tab_eq_funcs[i - 1]);</span>
+<span class="lineNum">     869 </span>                :            : 
+<span class="lineNum">     870 </span>                :            :                         /* Lookup the associated hash functions */
+<span class="lineNum">     871 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!get_op_hash_functions(opexpr-&gt;opno,</span>
+<span class="lineNum">     872 </span>                :            :                                                                            &amp;left_hashfn, &amp;right_hashfn))
+<span class="lineNum">     873 </span>                :<span class="lineNoCov">          0 :                                 elog(ERROR, &quot;could not find hash function for hash operator %u&quot;,</span>
+<span class="lineNum">     874 </span>                :            :                                          opexpr-&gt;opno);
+<span class="lineNum">     875 </span>                :<span class="lineNoCov">          0 :                         fmgr_info(left_hashfn, &amp;sstate-&gt;lhs_hash_funcs[i - 1]);</span>
+<span class="lineNum">     876 </span>                :<span class="lineNoCov">          0 :                         fmgr_info(right_hashfn, &amp;sstate-&gt;tab_hash_funcs[i - 1]);</span>
+<span class="lineNum">     877 </span>                :            : 
+<span class="lineNum">     878 </span>                :<span class="lineNoCov">          0 :                         i++;</span>
+<span class="lineNum">     879 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     880 </span>                :            : 
+<span class="lineNum">     881 </span>                :            :                 /*
+<span class="lineNum">     882 </span>                :            :                  * Construct tupdescs, slots and projection nodes for left and right
+<span class="lineNum">     883 </span>                :            :                  * sides.  The lefthand expressions will be evaluated in the parent
+<span class="lineNum">     884 </span>                :            :                  * plan node's exprcontext, which we don't have access to here.
+<span class="lineNum">     885 </span>                :            :                  * Fortunately we can just pass NULL for now and fill it in later
+<span class="lineNum">     886 </span>                :            :                  * (hack alert!).  The righthand expressions will be evaluated in our
+<span class="lineNum">     887 </span>                :            :                  * own innerecontext.
+<span class="lineNum">     888 </span>                :            :                  */
+<span class="lineNum">     889 </span>                :<span class="lineNoCov">          0 :                 tupDesc = ExecTypeFromTL(leftptlist, false);</span>
+<span class="lineNum">     890 </span>                :<span class="lineNoCov">          0 :                 slot = ExecInitExtraTupleSlot(estate);</span>
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                 ExecSetSlotDescriptor(slot, tupDesc);</span>
+<span class="lineNum">     892 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;projLeft = ExecBuildProjectionInfo(lefttlist,</span>
+<span class="lineNum">     893 </span>                :            :                                                                                                    NULL,
+<span class="lineNum">     894 </span>                :<span class="lineNoCov">          0 :                                                                                                    slot,</span>
+<span class="lineNum">     895 </span>                :            :                                                                                                    NULL);
+<span class="lineNum">     896 </span>                :            : 
+<span class="lineNum">     897 </span>                :<span class="lineNoCov">          0 :                 tupDesc = ExecTypeFromTL(rightptlist, false);</span>
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :                 slot = ExecInitExtraTupleSlot(estate);</span>
+<span class="lineNum">     899 </span>                :<span class="lineNoCov">          0 :                 ExecSetSlotDescriptor(slot, tupDesc);</span>
+<span class="lineNum">     900 </span>                :<span class="lineNoCov">          0 :                 sstate-&gt;projRight = ExecBuildProjectionInfo(righttlist,</span>
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                                                                                                         sstate-&gt;innerecontext,</span>
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :                                                                                                         slot,</span>
+<span class="lineNum">     903 </span>                :            :                                                                                                         NULL);
+<span class="lineNum">     904 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     905 </span>                :            : 
+<span class="lineNum">     906 </span>                :<span class="lineNoCov">          0 :         return sstate;</span>
+<span class="lineNum">     907 </span>                :            : }
+<span class="lineNum">     908 </span>                :            : 
+<span class="lineNum">     909 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     910 </span>                :            :  *              ExecSetParamPlan
+<span class="lineNum">     911 </span>                :            :  *
+<span class="lineNum">     912 </span>                :            :  *              Executes an InitPlan subplan and sets its output parameters.
+<span class="lineNum">     913 </span>                :            :  *
+<span class="lineNum">     914 </span>                :            :  * This is called from ExecEvalParam() when the value of a PARAM_EXEC
+<span class="lineNum">     915 </span>                :            :  * parameter is requested and the param's execPlan field is set (indicating
+<span class="lineNum">     916 </span>                :            :  * that the param has not yet been evaluated).  This allows lazy evaluation
+<span class="lineNum">     917 </span>                :            :  * of initplans: we don't run the subplan until/unless we need its output.
+<span class="lineNum">     918 </span>                :            :  * Note that this routine MUST clear the execPlan fields of the plan's
+<span class="lineNum">     919 </span>                :            :  * output parameters after evaluating them!
+<span class="lineNum">     920 </span>                :            :  * ----------------------------------------------------------------
+<span class="lineNum">     921 </span>                :            :  */
+<span class="lineNum">     922 </span>                :            : 
+<span class="lineNum">     923 </span>                :            : /*
+<span class="lineNum">     924 </span>                :            :  * Greenplum Database Changes:
+<span class="lineNum">     925 </span>                :            :  * In the case where this is running on the dispatcher, and it's a parallel dispatch
+<span class="lineNum">     926 </span>                :            :  * subplan, we need to dispatch the query to the qExecs as well, like in ExecutorRun.
+<span class="lineNum">     927 </span>                :            :  * except in this case we don't have to worry about insert statements.
+<span class="lineNum">     928 </span>                :            :  * In order to serialize the parameters (including PARAM_EXEC parameters that
+<span class="lineNum">     929 </span>                :            :  * are converted into PARAM_EXEC_REMOTE parameters, I had to add a parameter to this
+<span class="lineNum">     930 </span>                :            :  * function: ParamListInfo p.  This may be NULL in the non-dispatch case.
+<span class="lineNum">     931 </span>                :            :  */
+<a name="932"><span class="lineNum">     932 </span>                :            : </a>
+<span class="lineNum">     933 </span>                :            : void
+<span class="lineNum">     934 </span>                :            : ExecSetParamPlan(SubPlanState *node, ExprContext *econtext, QueryDesc *queryDesc)
+<span class="lineNum">     935 </span>                :            : {
+<span class="lineNum">     936 </span>                :<span class="lineCov">          1 :         SubPlan    *subplan = (SubPlan *) node-&gt;xprstate.expr;</span>
+<span class="lineNum">     937 </span>                :<span class="lineCov">          1 :         PlanState  *planstate = node-&gt;planstate;</span>
+<span class="lineNum">     938 </span>                :<span class="lineCov">          1 :         SubLinkType subLinkType = subplan-&gt;subLinkType;</span>
+<span class="lineNum">     939 </span>                :            :         MemoryContext oldcontext;
+<span class="lineNum">     940 </span>                :            :         TupleTableSlot *slot;
+<span class="lineNum">     941 </span>                :            :         ListCell   *l;
+<span class="lineNum">     942 </span>                :<span class="lineCov">          1 :         bool            found = false;</span>
+<span class="lineNum">     943 </span>                :<span class="lineCov">          1 :         ArrayBuildState *astate = NULL;</span>
+<span class="lineNum">     944 </span>                :<span class="lineCov">          1 :         Size            savepeakspace = MemoryContextGetPeakSpace(planstate-&gt;state-&gt;es_query_cxt);</span>
+<span class="lineNum">     945 </span>                :            : 
+<span class="lineNum">     946 </span>                :            :         bool            needDtxTwoPhase;
+<span class="lineNum">     947 </span>                :<span class="lineCov">          1 :         bool            shouldDispatch = false;</span>
+<span class="lineNum">     948 </span>                :<span class="lineCov">          1 :         volatile bool shouldTeardownInterconnect = false;</span>
+<span class="lineNum">     949 </span>                :<span class="lineCov">          1 :         volatile bool explainRecvStats = false;</span>
+<span class="lineNum">     950 </span>                :            : 
+<span class="lineNum">     951 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          1 :         if (Gp_role == GP_ROLE_DISPATCH &amp;&amp;</span>
+<span class="lineNum">     952 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :                 planstate != NULL &amp;&amp;</span>
+<span class="lineNum">     953 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :                 planstate-&gt;plan != NULL &amp;&amp;</span>
+<span class="lineNum">     954 </span>                :<span class="lineCov">          1 :                 planstate-&gt;plan-&gt;dispatch == DISPATCH_PARALLEL)</span>
+<span class="lineNum">     955 </span>                :<span class="lineCov">          1 :                 shouldDispatch = true;</span>
+<span class="lineNum">     956 </span>                :            : 
+<span class="lineNum">     957 </span>                :<span class="lineCov">          1 :         planstate-&gt;state-&gt;currentSubplanLevel++;</span>
+<span class="lineNum">     958 </span>                :            : 
+<span class="lineNum">     959 </span>                :            :         /*
+<span class="lineNum">     960 </span>                :            :          * Reset memory high-water mark so EXPLAIN ANALYZE can report each
+<span class="lineNum">     961 </span>                :            :          * root slice's usage separately.
+<span class="lineNum">     962 </span>                :            :          */
+<span class="lineNum">     963 </span>                :<span class="lineCov">          1 :         MemoryContextSetPeakSpace(planstate-&gt;state-&gt;es_query_cxt, 0);</span>
+<span class="lineNum">     964 </span>                :            : 
+<span class="lineNum">     965 </span>                :            :         /*
+<span class="lineNum">     966 </span>                :            :          * Need a try/catch block here so that if an ereport is called from
+<span class="lineNum">     967 </span>                :            :          * within ExecutePlan, we can clean up by calling CdbCheckDispatchResult.
+<span class="lineNum">     968 </span>                :            :          * This cleans up the asynchronous commands running through the threads launched from
+<span class="lineNum">     969 </span>                :            :          * CdbDispatchCommand.
+<span class="lineNum">     970 </span>                :            :          */
+<span class="lineNum">     971 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          2 : PG_TRY();</span>
+<span class="lineNum">     972 </span>                :            : {
+<span class="lineNum">     973 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :         if (shouldDispatch)</span>
+<span class="lineNum">     974 </span>                :            :         {                       
+<span class="lineNum">     975 </span>                :<span class="lineCov">          1 :                 needDtxTwoPhase = isCurrentDtxTwoPhase();</span>
+<span class="lineNum">     976 </span>                :            : 
+<span class="lineNum">     977 </span>                :            :                 /*
+<span class="lineNum">     978 </span>                :            :                  * This call returns after launching the threads that send the
+<span class="lineNum">     979 </span>                :            :                  * command to the appropriate segdbs.  It does not wait for them
+<span class="lineNum">     980 </span>                :            :                  * to finish unless an error is detected before all are dispatched.
+<span class="lineNum">     981 </span>                :            :                  */
+<span class="lineNum">     982 </span>                :<span class="lineCov">          1 :                 CdbDispatchPlan(queryDesc, needDtxTwoPhase, true, queryDesc-&gt;estate-&gt;dispatcherState);</span>
+<span class="lineNum">     983 </span>                :            : 
+<span class="lineNum">     984 </span>                :            :                 /*
+<span class="lineNum">     985 </span>                :            :                  * Set up the interconnect for execution of the initplan root slice.
+<span class="lineNum">     986 </span>                :            :                  */
+<span class="lineNum">     987 </span>                :<span class="lineCov">          1 :                 shouldTeardownInterconnect = true;</span>
+<span class="lineNum">     988 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1 time"> + </span>]:<span class="lineCov">          1 :                 Assert(!(queryDesc-&gt;estate-&gt;interconnect_context));</span>
+<span class="lineNum">     989 </span>                :<span class="lineCov">          1 :                 SetupInterconnect(queryDesc-&gt;estate);</span>
+<span class="lineNum">     990 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineCov">          1 :                 Assert((queryDesc-&gt;estate-&gt;interconnect_context));</span>
+<span class="lineNum">     991 </span>                :            : 
+<span class="lineNum">     992 </span>                :<span class="lineNoCov">          0 :                 ExecUpdateTransportState(planstate, queryDesc-&gt;estate-&gt;interconnect_context);</span>
+<span class="lineNum">     993 </span>                :            : 
+<span class="lineNum">     994 </span>                :            :                 /*
+<span class="lineNum">     995 </span>                :            :                  * MPP-7504/MPP-7448: the pre-dispatch function evaluator
+<span class="lineNum">     996 </span>                :            :                  * may mess up our snapshot-sync mechanism. So we've
+<span class="lineNum">     997 </span>                :            :                  * called verify_shared_snapshot() down in the dispatcher.
+<span class="lineNum">     998 </span>                :            :                  */
+<span class="lineNum">     999 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (queryDesc-&gt;extended_query)</span>
+<span class="lineNum">    1000 </span>                :            :                 {
+<span class="lineNum">    1001 </span>                :            :                         /*
+<span class="lineNum">    1002 </span>                :            :                          * We rewind the segmateSync value since the InitPlan can
+<span class="lineNum">    1003 </span>                :            :                          * share the same value with its parent plan. See MPP-4504.
+<span class="lineNum">    1004 </span>                :            :                          */
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                         DtxContextInfo_RewindSegmateSync();</span>
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1007 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1008 </span>                :            : 
+<span class="lineNum">    1009 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subLinkType == ANY_SUBLINK ||</span>
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :                 subLinkType == ALL_SUBLINK)</span>
+<span class="lineNum">    1011 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;ANY/ALL subselect unsupported as initplan&quot;);</span>
+<span class="lineNum">    1012 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subLinkType == CTE_SUBLINK)</span>
+<span class="lineNum">    1013 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;CTE subplans should not be executed via ExecSetParamPlan&quot;);</span>
+<span class="lineNum">    1014 </span>                :            : 
+<span class="lineNum">    1015 </span>                :            :         /*
+<span class="lineNum">    1016 </span>                :            :          * Must switch to per-query memory context.
+<span class="lineNum">    1017 </span>                :            :          */
+<span class="lineNum">    1018 </span>                :<span class="lineNoCov">          0 :         oldcontext = MemoryContextSwitchTo(econtext-&gt;ecxt_per_query_memory);</span>
+<span class="lineNum">    1019 </span>                :            : 
+<span class="lineNum">    1020 </span>                :            :         /*
+<span class="lineNum">    1021 </span>                :            :          * Run the plan.  (If it needs to be rescanned, the first ExecProcNode
+<span class="lineNum">    1022 </span>                :            :          * call will take care of that.)
+<span class="lineNum">    1023 </span>                :            :          */
+<span class="lineNum">    1024 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (slot = ExecProcNode(planstate);</span>
+<span class="lineNum">    1025 </span>                :<span class="lineNoCov">          0 :                  !TupIsNull(slot);</span>
+<span class="lineNum">    1026 </span>                :<span class="lineNoCov">          0 :                  slot = ExecProcNode(planstate))</span>
+<span class="lineNum">    1027 </span>                :            :         {
+<span class="lineNum">    1028 </span>                :<span class="lineNoCov">          0 :                 int                     i = 1;</span>
+<span class="lineNum">    1029 </span>                :            : 
+<span class="lineNum">    1030 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == EXISTS_SUBLINK || subLinkType == NOT_EXISTS_SUBLINK)</span>
+<span class="lineNum">    1031 </span>                :            :                 {
+<span class="lineNum">    1032 </span>                :            :                         /* There can be only one setParam... */
+<span class="lineNum">    1033 </span>                :<span class="lineNoCov">          0 :                         int                     paramid = linitial_int(subplan-&gt;setParam);</span>
+<span class="lineNum">    1034 </span>                :<span class="lineNoCov">          0 :                         ParamExecData *prm = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">    1035 </span>                :            : 
+<span class="lineNum">    1036 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;execPlan = NULL;</span>
+<span class="lineNum">    1037 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (subLinkType == NOT_EXISTS_SUBLINK)</span>
+<span class="lineNum">    1038 </span>                :<span class="lineNoCov">          0 :                                 prm-&gt;value = BoolGetDatum(false);</span>
+<span class="lineNum">    1039 </span>                :            :                         else
+<span class="lineNum">    1040 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;value = BoolGetDatum(true);</span>
+<span class="lineNum">    1041 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;isnull = false;</span>
+<span class="lineNum">    1042 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">    1043 </span>                :            : 
+<span class="lineNum">    1044 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (shouldDispatch)</span>
+<span class="lineNum">    1045 </span>                :            :                         {
+<span class="lineNum">    1046 </span>                :            :                                 /* Tell MPP we're done with this plan. */
+<span class="lineNum">    1047 </span>                :<span class="lineNoCov">          0 :                                 ExecSquelchNode(planstate);</span>
+<span class="lineNum">    1048 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1049 </span>                :            : 
+<span class="lineNum">    1050 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">    1051 </span>                :            :                 }
+<span class="lineNum">    1052 </span>                :            : 
+<span class="lineNum">    1053 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == ARRAY_SUBLINK)</span>
+<span class="lineNum">    1054 </span>                :            :                 {
+<span class="lineNum">    1055 </span>                :            :                         Datum           dvalue;
+<span class="lineNum">    1056 </span>                :            :                         bool            disnull;
+<span class="lineNum">    1057 </span>                :            : 
+<span class="lineNum">    1058 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">    1059 </span>                :            :                         /* stash away current value */
+<span class="lineNum">    1060 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(subplan-&gt;firstColType == slot-&gt;tts_tupleDescriptor-&gt;attrs[0]-&gt;atttypid);</span>
+<span class="lineNum">    1061 </span>                :<span class="lineNoCov">          0 :                         dvalue = slot_getattr(slot, 1, &amp;disnull);</span>
+<span class="lineNum">    1062 </span>                :<span class="lineNoCov">          0 :                         astate = accumArrayResult(astate, dvalue, disnull,</span>
+<span class="lineNum">    1063 </span>                :<span class="lineNoCov">          0 :                                                                           subplan-&gt;firstColType, oldcontext);</span>
+<span class="lineNum">    1064 </span>                :            :                         /* keep scanning subplan to collect all values */
+<span class="lineNum">    1065 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">    1066 </span>                :            :                 }
+<span class="lineNum">    1067 </span>                :            : 
+<span class="lineNum">    1068 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (found &amp;&amp;</span>
+<span class="lineNum">    1069 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         (subLinkType == EXPR_SUBLINK ||</span>
+<span class="lineNum">    1070 </span>                :<span class="lineNoCov">          0 :                          subLinkType == ROWCOMPARE_SUBLINK))</span>
+<span class="lineNum">    1071 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">    1072 </span>                :            :                                         (errcode(ERRCODE_CARDINALITY_VIOLATION),
+<span class="lineNum">    1073 </span>                :            :                                          errmsg(&quot;more than one row returned by a subquery used as an expression&quot;)));
+<span class="lineNum">    1074 </span>                :            : 
+<span class="lineNum">    1075 </span>                :<span class="lineNoCov">          0 :                 found = true;</span>
+<span class="lineNum">    1076 </span>                :            : 
+<span class="lineNum">    1077 </span>                :            :                 /*
+<span class="lineNum">    1078 </span>                :            :                  * We need to copy the subplan's tuple into our own context, in case
+<span class="lineNum">    1079 </span>                :            :                  * any of the params are pass-by-ref type --- the pointers stored in
+<span class="lineNum">    1080 </span>                :            :                  * the param structs will point at this copied tuple! node-&gt;curTuple
+<span class="lineNum">    1081 </span>                :            :                  * keeps track of the copied tuple for eventual freeing.
+<span class="lineNum">    1082 </span>                :            :                  */
+<span class="lineNum">    1083 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;curTuple)</span>
+<span class="lineNum">    1084 </span>                :<span class="lineNoCov">          0 :                         pfree(node-&gt;curTuple);</span>
+<span class="lineNum">    1085 </span>                :<span class="lineNoCov">          0 :                 node-&gt;curTuple = ExecCopySlotMemTuple(slot);</span>
+<span class="lineNum">    1086 </span>                :            : 
+<span class="lineNum">    1087 </span>                :            :                 /*
+<span class="lineNum">    1088 </span>                :            :                  * Now set all the setParam params from the columns of the tuple
+<span class="lineNum">    1089 </span>                :            :                  */
+<span class="lineNum">    1090 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(l, subplan-&gt;setParam)</span>
+<span class="lineNum">    1091 </span>                :            :                 {
+<span class="lineNum">    1092 </span>                :<span class="lineNoCov">          0 :                         int                     paramid = lfirst_int(l);</span>
+<span class="lineNum">    1093 </span>                :<span class="lineNoCov">          0 :                         ParamExecData *prm = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">    1094 </span>                :            : 
+<span class="lineNum">    1095 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;execPlan = NULL;</span>
+<span class="lineNum">    1096 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;value = memtuple_getattr(node-&gt;curTuple, slot-&gt;tts_mt_bind, i, &amp;(prm-&gt;isnull));</span>
+<span class="lineNum">    1097 </span>                :<span class="lineNoCov">          0 :                         i++;</span>
+<span class="lineNum">    1098 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1099 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1100 </span>                :            : 
+<span class="lineNum">    1101 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!found)</span>
+<span class="lineNum">    1102 </span>                :            :         {
+<span class="lineNum">    1103 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subLinkType == EXISTS_SUBLINK || subLinkType == NOT_EXISTS_SUBLINK)</span>
+<span class="lineNum">    1104 </span>                :            :                 {
+<span class="lineNum">    1105 </span>                :            :                         /* There can be only one setParam... */
+<span class="lineNum">    1106 </span>                :<span class="lineNoCov">          0 :                         int                     paramid = linitial_int(subplan-&gt;setParam);</span>
+<span class="lineNum">    1107 </span>                :<span class="lineNoCov">          0 :                         ParamExecData *prm = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">    1108 </span>                :            : 
+<span class="lineNum">    1109 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;execPlan = NULL;</span>
+<span class="lineNum">    1110 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (subLinkType == NOT_EXISTS_SUBLINK)</span>
+<span class="lineNum">    1111 </span>                :<span class="lineNoCov">          0 :                                 prm-&gt;value = BoolGetDatum(true);</span>
+<span class="lineNum">    1112 </span>                :            :                         else
+<span class="lineNum">    1113 </span>                :<span class="lineNoCov">          0 :                                 prm-&gt;value = BoolGetDatum(false);</span>
+<span class="lineNum">    1114 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;isnull = false;</span>
+<span class="lineNum">    1115 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1116 </span>                :            :                 else
+<span class="lineNum">    1117 </span>                :            :                 {
+<span class="lineNum">    1118 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(l, subplan-&gt;setParam)</span>
+<span class="lineNum">    1119 </span>                :            :                         {
+<span class="lineNum">    1120 </span>                :<span class="lineNoCov">          0 :                                 int                     paramid = lfirst_int(l);</span>
+<span class="lineNum">    1121 </span>                :<span class="lineNoCov">          0 :                                 ParamExecData *prm = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">    1122 </span>                :            : 
+<span class="lineNum">    1123 </span>                :<span class="lineNoCov">          0 :                                 prm-&gt;execPlan = NULL;</span>
+<span class="lineNum">    1124 </span>                :<span class="lineNoCov">          0 :                                 prm-&gt;value = (Datum) 0;</span>
+<span class="lineNum">    1125 </span>                :<span class="lineNoCov">          0 :                                 prm-&gt;isnull = true;</span>
+<span class="lineNum">    1126 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">    1127 </span>                :            :                 }
+<span class="lineNum">    1128 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1129 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (subLinkType == ARRAY_SUBLINK)</span>
+<span class="lineNum">    1130 </span>                :            :         {
+<span class="lineNum">    1131 </span>                :            :                 /* There can be only one setParam... */
+<span class="lineNum">    1132 </span>                :<span class="lineNoCov">          0 :                 int                     paramid = linitial_int(subplan-&gt;setParam);</span>
+<span class="lineNum">    1133 </span>                :<span class="lineNoCov">          0 :                 ParamExecData *prm = &amp;(econtext-&gt;ecxt_param_exec_vals[paramid]);</span>
+<span class="lineNum">    1134 </span>                :            : 
+<span class="lineNum">    1135 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(astate != NULL);</span>
+<span class="lineNum">    1136 </span>                :<span class="lineNoCov">          0 :                 prm-&gt;execPlan = NULL;</span>
+<span class="lineNum">    1137 </span>                :            :                 /* We build the result in query context so it won't disappear */
+<span class="lineNum">    1138 </span>                :<span class="lineNoCov">          0 :                 prm-&gt;value = makeArrayResult(astate, econtext-&gt;ecxt_per_query_memory);</span>
+<span class="lineNum">    1139 </span>                :<span class="lineNoCov">          0 :                 prm-&gt;isnull = false;</span>
+<span class="lineNum">    1140 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1141 </span>                :            : 
+<span class="lineNum">    1142 </span>                :            :         /*
+<span class="lineNum">    1143 </span>                :            :          * If we dispatched to QEs, wait for completion and check for errors.
+<span class="lineNum">    1144 </span>                :            :          */
+<span class="lineNum">    1145 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (shouldDispatch &amp;&amp; </span>
+<span class="lineNum">    1146 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 queryDesc &amp;&amp; queryDesc-&gt;estate &amp;&amp;</span>
+<span class="lineNum">    1147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 queryDesc-&gt;estate-&gt;dispatcherState &amp;&amp;</span>
+<span class="lineNum">    1148 </span>                :<span class="lineNoCov">          0 :                 queryDesc-&gt;estate-&gt;dispatcherState-&gt;primaryResults)</span>
+<span class="lineNum">    1149 </span>                :            :         {
+<span class="lineNum">    1150 </span>                :            :                 /* If EXPLAIN ANALYZE, collect execution stats from qExecs. */
+<span class="lineNum">    1151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (planstate-&gt;instrument)</span>
+<span class="lineNum">    1152 </span>                :            :                 {
+<span class="lineNum">    1153 </span>                :            :                         /* Wait for all gangs to finish. */
+<span class="lineNum">    1154 </span>                :<span class="lineNoCov">          0 :                         CdbCheckDispatchResult(queryDesc-&gt;estate-&gt;dispatcherState,</span>
+<span class="lineNum">    1155 </span>                :            :                                                                    DISPATCH_WAIT_NONE);
+<span class="lineNum">    1156 </span>                :            : 
+<span class="lineNum">    1157 </span>                :            :                         /* Jam stats into subplan's Instrumentation nodes. */
+<span class="lineNum">    1158 </span>                :<span class="lineNoCov">          0 :                         explainRecvStats = true;</span>
+<span class="lineNum">    1159 </span>                :<span class="lineNoCov">          0 :                         cdbexplain_recvExecStats(planstate,</span>
+<span class="lineNum">    1160 </span>                :<span class="lineNoCov">          0 :                                                                          queryDesc-&gt;estate-&gt;dispatcherState-&gt;primaryResults,</span>
+<span class="lineNum">    1161 </span>                :<span class="lineNoCov">          0 :                                                                          LocallyExecutingSliceIndex(queryDesc-&gt;estate),</span>
+<span class="lineNum">    1162 </span>                :<span class="lineNoCov">          0 :                                                                          econtext-&gt;ecxt_estate-&gt;showstatctx);</span>
+<span class="lineNum">    1163 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1164 </span>                :            : 
+<span class="lineNum">    1165 </span>                :            :                 /*
+<span class="lineNum">    1166 </span>                :            :                  * Wait for all gangs to finish.  Check and free the results.
+<span class="lineNum">    1167 </span>                :            :                  * If the dispatcher or any QE had an error, report it and
+<span class="lineNum">    1168 </span>                :            :                  * exit to our error handler (below) via PG_THROW.
+<span class="lineNum">    1169 </span>                :            :                  */
+<span class="lineNum">    1170 </span>                :<span class="lineNoCov">          0 :                 cdbdisp_finishCommand(queryDesc-&gt;estate-&gt;dispatcherState);</span>
+<span class="lineNum">    1171 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1172 </span>                :            : 
+<span class="lineNum">    1173 </span>                :            :         /* teardown the sequence server */
+<span class="lineNum">    1174 </span>                :<span class="lineNoCov">          0 :         TeardownSequenceServer();</span>
+<span class="lineNum">    1175 </span>                :            : 
+<span class="lineNum">    1176 </span>                :            :         /* Clean up the interconnect. */
+<span class="lineNum">    1177 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (shouldTeardownInterconnect)</span>
+<span class="lineNum">    1178 </span>                :            :         {
+<span class="lineNum">    1179 </span>                :<span class="lineNoCov">          0 :                 shouldTeardownInterconnect = false;</span>
+<span class="lineNum">    1180 </span>                :            : 
+<span class="lineNum">    1181 </span>                :<span class="lineNoCov">          0 :                 TeardownInterconnect(queryDesc-&gt;estate-&gt;interconnect_context,</span>
+<span class="lineNum">    1182 </span>                :<span class="lineNoCov">          0 :                                                          queryDesc-&gt;estate-&gt;motionlayer_context,</span>
+<span class="lineNum">    1183 </span>                :            :                                                          false, false); /* following success on QD */
+<span class="lineNum">    1184 </span>                :<span class="lineNoCov">          0 :                 queryDesc-&gt;estate-&gt;interconnect_context = NULL;</span>
+<span class="lineNum">    1185 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1186 </span>                :            : }
+<span class="lineNum">    1187 </span>                :<span class="lineCov">          1 : PG_CATCH();</span>
+<span class="lineNum">    1188 </span>                :            : {
+<span class="lineNum">    1189 </span>                :            :         /* If EXPLAIN ANALYZE, collect local and distributed execution stats. */
+<span class="lineNum">    1190 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :         if (planstate-&gt;instrument)</span>
+<span class="lineNum">    1191 </span>                :            :         {
+<span class="lineNum">    1192 </span>                :<span class="lineCov">          1 :                 cdbexplain_localExecStats(planstate, econtext-&gt;ecxt_estate-&gt;showstatctx);</span>
+<span class="lineNum">    1193 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          1 :                 if (!explainRecvStats &amp;&amp;</span>
+<span class="lineNum">    1194 </span>                :<span class="lineCov">          1 :                         shouldDispatch)</span>
+<span class="lineNum">    1195 </span>                :            :                 {
+<span class="lineNum">    1196 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          1 :                         Assert(queryDesc != NULL &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 1 time"> + </span>]
+<span class="lineNum">    1197 </span>                :            :                                    queryDesc-&gt;estate != NULL);
+<span class="lineNum">    1198 </span>                :            :                         /* Wait for all gangs to finish.  Cancel slowpokes. */
+<span class="lineNum">    1199 </span>                :<span class="lineCov">          1 :                         CdbCheckDispatchResult(queryDesc-&gt;estate-&gt;dispatcherState,</span>
+<span class="lineNum">    1200 </span>                :            :                                                                    DISPATCH_WAIT_CANCEL);
+<span class="lineNum">    1201 </span>                :            : 
+<span class="lineNum">    1202 </span>                :<span class="lineCov">          1 :                         cdbexplain_recvExecStats(planstate,</span>
+<span class="lineNum">    1203 </span>                :<span class="lineCov">          1 :                                                                          queryDesc-&gt;estate-&gt;dispatcherState-&gt;primaryResults,</span>
+<span class="lineNum">    1204 </span>                :<span class="lineCov">          1 :                                                                          LocallyExecutingSliceIndex(queryDesc-&gt;estate),</span>
+<span class="lineNum">    1205 </span>                :<span class="lineCov">          1 :                                                                          econtext-&gt;ecxt_estate-&gt;showstatctx);</span>
+<span class="lineNum">    1206 </span>                :<span class="lineCov">          1 :                 }</span>
+<span class="lineNum">    1207 </span>                :<span class="lineCov">          1 :         }</span>
+<span class="lineNum">    1208 </span>                :            : 
+<span class="lineNum">    1209 </span>                :            :         /* Restore memory high-water mark for root slice of main query. */
+<span class="lineNum">    1210 </span>                :<span class="lineCov">          1 :         MemoryContextSetPeakSpace(planstate-&gt;state-&gt;es_query_cxt, savepeakspace);</span>
+<span class="lineNum">    1211 </span>                :            : 
+<span class="lineNum">    1212 </span>                :            :         /*
+<span class="lineNum">    1213 </span>                :            :          * Request any commands still executing on qExecs to stop.
+<span class="lineNum">    1214 </span>                :            :          * Wait for them to finish and clean up the dispatching structures.
+<span class="lineNum">    1215 </span>                :            :          * Replace current error info with QE error info if more interesting.
+<span class="lineNum">    1216 </span>                :            :          */
+<span class="lineNum">    1217 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          1 :         if (shouldDispatch &amp;&amp; queryDesc &amp;&amp; queryDesc-&gt;estate &amp;&amp; queryDesc-&gt;estate-&gt;dispatcherState &amp;&amp; queryDesc-&gt;estate-&gt;dispatcherState-&gt;primaryResults)</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 7 was not taken"> - </span>]
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 8 was not taken"> - </span><span class="branchCov" title="Branch 9 was taken 1 time"> + </span>]
+<span class="lineNum">    1218 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchHandleError(queryDesc-&gt;estate-&gt;dispatcherState);</span>
+<span class="lineNum">    1219 </span>                :            :                 
+<span class="lineNum">    1220 </span>                :            :         /* teardown the sequence server */
+<span class="lineNum">    1221 </span>                :<span class="lineCov">          1 :         TeardownSequenceServer();</span>
+<span class="lineNum">    1222 </span>                :            :                 
+<span class="lineNum">    1223 </span>                :            :         /*
+<span class="lineNum">    1224 </span>                :            :          * Clean up the interconnect.
+<span class="lineNum">    1225 </span>                :            :          * CDB TODO: Is this needed following failure on QD?
+<span class="lineNum">    1226 </span>                :            :          */
+<span class="lineNum">    1227 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          1 :         if (shouldTeardownInterconnect)</span>
+<span class="lineNum">    1228 </span>                :            :         {
+<span class="lineNum">    1229 </span>                :<span class="lineCov">          1 :                 TeardownInterconnect(queryDesc-&gt;estate-&gt;interconnect_context,</span>
+<span class="lineNum">    1230 </span>                :<span class="lineCov">          1 :                                                          queryDesc-&gt;estate-&gt;motionlayer_context,</span>
+<span class="lineNum">    1231 </span>                :            :                                                          true, false);
+<span class="lineNum">    1232 </span>                :<span class="lineCov">          1 :                 queryDesc-&gt;estate-&gt;interconnect_context = NULL;</span>
+<span class="lineNum">    1233 </span>                :<span class="lineCov">          1 :         }</span>
+<span class="lineNum">    1234 </span>                :<span class="lineCov">          1 :         PG_RE_THROW();</span>
+<span class="lineNum">    1235 </span>                :            : }
+<span class="lineNum">    1236 </span>                :<span class="lineNoCov">          0 : PG_END_TRY();</span>
+<span class="lineNum">    1237 </span>                :            : 
+<span class="lineNum">    1238 </span>                :<span class="lineNoCov">          0 :         planstate-&gt;state-&gt;currentSubplanLevel--;</span>
+<span class="lineNum">    1239 </span>                :            : 
+<span class="lineNum">    1240 </span>                :            :         /* If EXPLAIN ANALYZE, collect local execution stats. */
+<span class="lineNum">    1241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (planstate-&gt;instrument)</span>
+<span class="lineNum">    1242 </span>                :<span class="lineNoCov">          0 :                 cdbexplain_localExecStats(planstate, econtext-&gt;ecxt_estate-&gt;showstatctx);</span>
+<span class="lineNum">    1243 </span>                :            : 
+<span class="lineNum">    1244 </span>                :            :         /* Restore memory high-water mark for root slice of main query. */
+<span class="lineNum">    1245 </span>                :<span class="lineNoCov">          0 :         MemoryContextSetPeakSpace(planstate-&gt;state-&gt;es_query_cxt, savepeakspace);</span>
+<span class="lineNum">    1246 </span>                :            : 
+<span class="lineNum">    1247 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldcontext);</span>
+<span class="lineNum">    1248 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1249 </span>                :            : 
+<span class="lineNum">    1250 </span>                :            : /*
+<span class="lineNum">    1251 </span>                :            :  * Mark an initplan as needing recalculation
+<a name="1252"><span class="lineNum">    1252 </span>                :            :  */</a>
+<span class="lineNum">    1253 </span>                :            : void
+<span class="lineNum">    1254 </span>                :            : ExecReScanSetParamPlan(SubPlanState *node, PlanState *parent)
+<span class="lineNum">    1255 </span>                :            : {
+<span class="lineNum">    1256 </span>                :<span class="lineNoCov">          0 :         PlanState  *planstate = node-&gt;planstate;</span>
+<span class="lineNum">    1257 </span>                :<span class="lineNoCov">          0 :         SubPlan    *subplan = (SubPlan *) node-&gt;xprstate.expr;</span>
+<span class="lineNum">    1258 </span>                :<span class="lineNoCov">          0 :         EState     *estate = parent-&gt;state;</span>
+<span class="lineNum">    1259 </span>                :            :         ListCell   *l;
+<span class="lineNum">    1260 </span>                :            : 
+<span class="lineNum">    1261 </span>                :            :         /* sanity checks */
+<span class="lineNum">    1262 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;parParam != NIL)</span>
+<span class="lineNum">    1263 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;direct correlated subquery unsupported as initplan&quot;);</span>
+<span class="lineNum">    1264 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;setParam == NIL)</span>
+<span class="lineNum">    1265 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;setParam list of initplan is empty&quot;);</span>
+<span class="lineNum">    1266 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (bms_is_empty(planstate-&gt;plan-&gt;extParam))</span>
+<span class="lineNum">    1267 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;extParam set of initplan is empty&quot;);</span>
+<span class="lineNum">    1268 </span>                :            : 
+<span class="lineNum">    1269 </span>                :            :         /*
+<span class="lineNum">    1270 </span>                :            :          * Don't actually re-scan: it'll happen inside ExecSetParamPlan if needed.
+<span class="lineNum">    1271 </span>                :            :          */
+<span class="lineNum">    1272 </span>                :            : 
+<span class="lineNum">    1273 </span>                :            :         /*
+<span class="lineNum">    1274 </span>                :            :          * Mark this subplan's output parameters as needing recalculation.
+<span class="lineNum">    1275 </span>                :            :          *
+<span class="lineNum">    1276 </span>                :            :          * CTE subplans are never executed via parameter recalculation; instead
+<span class="lineNum">    1277 </span>                :            :          * they get run when called by nodeCtescan.c.  So don't mark the output
+<span class="lineNum">    1278 </span>                :            :          * parameter of a CTE subplan as dirty, but do set the chgParam bit
+<span class="lineNum">    1279 </span>                :            :          * for it so that dependent plan nodes will get told to rescan.
+<span class="lineNum">    1280 </span>                :            :          */
+<span class="lineNum">    1281 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, subplan-&gt;setParam)</span>
+<span class="lineNum">    1282 </span>                :            :         {
+<span class="lineNum">    1283 </span>                :<span class="lineNoCov">          0 :                 int                     paramid = lfirst_int(l);</span>
+<span class="lineNum">    1284 </span>                :<span class="lineNoCov">          0 :                 ParamExecData *prm = &amp;(estate-&gt;es_param_exec_vals[paramid]);</span>
+<span class="lineNum">    1285 </span>                :            : 
+<span class="lineNum">    1286 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (subplan-&gt;subLinkType != CTE_SUBLINK)</span>
+<span class="lineNum">    1287 </span>                :<span class="lineNoCov">          0 :                         prm-&gt;execPlan = node;</span>
+<span class="lineNum">    1288 </span>                :            : 
+<span class="lineNum">    1289 </span>                :<span class="lineNoCov">          0 :                 parent-&gt;chgParam = bms_add_member(parent-&gt;chgParam, paramid);</span>
+<span class="lineNum">    1290 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1291 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

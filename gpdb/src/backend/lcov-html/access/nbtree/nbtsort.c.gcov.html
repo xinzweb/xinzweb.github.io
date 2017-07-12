@@ -1,0 +1,979 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - access/nbtree/nbtsort.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">access/nbtree</a> - nbtsort.c<span style="font-size: 80%;"> (source / <a href="nbtsort.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">250</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">236</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nbtsort.c
+<span class="lineNum">       4 </span>                :            :  *              Build a btree from sorted input by loading leaf pages sequentially.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * NOTES
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * We use tuplesort.c to sort the given index tuples into order.
+<span class="lineNum">       9 </span>                :            :  * Then we scan the index tuples in order and build the btree pages
+<span class="lineNum">      10 </span>                :            :  * for each level.      We load source tuples into leaf-level pages.
+<span class="lineNum">      11 </span>                :            :  * Whenever we fill a page at one level, we add a link to it to its
+<span class="lineNum">      12 </span>                :            :  * parent level (starting a new parent level if necessary).  When
+<span class="lineNum">      13 </span>                :            :  * done, we write out each final page on each level, adding it to
+<span class="lineNum">      14 </span>                :            :  * its parent level.  When we have only one page on a level, it must be
+<span class="lineNum">      15 </span>                :            :  * the root -- it can be attached to the btree metapage and we are done.
+<span class="lineNum">      16 </span>                :            :  *
+<span class="lineNum">      17 </span>                :            :  * This code is moderately slow (~10% slower) compared to the regular
+<span class="lineNum">      18 </span>                :            :  * btree (insertion) build code on sorted or well-clustered data.  On
+<span class="lineNum">      19 </span>                :            :  * random data, however, the insertion build code is unusable -- the
+<span class="lineNum">      20 </span>                :            :  * difference on a 60MB heap is a factor of 15 because the random
+<span class="lineNum">      21 </span>                :            :  * probes into the btree thrash the buffer pool.  (NOTE: the above
+<span class="lineNum">      22 </span>                :            :  * &quot;10%&quot; estimate is probably obsolete, since it refers to an old and
+<span class="lineNum">      23 </span>                :            :  * not very good external sort implementation that used to exist in
+<span class="lineNum">      24 </span>                :            :  * this module.  tuplesort.c is almost certainly faster.)
+<span class="lineNum">      25 </span>                :            :  *
+<span class="lineNum">      26 </span>                :            :  * It is not wise to pack the pages entirely full, since then *any*
+<span class="lineNum">      27 </span>                :            :  * insertion would cause a split (and not only of the leaf page; the need
+<span class="lineNum">      28 </span>                :            :  * for a split would cascade right up the tree).  The steady-state load
+<span class="lineNum">      29 </span>                :            :  * factor for btrees is usually estimated at 70%.  We choose to pack leaf
+<span class="lineNum">      30 </span>                :            :  * pages to the user-controllable fill factor (default 90%) while upper pages
+<span class="lineNum">      31 </span>                :            :  * are always packed to 70%.  This gives us reasonable density (there aren't
+<span class="lineNum">      32 </span>                :            :  * many upper pages if the keys are reasonable-size) without risking a lot of
+<span class="lineNum">      33 </span>                :            :  * cascading splits during early insertions.
+<span class="lineNum">      34 </span>                :            :  *
+<span class="lineNum">      35 </span>                :            :  * Formerly the index pages being built were kept in shared buffers, but
+<span class="lineNum">      36 </span>                :            :  * that is of no value (since other backends have no interest in them yet)
+<span class="lineNum">      37 </span>                :            :  * and it created locking problems for CHECKPOINT, because the upper-level
+<span class="lineNum">      38 </span>                :            :  * pages were held exclusive-locked for long periods.  Now we just build
+<span class="lineNum">      39 </span>                :            :  * the pages in local memory and smgrwrite or smgrextend them as we finish
+<span class="lineNum">      40 </span>                :            :  * them.  They will need to be re-read into shared buffers on first use after
+<span class="lineNum">      41 </span>                :            :  * the build finishes.
+<span class="lineNum">      42 </span>                :            :  *
+<span class="lineNum">      43 </span>                :            :  * Since the index will never be used unless it is completely built,
+<span class="lineNum">      44 </span>                :            :  * from a crash-recovery point of view there is no need to WAL-log the
+<span class="lineNum">      45 </span>                :            :  * steps of the build.  After completing the index build, we can just sync
+<span class="lineNum">      46 </span>                :            :  * the whole file to disk using smgrimmedsync() before exiting this module.
+<span class="lineNum">      47 </span>                :            :  * This can be seen to be sufficient for crash recovery by considering that
+<span class="lineNum">      48 </span>                :            :  * it's effectively equivalent to what would happen if a CHECKPOINT occurred
+<span class="lineNum">      49 </span>                :            :  * just after the index build.  However, it is clearly not sufficient if the
+<span class="lineNum">      50 </span>                :            :  * DBA is using the WAL log for PITR or replication purposes, since another
+<span class="lineNum">      51 </span>                :            :  * machine would not be able to reconstruct the index from WAL.  Therefore,
+<span class="lineNum">      52 </span>                :            :  * we log the completed index pages to WAL if and only if WAL archiving is
+<span class="lineNum">      53 </span>                :            :  * active.
+<span class="lineNum">      54 </span>                :            :  *
+<span class="lineNum">      55 </span>                :            :  *
+<span class="lineNum">      56 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">      57 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      58 </span>                :            :  *
+<span class="lineNum">      59 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      60 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/access/nbtree/nbtsort.c,v 1.114 2008/01/01 19:45:46 momjian Exp $
+<span class="lineNum">      61 </span>                :            :  *
+<span class="lineNum">      62 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      63 </span>                :            :  */
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      68 </span>                :            : #include &quot;access/nbtree.h&quot;
+<span class="lineNum">      69 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      70 </span>                :            : #include &quot;storage/smgr.h&quot;
+<span class="lineNum">      71 </span>                :            : #include &quot;utils/tuplesort.h&quot;
+<span class="lineNum">      72 </span>                :            : #include &quot;utils/tuplesort_mk.h&quot;
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : 
+<span class="lineNum">      77 </span>                :            : /*
+<span class="lineNum">      78 </span>                :            :  * Status record for spooling/sorting phase.  (Note we may have two of
+<span class="lineNum">      79 </span>                :            :  * these due to the special requirements for uniqueness-checking with
+<span class="lineNum">      80 </span>                :            :  * dead tuples.)
+<span class="lineNum">      81 </span>                :            :  */
+<span class="lineNum">      82 </span>                :            : struct BTSpool
+<span class="lineNum">      83 </span>                :            : {
+<span class="lineNum">      84 </span>                :            :         void *sortstate;        /* state data for tuplesort.c */
+<span class="lineNum">      85 </span>                :            :         Relation        index;
+<span class="lineNum">      86 </span>                :            :         bool            isunique;
+<span class="lineNum">      87 </span>                :            : };
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            : /*
+<span class="lineNum">      90 </span>                :            :  * Status record for a btree page being built.  We have one of these
+<span class="lineNum">      91 </span>                :            :  * for each active tree level.
+<span class="lineNum">      92 </span>                :            :  *
+<span class="lineNum">      93 </span>                :            :  * The reason we need to store a copy of the minimum key is that we'll
+<span class="lineNum">      94 </span>                :            :  * need to propagate it to the parent node when this page is linked
+<span class="lineNum">      95 </span>                :            :  * into its parent.  However, if the page is not a leaf page, the first
+<span class="lineNum">      96 </span>                :            :  * entry on the page doesn't need to contain a key, so we will not have
+<span class="lineNum">      97 </span>                :            :  * stored the key itself on the page.  (You might think we could skip
+<span class="lineNum">      98 </span>                :            :  * copying the minimum key on leaf pages, but actually we must have a
+<span class="lineNum">      99 </span>                :            :  * writable copy anyway because we'll poke the page's address into it
+<span class="lineNum">     100 </span>                :            :  * before passing it up to the parent...)
+<span class="lineNum">     101 </span>                :            :  */
+<span class="lineNum">     102 </span>                :            : typedef struct BTPageState
+<span class="lineNum">     103 </span>                :            : {
+<span class="lineNum">     104 </span>                :            :         Page            btps_page;              /* workspace for page building */
+<span class="lineNum">     105 </span>                :            :         BlockNumber btps_blkno;         /* block # to write this page at */
+<span class="lineNum">     106 </span>                :            :         IndexTuple      btps_minkey;    /* copy of minimum key (first item) on page */
+<span class="lineNum">     107 </span>                :            :         OffsetNumber btps_lastoff;      /* last item offset loaded */
+<span class="lineNum">     108 </span>                :            :         uint32          btps_level;             /* tree level (0 = leaf) */
+<span class="lineNum">     109 </span>                :            :         Size            btps_full;              /* &quot;full&quot; if less than this much free space */
+<span class="lineNum">     110 </span>                :            :         struct BTPageState *btps_next;          /* link to parent level, if any */
+<span class="lineNum">     111 </span>                :            : } BTPageState;
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :            : /*
+<span class="lineNum">     114 </span>                :            :  * Overall status record for index writing phase.
+<span class="lineNum">     115 </span>                :            :  */
+<span class="lineNum">     116 </span>                :            : typedef struct BTWriteState
+<span class="lineNum">     117 </span>                :            : {
+<span class="lineNum">     118 </span>                :            :         Relation        index;
+<span class="lineNum">     119 </span>                :            :         bool            btws_use_wal;   /* dump pages to WAL? */
+<span class="lineNum">     120 </span>                :            :         BlockNumber btws_pages_alloced;         /* # pages allocated */
+<span class="lineNum">     121 </span>                :            :         BlockNumber btws_pages_written;         /* # pages written out */
+<span class="lineNum">     122 </span>                :            :         Page            btws_zeropage;  /* workspace for filling zeroes */
+<span class="lineNum">     123 </span>                :            : } BTWriteState;
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>                :            : static Page _bt_blnewpage(uint32 level);
+<span class="lineNum">     127 </span>                :            : static BTPageState *_bt_pagestate(BTWriteState *wstate, uint32 level);
+<span class="lineNum">     128 </span>                :            : static void _bt_slideleft(Page page);
+<span class="lineNum">     129 </span>                :            : static void _bt_sortaddtup(Page page, Size itemsize,
+<span class="lineNum">     130 </span>                :            :                            IndexTuple itup, OffsetNumber itup_off);
+<span class="lineNum">     131 </span>                :            : static void _bt_buildadd(BTWriteState *wstate, BTPageState *state,
+<span class="lineNum">     132 </span>                :            :                          IndexTuple itup);
+<span class="lineNum">     133 </span>                :            : static void _bt_uppershutdown(BTWriteState *wstate, BTPageState *state);
+<span class="lineNum">     134 </span>                :            : static void _bt_load(BTWriteState *wstate,
+<span class="lineNum">     135 </span>                :            :                  BTSpool *btspool, BTSpool *btspool2);
+<span class="lineNum">     136 </span>                :            : 
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :            : /*
+<span class="lineNum">     139 </span>                :            :  * Interface routines
+<span class="lineNum">     140 </span>                :            :  */
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>                :            : /*
+<span class="lineNum">     144 </span>                :            :  * create and initialize a spool structure
+<a name="145"><span class="lineNum">     145 </span>                :            :  */</a>
+<span class="lineNum">     146 </span>                :            : BTSpool *
+<span class="lineNum">     147 </span>                :            : _bt_spoolinit(Relation index, bool isunique, bool isdead)
+<span class="lineNum">     148 </span>                :            : {
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :         BTSpool    *btspool = (BTSpool *) palloc0(sizeof(BTSpool));</span>
+<span class="lineNum">     150 </span>                :            :         int                     btKbytes;
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         btspool-&gt;index = index;</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         btspool-&gt;isunique = isunique;</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :            :         /*
+<span class="lineNum">     156 </span>                :            :          * We size the sort area as maintenance_work_mem rather than work_mem to
+<span class="lineNum">     157 </span>                :            :          * speed index creation.  This should be OK since a single backend can't
+<span class="lineNum">     158 </span>                :            :          * run multiple index creations in parallel.  Note that creation of a
+<span class="lineNum">     159 </span>                :            :          * unique index actually requires two BTSpool objects.  We expect that the
+<span class="lineNum">     160 </span>                :            :          * second one (for dead tuples) won't get very full, so we give it only
+<span class="lineNum">     161 </span>                :            :          * work_mem.
+<span class="lineNum">     162 </span>                :            :          */
+<span class="lineNum">     163 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         btKbytes = isdead ? work_mem : maintenance_work_mem;</span>
+<span class="lineNum">     164 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(gp_enable_mk_sort)</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                 btspool-&gt;sortstate = tuplesort_begin_index_mk(index, isunique, btKbytes, false);</span>
+<span class="lineNum">     166 </span>                :            :         else
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :                 btspool-&gt;sortstate = tuplesort_begin_index(index, isunique, btKbytes, false);</span>
+<span class="lineNum">     168 </span>                :            : 
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :         return btspool;</span>
+<span class="lineNum">     170 </span>                :            : }
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :            : /*
+<span class="lineNum">     173 </span>                :            :  * clean up a spool structure and its substructures.
+<a name="174"><span class="lineNum">     174 </span>                :            :  */</a>
+<span class="lineNum">     175 </span>                :            : void
+<span class="lineNum">     176 </span>                :            : _bt_spooldestroy(BTSpool *btspool)
+<span class="lineNum">     177 </span>                :            : {
+<span class="lineNum">     178 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(gp_enable_mk_sort)</span>
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :                 tuplesort_end_mk((Tuplesortstate_mk *) btspool-&gt;sortstate);</span>
+<span class="lineNum">     180 </span>                :            :         else
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :                 tuplesort_end((Tuplesortstate *) btspool-&gt;sortstate);</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         pfree(btspool);</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>                :            : /*
+<span class="lineNum">     186 </span>                :            :  * spool an index entry into the sort file.
+<a name="187"><span class="lineNum">     187 </span>                :            :  */</a>
+<span class="lineNum">     188 </span>                :            : void
+<span class="lineNum">     189 </span>                :            : _bt_spool(IndexTuple itup, BTSpool *btspool)
+<span class="lineNum">     190 </span>                :            : {
+<span class="lineNum">     191 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(gp_enable_mk_sort)</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                 tuplesort_putindextuple_mk((Tuplesortstate_mk *) btspool-&gt;sortstate, itup);</span>
+<span class="lineNum">     193 </span>                :            :         else
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                 tuplesort_putindextuple((Tuplesortstate *) btspool-&gt;sortstate, itup);</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :            : /*
+<span class="lineNum">     198 </span>                :            :  * given a spool loaded by successive calls to _bt_spool,
+<span class="lineNum">     199 </span>                :            :  * create an entire btree.
+<a name="200"><span class="lineNum">     200 </span>                :            :  */</a>
+<span class="lineNum">     201 </span>                :            : void
+<span class="lineNum">     202 </span>                :            : _bt_leafbuild(BTSpool *btspool, BTSpool *btspool2)
+<span class="lineNum">     203 </span>                :            : {
+<span class="lineNum">     204 </span>                :            :         BTWriteState wstate;
+<span class="lineNum">     205 </span>                :            : 
+<span class="lineNum">     206 </span>                :            : #ifdef BTREE_BUILD_STATS
+<span class="lineNum">     207 </span>                :            :         if (log_btree_build_stats)
+<span class="lineNum">     208 </span>                :            :         {
+<span class="lineNum">     209 </span>                :            :                 ShowUsage(&quot;BTREE BUILD (Spool) STATISTICS&quot;);
+<span class="lineNum">     210 </span>                :            :                 ResetUsage();
+<span class="lineNum">     211 </span>                :            :         }
+<span class="lineNum">     212 </span>                :            : #endif   /* BTREE_BUILD_STATS */
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(gp_enable_mk_sort)</span>
+<span class="lineNum">     215 </span>                :            :         {
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                 tuplesort_performsort_mk((Tuplesortstate_mk *) btspool-&gt;sortstate);</span>
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (btspool2)</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                         tuplesort_performsort_mk((Tuplesortstate_mk *) btspool2-&gt;sortstate);</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     220 </span>                :            :         else
+<span class="lineNum">     221 </span>                :            :         {
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                 tuplesort_performsort((Tuplesortstate *) btspool-&gt;sortstate);</span>
+<span class="lineNum">     223 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (btspool2)</span>
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :                         tuplesort_performsort((Tuplesortstate *) btspool2-&gt;sortstate);</span>
+<span class="lineNum">     225 </span>                :            :         }
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>                :            : 
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :         wstate.index = btspool-&gt;index;</span>
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :            :         /*
+<span class="lineNum">     231 </span>                :            :          * We need to log index creation in WAL iff WAL archiving is enabled AND
+<span class="lineNum">     232 </span>                :            :          * it's not a temp index.
+<span class="lineNum">     233 </span>                :            :          */
+<span class="lineNum">     234 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         wstate.btws_use_wal = !XLog_UnconvertedCanBypassWal() &amp;&amp; !wstate.index-&gt;rd_istemp;</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :            :         /* reserve the metapage */
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :         wstate.btws_pages_alloced = BTREE_METAPAGE + 1;</span>
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :         wstate.btws_pages_written = 0;</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :         wstate.btws_zeropage = NULL;    /* until needed */</span>
+<span class="lineNum">     240 </span>                :            : 
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :         _bt_load(&amp;wstate, btspool, btspool2);</span>
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>                :            : /*
+<span class="lineNum">     246 </span>                :            :  * Internal routines.
+<span class="lineNum">     247 </span>                :            :  */
+<span class="lineNum">     248 </span>                :            : 
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :            : /*
+<span class="lineNum">     251 </span>                :            :  * allocate workspace for a new, clean btree page, not linked to any siblings.
+<a name="252"><span class="lineNum">     252 </span>                :            :  */</a>
+<span class="lineNum">     253 </span>                :            : static Page
+<span class="lineNum">     254 </span>                :            : _bt_blnewpage(uint32 level)
+<span class="lineNum">     255 </span>                :            : {
+<span class="lineNum">     256 </span>                :            :         Page            page;
+<span class="lineNum">     257 </span>                :            :         BTPageOpaque opaque;
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :         page = (Page) palloc(BLCKSZ);</span>
+<span class="lineNum">     260 </span>                :            : 
+<span class="lineNum">     261 </span>                :            :         /* Zero the page and set up standard page header info */
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :         _bt_pageinit(page, BLCKSZ);</span>
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :            :         /* Initialize BT opaque state */
+<span class="lineNum">     265 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         opaque = (BTPageOpaque) PageGetSpecialPointer(page);</span>
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :         opaque-&gt;btpo_prev = opaque-&gt;btpo_next = P_NONE;</span>
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :         opaque-&gt;btpo.level = level;</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :         opaque-&gt;btpo_flags = (level &gt; 0) ? 0 : BTP_LEAF;</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :         opaque-&gt;btpo_cycleid = 0;</span>
+<span class="lineNum">     270 </span>                :            : 
+<span class="lineNum">     271 </span>                :            :         /* Make the P_HIKEY line pointer appear allocated */
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :         ((PageHeader) page)-&gt;pd_lower += sizeof(ItemIdData);</span>
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :         return page;</span>
+<span class="lineNum">     275 </span>                :            : }
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :            : /*
+<span class="lineNum">     278 </span>                :            :  * emit a completed btree page, and release the working storage.
+<a name="279"><span class="lineNum">     279 </span>                :            :  */</a>
+<span class="lineNum">     280 </span>                :            : static void
+<span class="lineNum">     281 </span>                :            : _bt_blwritepage(BTWriteState *wstate, Page page, BlockNumber blkno)
+<span class="lineNum">     282 </span>                :            : {
+<span class="lineNum">     283 </span>                :            :         // Fetch gp_persistent_relation_node information that will be added to XLOG record.
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :         RelationFetchGpRelationNodeForXLog(wstate-&gt;index);</span>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>                :            :         /* Ensure rd_smgr is open (could have been closed by relcache flush!) */
+<span class="lineNum">     287 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         RelationOpenSmgr(wstate-&gt;index);</span>
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :            :         /* XLOG stuff */
+<span class="lineNum">     290 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (wstate-&gt;btws_use_wal)</span>
+<span class="lineNum">     291 </span>                :            :         {
+<span class="lineNum">     292 </span>                :            :                 /* We use the heap NEWPAGE record type for this */
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                 log_newpage_rel(wstate-&gt;index, blkno, page);</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :            :         /*
+<span class="lineNum">     297 </span>                :            :          * If we have to write pages nonsequentially, fill in the space with
+<span class="lineNum">     298 </span>                :            :          * zeroes until we come back and overwrite.  This is not logically
+<span class="lineNum">     299 </span>                :            :          * necessary on standard Unix filesystems (unwritten space will read as
+<span class="lineNum">     300 </span>                :            :          * zeroes anyway), but it should help to avoid fragmentation. The dummy
+<span class="lineNum">     301 </span>                :            :          * pages aren't WAL-logged though.
+<span class="lineNum">     302 </span>                :            :          */
+<span class="lineNum">     303 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (blkno &gt; wstate-&gt;btws_pages_written)</span>
+<span class="lineNum">     304 </span>                :            :         {
+<span class="lineNum">     305 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!wstate-&gt;btws_zeropage)</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                         wstate-&gt;btws_zeropage = (Page) palloc0(BLCKSZ);</span>
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :            :                 // -------- MirroredLock ----------
+<span class="lineNum">     309 </span>                :            :                 // UNDONE: Unfortunately, I think we write temp relations to the mirror...
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                 LWLockAcquire(MirroredLock, LW_SHARED);</span>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>                :            :                 /* don't set checksum for all-zero page */
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                 smgrextend(wstate-&gt;index-&gt;rd_smgr, wstate-&gt;btws_pages_written++,</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                                    (char *) wstate-&gt;btws_zeropage,</span>
+<span class="lineNum">     315 </span>                :            :                                    true);
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                 LWLockRelease(MirroredLock);</span>
+<span class="lineNum">     318 </span>                :            :                 // -------- MirroredLock ----------
+<span class="lineNum">     319 </span>                :            :         }
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>                :            :         // -------- MirroredLock ----------
+<span class="lineNum">     323 </span>                :            :         // UNDONE: Unfortunately, I think we write temp relations to the mirror...
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :         LWLockAcquire(MirroredLock, LW_SHARED);</span>
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :         PageSetChecksumInplace(page, blkno);</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :            :         /*
+<span class="lineNum">     328 </span>                :            :          * Now write the page.  We say isTemp = true even if it's not a temp
+<span class="lineNum">     329 </span>                :            :          * index, because there's no need for smgr to schedule an fsync for this
+<span class="lineNum">     330 </span>                :            :          * write; we'll do it ourselves before ending the build.
+<span class="lineNum">     331 </span>                :            :          */
+<span class="lineNum">     332 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (blkno == wstate-&gt;btws_pages_written)</span>
+<span class="lineNum">     333 </span>                :            :         {
+<span class="lineNum">     334 </span>                :            :                 /* extending the file... */
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                 smgrextend(wstate-&gt;index-&gt;rd_smgr, blkno, (char *) page, true);</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                 wstate-&gt;btws_pages_written++;</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     338 </span>                :            :         else
+<span class="lineNum">     339 </span>                :            :         {
+<span class="lineNum">     340 </span>                :            :                 /* overwriting a block we zero-filled before */
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                 smgrwrite(wstate-&gt;index-&gt;rd_smgr, blkno, (char *) page, true);</span>
+<span class="lineNum">     342 </span>                :            :         }
+<span class="lineNum">     343 </span>                :            : 
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         LWLockRelease(MirroredLock);</span>
+<span class="lineNum">     345 </span>                :            :         // -------- MirroredLock ----------
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :         pfree(page);</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :            : /*
+<span class="lineNum">     351 </span>                :            :  * allocate and initialize a new BTPageState.  the returned structure
+<span class="lineNum">     352 </span>                :            :  * is suitable for immediate use by _bt_buildadd.
+<a name="353"><span class="lineNum">     353 </span>                :            :  */</a>
+<span class="lineNum">     354 </span>                :            : static BTPageState *
+<span class="lineNum">     355 </span>                :            : _bt_pagestate(BTWriteState *wstate, uint32 level)
+<span class="lineNum">     356 </span>                :            : {
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :         BTPageState *state = (BTPageState *) palloc0(sizeof(BTPageState));</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            :         /* create initial page for level */
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_page = _bt_blnewpage(level);</span>
+<span class="lineNum">     361 </span>                :            : 
+<span class="lineNum">     362 </span>                :            :         /* and assign it a page position */
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_blkno = wstate-&gt;btws_pages_alloced++;</span>
+<span class="lineNum">     364 </span>                :            : 
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_minkey = NULL;</span>
+<span class="lineNum">     366 </span>                :            :         /* initialize lastoff so first item goes into P_FIRSTKEY */
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_lastoff = P_HIKEY;</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_level = level;</span>
+<span class="lineNum">     369 </span>                :            :         /* set &quot;full&quot; threshold based on level.  See notes at head of file. */
+<span class="lineNum">     370 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (level &gt; 0)</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 state-&gt;btps_full = (BLCKSZ * (100 - BTREE_NONLEAF_FILLFACTOR) / 100);</span>
+<span class="lineNum">     372 </span>                :            :         else
+<span class="lineNum">     373 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 state-&gt;btps_full = RelationGetTargetPageFreeSpace(wstate-&gt;index,</span>
+<span class="lineNum">     374 </span>                :            :                                                                                                    BTREE_DEFAULT_FILLFACTOR);
+<span class="lineNum">     375 </span>                :            :         /* no parent level, yet */
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_next = NULL;</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         return state;</span>
+<span class="lineNum">     379 </span>                :            : }
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>                :            : /*
+<span class="lineNum">     382 </span>                :            :  * slide an array of ItemIds back one slot (from P_FIRSTKEY to
+<span class="lineNum">     383 </span>                :            :  * P_HIKEY, overwriting P_HIKEY).  we need to do this when we discover
+<span class="lineNum">     384 </span>                :            :  * that we have built an ItemId array in what has turned out to be a
+<span class="lineNum">     385 </span>                :            :  * P_RIGHTMOST page.
+<a name="386"><span class="lineNum">     386 </span>                :            :  */</a>
+<span class="lineNum">     387 </span>                :            : static void
+<span class="lineNum">     388 </span>                :            : _bt_slideleft(Page page)
+<span class="lineNum">     389 </span>                :            : {
+<span class="lineNum">     390 </span>                :            :         OffsetNumber off;
+<span class="lineNum">     391 </span>                :            :         OffsetNumber maxoff;
+<span class="lineNum">     392 </span>                :            :         ItemId          previi;
+<span class="lineNum">     393 </span>                :            :         ItemId          thisii;
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!PageIsEmpty(page))</span>
+<span class="lineNum">     396 </span>                :            :         {
+<span class="lineNum">     397 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 maxoff = PageGetMaxOffsetNumber(page);</span>
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :                 previi = PageGetItemId(page, P_HIKEY);</span>
+<span class="lineNum">     399 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (off = P_FIRSTKEY; off &lt;= maxoff; off = OffsetNumberNext(off))</span>
+<span class="lineNum">     400 </span>                :            :                 {
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :                         thisii = PageGetItemId(page, off);</span>
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :                         *previi = *thisii;</span>
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                         previi = thisii;</span>
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                 ((PageHeader) page)-&gt;pd_lower -= sizeof(ItemIdData);</span>
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     408 </span>                :            : 
+<span class="lineNum">     409 </span>                :            : /*
+<span class="lineNum">     410 </span>                :            :  * Add an item to a page being built.
+<span class="lineNum">     411 </span>                :            :  *
+<span class="lineNum">     412 </span>                :            :  * The main difference between this routine and a bare PageAddItem call
+<span class="lineNum">     413 </span>                :            :  * is that this code knows that the leftmost data item on a non-leaf
+<span class="lineNum">     414 </span>                :            :  * btree page doesn't need to have a key.  Therefore, it strips such
+<span class="lineNum">     415 </span>                :            :  * items down to just the item header.
+<span class="lineNum">     416 </span>                :            :  *
+<span class="lineNum">     417 </span>                :            :  * This is almost like nbtinsert.c's _bt_pgaddtup(), but we can't use
+<span class="lineNum">     418 </span>                :            :  * that because it assumes that P_RIGHTMOST() will return the correct
+<span class="lineNum">     419 </span>                :            :  * answer for the page.  Here, we don't know yet if the page will be
+<span class="lineNum">     420 </span>                :            :  * rightmost.  Offset P_FIRSTKEY is always the first data key.
+<a name="421"><span class="lineNum">     421 </span>                :            :  */</a>
+<span class="lineNum">     422 </span>                :            : static void
+<span class="lineNum">     423 </span>                :            : _bt_sortaddtup(Page page,
+<span class="lineNum">     424 </span>                :            :                            Size itemsize,
+<span class="lineNum">     425 </span>                :            :                            IndexTuple itup,
+<span class="lineNum">     426 </span>                :            :                            OffsetNumber itup_off)
+<span class="lineNum">     427 </span>                :            : {
+<span class="lineNum">     428 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         BTPageOpaque opaque = (BTPageOpaque) PageGetSpecialPointer(page);</span>
+<span class="lineNum">     429 </span>                :            :         IndexTupleData trunctuple;
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!P_ISLEAF(opaque) &amp;&amp; itup_off == P_FIRSTKEY)</span>
+<span class="lineNum">     432 </span>                :            :         {
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                 trunctuple = *itup;</span>
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                 trunctuple.t_info = sizeof(IndexTupleData);</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                 itup = &amp;trunctuple;</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                 itemsize = sizeof(IndexTupleData);</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PageAddItem(page, (Item) itup, itemsize, itup_off,</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                                         false, false) == InvalidOffsetNumber)</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;failed to add item to the index page&quot;);</span>
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     443 </span>                :            : 
+<span class="lineNum">     444 </span>                :            : /*----------
+<span class="lineNum">     445 </span>                :            :  * Add an item to a disk page from the sort output.
+<span class="lineNum">     446 </span>                :            :  *
+<span class="lineNum">     447 </span>                :            :  * We must be careful to observe the page layout conventions of nbtsearch.c:
+<span class="lineNum">     448 </span>                :            :  * - rightmost pages start data items at P_HIKEY instead of at P_FIRSTKEY.
+<span class="lineNum">     449 </span>                :            :  * - on non-leaf pages, the key portion of the first item need not be
+<span class="lineNum">     450 </span>                :            :  *       stored, we should store only the link.
+<span class="lineNum">     451 </span>                :            :  *
+<span class="lineNum">     452 </span>                :            :  * A leaf page being built looks like:
+<span class="lineNum">     453 </span>                :            :  *
+<span class="lineNum">     454 </span>                :            :  * +----------------+---------------------------------+
+<span class="lineNum">     455 </span>                :            :  * | PageHeaderData | linp0 linp1 linp2 ...                       |
+<span class="lineNum">     456 </span>                :            :  * +-----------+----+---------------------------------+
+<span class="lineNum">     457 </span>                :            :  * | ... linpN |                                                                          |
+<span class="lineNum">     458 </span>                :            :  * +-----------+--------------------------------------+
+<span class="lineNum">     459 </span>                :            :  * |     ^ last                                                                           |
+<span class="lineNum">     460 </span>                :            :  * |                                                                                              |
+<span class="lineNum">     461 </span>                :            :  * +-------------+------------------------------------+
+<span class="lineNum">     462 </span>                :            :  * |                     | itemN ...                                              |
+<span class="lineNum">     463 </span>                :            :  * +-------------+------------------+-----------------+
+<span class="lineNum">     464 </span>                :            :  * |              ... item3 item2 item1 | &quot;special space&quot; |
+<span class="lineNum">     465 </span>                :            :  * +--------------------------------+-----------------+
+<span class="lineNum">     466 </span>                :            :  *
+<span class="lineNum">     467 </span>                :            :  * Contrast this with the diagram in bufpage.h; note the mismatch
+<span class="lineNum">     468 </span>                :            :  * between linps and items.  This is because we reserve linp0 as a
+<span class="lineNum">     469 </span>                :            :  * placeholder for the pointer to the &quot;high key&quot; item; when we have
+<span class="lineNum">     470 </span>                :            :  * filled up the page, we will set linp0 to point to itemN and clear
+<span class="lineNum">     471 </span>                :            :  * linpN.  On the other hand, if we find this is the last (rightmost)
+<span class="lineNum">     472 </span>                :            :  * page, we leave the items alone and slide the linp array over.
+<span class="lineNum">     473 </span>                :            :  *
+<span class="lineNum">     474 </span>                :            :  * 'last' pointer indicates the last offset added to the page.
+<span class="lineNum">     475 </span>                :            :  *----------
+<a name="476"><span class="lineNum">     476 </span>                :            :  */</a>
+<span class="lineNum">     477 </span>                :            : static void
+<span class="lineNum">     478 </span>                :            : _bt_buildadd(BTWriteState *wstate, BTPageState *state, IndexTuple itup)
+<span class="lineNum">     479 </span>                :            : {
+<span class="lineNum">     480 </span>                :            :         Page            npage;
+<span class="lineNum">     481 </span>                :            :         BlockNumber nblkno;
+<span class="lineNum">     482 </span>                :            :         OffsetNumber last_off;
+<span class="lineNum">     483 </span>                :            :         Size            pgspc;
+<span class="lineNum">     484 </span>                :            :         Size            itupsz;
+<span class="lineNum">     485 </span>                :            : 
+<span class="lineNum">     486 </span>                :            :         /*
+<span class="lineNum">     487 </span>                :            :          * This is a handy place to check for cancel interrupts during the btree
+<span class="lineNum">     488 </span>                :            :          * load phase of index creation.
+<span class="lineNum">     489 </span>                :            :          */
+<span class="lineNum">     490 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :         npage = state-&gt;btps_page;</span>
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :         nblkno = state-&gt;btps_blkno;</span>
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :         last_off = state-&gt;btps_lastoff;</span>
+<span class="lineNum">     495 </span>                :            : 
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :         pgspc = PageGetFreeSpace(npage);</span>
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :         itupsz = IndexTupleDSize(*itup);</span>
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :         itupsz = MAXALIGN(itupsz);</span>
+<span class="lineNum">     499 </span>                :            : 
+<span class="lineNum">     500 </span>                :            :         /*
+<span class="lineNum">     501 </span>                :            :          * Check whether the item can fit on a btree page at all. (Eventually, we
+<span class="lineNum">     502 </span>                :            :          * ought to try to apply TOAST methods if not.) We actually need to be
+<span class="lineNum">     503 </span>                :            :          * able to fit three items on every page, so restrict any one item to 1/3
+<span class="lineNum">     504 </span>                :            :          * the per-page available space. Note that at this point, itupsz doesn't
+<span class="lineNum">     505 </span>                :            :          * include the ItemId.
+<span class="lineNum">     506 </span>                :            :          *
+<span class="lineNum">     507 </span>                :            :          * NOTE: similar code appears in _bt_insertonpg() to defend against
+<span class="lineNum">     508 </span>                :            :          * oversize items being inserted into an already-existing index. But
+<span class="lineNum">     509 </span>                :            :          * during creation of an index, we don't go through there.
+<span class="lineNum">     510 </span>                :            :          */
+<span class="lineNum">     511 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (itupsz &gt; BTMaxItemSize(npage))</span>
+<span class="lineNum">     512 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     513 </span>                :            :                                 (errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+<span class="lineNum">     514 </span>                :            :                                  errmsg(&quot;index row size %lu exceeds btree maximum, %lu&quot;,
+<span class="lineNum">     515 </span>                :            :                                                 (unsigned long) itupsz,
+<span class="lineNum">     516 </span>                :            :                                                 (unsigned long) BTMaxItemSize(npage)),
+<span class="lineNum">     517 </span>                :            :                 errhint(&quot;Values larger than 1/3 of a buffer page cannot be indexed.\n&quot;
+<span class="lineNum">     518 </span>                :            :                                 &quot;Consider a function index of an MD5 hash of the value, &quot;
+<span class="lineNum">     519 </span>                :            :                                 &quot;or use full text indexing.&quot;)));
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>                :            :         /*
+<span class="lineNum">     522 </span>                :            :          * Check to see if page is &quot;full&quot;.    It's definitely full if the item won't
+<span class="lineNum">     523 </span>                :            :          * fit.  Otherwise, compare to the target freespace derived from the
+<span class="lineNum">     524 </span>                :            :          * fillfactor.  However, we must put at least two items on each page, so
+<span class="lineNum">     525 </span>                :            :          * disregard fillfactor if we don't have that many.
+<span class="lineNum">     526 </span>                :            :          */
+<span class="lineNum">     527 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pgspc &lt; itupsz || (pgspc &lt; state-&gt;btps_full &amp;&amp; last_off &gt; P_FIRSTKEY))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     528 </span>                :            :         {
+<span class="lineNum">     529 </span>                :            :                 /*
+<span class="lineNum">     530 </span>                :            :                  * Finish off the page and write it out.
+<span class="lineNum">     531 </span>                :            :                  */
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :                 Page            opage = npage;</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :                 BlockNumber oblkno = nblkno;</span>
+<span class="lineNum">     534 </span>                :            :                 ItemId          ii;
+<span class="lineNum">     535 </span>                :            :                 ItemId          hii;
+<span class="lineNum">     536 </span>                :            :                 IndexTuple      oitup;
+<span class="lineNum">     537 </span>                :            : 
+<span class="lineNum">     538 </span>                :            :                 /* Create new page of same level */
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :                 npage = _bt_blnewpage(state-&gt;btps_level);</span>
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :            :                 /* and assign it a page position */
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :                 nblkno = wstate-&gt;btws_pages_alloced++;</span>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            :                 /*
+<span class="lineNum">     545 </span>                :            :                  * We copy the last item on the page into the new page, and then
+<span class="lineNum">     546 </span>                :            :                  * rearrange the old page so that the 'last item' becomes its high key
+<span class="lineNum">     547 </span>                :            :                  * rather than a true data item.  There had better be at least two
+<span class="lineNum">     548 </span>                :            :                  * items on the page already, else the page would be empty of useful
+<span class="lineNum">     549 </span>                :            :                  * data.
+<span class="lineNum">     550 </span>                :            :                  */
+<span class="lineNum">     551 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(last_off &gt; P_FIRSTKEY);</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                 ii = PageGetItemId(opage, last_off);</span>
+<span class="lineNum">     553 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 oitup = (IndexTuple) PageGetItem(opage, ii);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :                 _bt_sortaddtup(npage, ItemIdGetLength(ii), oitup, P_FIRSTKEY);</span>
+<span class="lineNum">     555 </span>                :            : 
+<span class="lineNum">     556 </span>                :            :                 /*
+<span class="lineNum">     557 </span>                :            :                  * Move 'last' into the high key position on opage
+<span class="lineNum">     558 </span>                :            :                  */
+<span class="lineNum">     559 </span>                :<span class="lineNoCov">          0 :                 hii = PageGetItemId(opage, P_HIKEY);</span>
+<span class="lineNum">     560 </span>                :<span class="lineNoCov">          0 :                 *hii = *ii;</span>
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                 ItemIdSetUnused(ii);    /* redundant */</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                 ((PageHeader) opage)-&gt;pd_lower -= sizeof(ItemIdData);</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            :                 /*
+<span class="lineNum">     565 </span>                :            :                  * Link the old page into its parent, using its minimum key. If we
+<span class="lineNum">     566 </span>                :            :                  * don't have a parent, we have to create one; this adds a new btree
+<span class="lineNum">     567 </span>                :            :                  * level.
+<span class="lineNum">     568 </span>                :            :                  */
+<span class="lineNum">     569 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (state-&gt;btps_next == NULL)</span>
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :                         state-&gt;btps_next = _bt_pagestate(wstate, state-&gt;btps_level + 1);</span>
+<span class="lineNum">     571 </span>                :            : 
+<span class="lineNum">     572 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(state-&gt;btps_minkey != NULL);</span>
+<span class="lineNum">     573 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ItemPointerSet(&amp;(state-&gt;btps_minkey-&gt;t_tid), oblkno, P_HIKEY);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :                 _bt_buildadd(wstate, state-&gt;btps_next, state-&gt;btps_minkey);</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :                 pfree(state-&gt;btps_minkey);</span>
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>                :            :                 /*
+<span class="lineNum">     578 </span>                :            :                  * Save a copy of the minimum key for the new page.  We have to copy
+<span class="lineNum">     579 </span>                :            :                  * it off the old page, not the new one, in case we are not at leaf
+<span class="lineNum">     580 </span>                :            :                  * level.
+<span class="lineNum">     581 </span>                :            :                  */
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                 state-&gt;btps_minkey = CopyIndexTuple(oitup);</span>
+<span class="lineNum">     583 </span>                :            : 
+<span class="lineNum">     584 </span>                :            :                 /*
+<span class="lineNum">     585 </span>                :            :                  * Set the sibling links for both pages.
+<span class="lineNum">     586 </span>                :            :                  */
+<span class="lineNum">     587 </span>                :            :                 {
+<span class="lineNum">     588 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         BTPageOpaque oopaque = (BTPageOpaque) PageGetSpecialPointer(opage);</span>
+<span class="lineNum">     589 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         BTPageOpaque nopaque = (BTPageOpaque) PageGetSpecialPointer(npage);</span>
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                         oopaque-&gt;btpo_next = nblkno;</span>
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                         nopaque-&gt;btpo_prev = oblkno;</span>
+<span class="lineNum">     593 </span>                :<span class="lineNoCov">          0 :                         nopaque-&gt;btpo_next = P_NONE;         /* redundant */</span>
+<span class="lineNum">     594 </span>                :            :                 }
+<span class="lineNum">     595 </span>                :            : 
+<span class="lineNum">     596 </span>                :            :                 /*
+<span class="lineNum">     597 </span>                :            :                  * Write out the old page.      We never need to touch it again, so we can
+<span class="lineNum">     598 </span>                :            :                  * free the opage workspace too.
+<span class="lineNum">     599 </span>                :            :                  */
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :                 _bt_blwritepage(wstate, opage, oblkno);</span>
+<span class="lineNum">     601 </span>                :            : 
+<span class="lineNum">     602 </span>                :            :                 /*
+<span class="lineNum">     603 </span>                :            :                  * Reset last_off to point to new page
+<span class="lineNum">     604 </span>                :            :                  */
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :                 last_off = P_FIRSTKEY;</span>
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     607 </span>                :            : 
+<span class="lineNum">     608 </span>                :            :         /*
+<span class="lineNum">     609 </span>                :            :          * If the new item is the first for its page, stash a copy for later. Note
+<span class="lineNum">     610 </span>                :            :          * this will only happen for the first item on a level; on later pages,
+<span class="lineNum">     611 </span>                :            :          * the first item for a page is copied from the prior page in the code
+<span class="lineNum">     612 </span>                :            :          * above.
+<span class="lineNum">     613 </span>                :            :          */
+<span class="lineNum">     614 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (last_off == P_HIKEY)</span>
+<span class="lineNum">     615 </span>                :            :         {
+<span class="lineNum">     616 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(state-&gt;btps_minkey == NULL);</span>
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :                 state-&gt;btps_minkey = CopyIndexTuple(itup);</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     619 </span>                :            : 
+<span class="lineNum">     620 </span>                :            :         /*
+<span class="lineNum">     621 </span>                :            :          * Add the new item into the current page.
+<span class="lineNum">     622 </span>                :            :          */
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :         last_off = OffsetNumberNext(last_off);</span>
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :         _bt_sortaddtup(npage, itupsz, itup, last_off);</span>
+<span class="lineNum">     625 </span>                :            : 
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_page = npage;</span>
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_blkno = nblkno;</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :         state-&gt;btps_lastoff = last_off;</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :            : /*
+<span class="lineNum">     632 </span>                :            :  * Finish writing out the completed btree.
+<a name="633"><span class="lineNum">     633 </span>                :            :  */</a>
+<span class="lineNum">     634 </span>                :            : static void
+<span class="lineNum">     635 </span>                :            : _bt_uppershutdown(BTWriteState *wstate, BTPageState *state)
+<span class="lineNum">     636 </span>                :            : {
+<span class="lineNum">     637 </span>                :            :         BTPageState *s;
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :         BlockNumber rootblkno = P_NONE;</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :         uint32          rootlevel = 0;</span>
+<span class="lineNum">     640 </span>                :            :         Page            metapage;
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>                :            :         /*
+<span class="lineNum">     643 </span>                :            :          * Each iteration of this loop completes one more level of the tree.
+<span class="lineNum">     644 </span>                :            :          */
+<span class="lineNum">     645 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (s = state; s != NULL; s = s-&gt;btps_next)</span>
+<span class="lineNum">     646 </span>                :            :         {
+<span class="lineNum">     647 </span>                :            :                 BlockNumber blkno;
+<span class="lineNum">     648 </span>                :            :                 BTPageOpaque opaque;
+<span class="lineNum">     649 </span>                :            : 
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :                 blkno = s-&gt;btps_blkno;</span>
+<span class="lineNum">     651 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 opaque = (BTPageOpaque) PageGetSpecialPointer(s-&gt;btps_page);</span>
+<span class="lineNum">     652 </span>                :            : 
+<span class="lineNum">     653 </span>                :            :                 /*
+<span class="lineNum">     654 </span>                :            :                  * We have to link the last page on this level to somewhere.
+<span class="lineNum">     655 </span>                :            :                  *
+<span class="lineNum">     656 </span>                :            :                  * If we're at the top, it's the root, so attach it to the metapage.
+<span class="lineNum">     657 </span>                :            :                  * Otherwise, add an entry for it to its parent using its minimum key.
+<span class="lineNum">     658 </span>                :            :                  * This may cause the last page of the parent level to split, but
+<span class="lineNum">     659 </span>                :            :                  * that's not a problem -- we haven't gotten to it yet.
+<span class="lineNum">     660 </span>                :            :                  */
+<span class="lineNum">     661 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (s-&gt;btps_next == NULL)</span>
+<span class="lineNum">     662 </span>                :            :                 {
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :                         opaque-&gt;btpo_flags |= BTP_ROOT;</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                         rootblkno = blkno;</span>
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :                         rootlevel = s-&gt;btps_level;</span>
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     667 </span>                :            :                 else
+<span class="lineNum">     668 </span>                :            :                 {
+<span class="lineNum">     669 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(s-&gt;btps_minkey != NULL);</span>
+<span class="lineNum">     670 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ItemPointerSet(&amp;(s-&gt;btps_minkey-&gt;t_tid), blkno, P_HIKEY);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 :                         _bt_buildadd(wstate, s-&gt;btps_next, s-&gt;btps_minkey);</span>
+<span class="lineNum">     672 </span>                :<span class="lineNoCov">          0 :                         pfree(s-&gt;btps_minkey);</span>
+<span class="lineNum">     673 </span>                :<span class="lineNoCov">          0 :                         s-&gt;btps_minkey = NULL;</span>
+<span class="lineNum">     674 </span>                :            :                 }
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>                :            :                 /*
+<span class="lineNum">     677 </span>                :            :                  * This is the rightmost page, so the ItemId array needs to be slid
+<span class="lineNum">     678 </span>                :            :                  * back one slot.  Then we can dump out the page.
+<span class="lineNum">     679 </span>                :            :                  */
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                 _bt_slideleft(s-&gt;btps_page);</span>
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 :                 _bt_blwritepage(wstate, s-&gt;btps_page, s-&gt;btps_blkno);</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :                 s-&gt;btps_page = NULL; /* writepage freed the workspace */</span>
+<span class="lineNum">     683 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     684 </span>                :            : 
+<span class="lineNum">     685 </span>                :            :         /*
+<span class="lineNum">     686 </span>                :            :          * As the last step in the process, construct the metapage and make it
+<span class="lineNum">     687 </span>                :            :          * point to the new root (unless we had no data at all, in which case it's
+<span class="lineNum">     688 </span>                :            :          * set to point to &quot;P_NONE&quot;).  This changes the index to the &quot;valid&quot; state
+<span class="lineNum">     689 </span>                :            :          * by filling in a valid magic number in the metapage.
+<span class="lineNum">     690 </span>                :            :          */
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :         metapage = (Page) palloc(BLCKSZ);</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :         _bt_initmetapage(metapage, rootblkno, rootlevel);</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :         _bt_blwritepage(wstate, metapage, BTREE_METAPAGE);</span>
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     695 </span>                :            : 
+<span class="lineNum">     696 </span>                :            : /*
+<span class="lineNum">     697 </span>                :            :  * Read tuples in correct sort order from tuplesort, and load them into
+<span class="lineNum">     698 </span>                :            :  * btree leaves.
+<a name="699"><span class="lineNum">     699 </span>                :            :  */</a>
+<span class="lineNum">     700 </span>                :            : static void
+<span class="lineNum">     701 </span>                :            : _bt_load(BTWriteState *wstate, BTSpool *btspool, BTSpool *btspool2)
+<span class="lineNum">     702 </span>                :            : {
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :         BTPageState *state = NULL;</span>
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :         bool            merge = (btspool2 != NULL);</span>
+<span class="lineNum">     705 </span>                :            :         IndexTuple      itup,
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                                 itup2 = NULL;</span>
+<span class="lineNum">     707 </span>                :            :         bool            should_free,
+<span class="lineNum">     708 </span>                :            :                                 should_free2,
+<span class="lineNum">     709 </span>                :            :                                 load1;
+<span class="lineNum">     710 </span>                :<span class="lineNoCov">          0 :         TupleDesc       tupdes = RelationGetDescr(wstate-&gt;index);</span>
+<span class="lineNum">     711 </span>                :            :         int                     i,
+<span class="lineNum">     712 </span>                :<span class="lineNoCov">          0 :                                 keysz = RelationGetNumberOfAttributes(wstate-&gt;index);</span>
+<span class="lineNum">     713 </span>                :<span class="lineNoCov">          0 :         ScanKey         indexScanKey = NULL;</span>
+<span class="lineNum">     714 </span>                :            : 
+<span class="lineNum">     715 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (merge)</span>
+<span class="lineNum">     716 </span>                :            :         {
+<span class="lineNum">     717 </span>                :            :                 /*
+<span class="lineNum">     718 </span>                :            :                  * Another BTSpool for dead tuples exists. Now we have to merge
+<span class="lineNum">     719 </span>                :            :                  * btspool and btspool2.
+<span class="lineNum">     720 </span>                :            :                  */
+<span class="lineNum">     721 </span>                :            : 
+<span class="lineNum">     722 </span>                :            :                 /* the preparation of merge */
+<span class="lineNum">     723 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(gp_enable_mk_sort)</span>
+<span class="lineNum">     724 </span>                :            :                 {
+<span class="lineNum">     725 </span>                :<span class="lineNoCov">          0 :                         itup = tuplesort_getindextuple_mk((Tuplesortstate_mk *) btspool-&gt;sortstate, true, &amp;should_free); </span>
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :                         itup2 = tuplesort_getindextuple_mk((Tuplesortstate_mk *) btspool2-&gt;sortstate, true, &amp;should_free2);</span>
+<span class="lineNum">     727 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     728 </span>                :            :                 else
+<span class="lineNum">     729 </span>                :            :                 {
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :                         itup = tuplesort_getindextuple((Tuplesortstate *) btspool-&gt;sortstate, true, &amp;should_free); </span>
+<span class="lineNum">     731 </span>                :<span class="lineNoCov">          0 :                         itup2 = tuplesort_getindextuple((Tuplesortstate *) btspool2-&gt;sortstate, true, &amp;should_free2);</span>
+<span class="lineNum">     732 </span>                :            :                 }
+<span class="lineNum">     733 </span>                :            : 
+<span class="lineNum">     734 </span>                :<span class="lineNoCov">          0 :                 indexScanKey = _bt_mkscankey_nodata(wstate-&gt;index);</span>
+<span class="lineNum">     735 </span>                :            : 
+<span class="lineNum">     736 </span>                :<span class="lineNoCov">          0 :                 for (;;)</span>
+<span class="lineNum">     737 </span>                :            :                 {
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :                         load1 = true;           /* load BTSpool next ? */</span>
+<span class="lineNum">     739 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (itup2 == NULL)</span>
+<span class="lineNum">     740 </span>                :            :                         {
+<span class="lineNum">     741 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (itup == NULL)</span>
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     743 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     744 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (itup != NULL)</span>
+<span class="lineNum">     745 </span>                :            :                         {
+<span class="lineNum">     746 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 for (i = 1; i &lt;= keysz; i++)</span>
+<span class="lineNum">     747 </span>                :            :                                 {
+<span class="lineNum">     748 </span>                :            :                                         ScanKey         entry;
+<span class="lineNum">     749 </span>                :            :                                         Datum           attrDatum1,
+<span class="lineNum">     750 </span>                :            :                                                                 attrDatum2;
+<span class="lineNum">     751 </span>                :            :                                         bool            isNull1,
+<span class="lineNum">     752 </span>                :            :                                                                 isNull2;
+<span class="lineNum">     753 </span>                :            :                                         int32           compare;
+<span class="lineNum">     754 </span>                :            : 
+<span class="lineNum">     755 </span>                :<span class="lineNoCov">          0 :                                         entry = indexScanKey + i - 1;</span>
+<span class="lineNum">     756 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         attrDatum1 = index_getattr(itup, i, tupdes, &amp;isNull1);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 16 was not executed"> # </span><span class="branchNoExec" title="Branch 17 was not executed"> # </span>][<span class="branchNoExec" title="Branch 18 was not executed"> # </span><span class="branchNoExec" title="Branch 19 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 20 was not executed"> # </span><span class="branchNoExec" title="Branch 21 was not executed"> # </span>]
+<span class="lineNum">     757 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         attrDatum2 = index_getattr(itup2, i, tupdes, &amp;isNull2);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 16 was not executed"> # </span><span class="branchNoExec" title="Branch 17 was not executed"> # </span>][<span class="branchNoExec" title="Branch 18 was not executed"> # </span><span class="branchNoExec" title="Branch 19 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 20 was not executed"> # </span><span class="branchNoExec" title="Branch 21 was not executed"> # </span>]
+<span class="lineNum">     758 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (isNull1)</span>
+<span class="lineNum">     759 </span>                :            :                                         {
+<span class="lineNum">     760 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 if (isNull2)</span>
+<span class="lineNum">     761 </span>                :<span class="lineNoCov">          0 :                                                         compare = 0;            /* NULL &quot;=&quot; NULL */</span>
+<span class="lineNum">     762 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 else if (entry-&gt;sk_flags &amp; SK_BT_NULLS_FIRST)</span>
+<span class="lineNum">     763 </span>                :<span class="lineNoCov">          0 :                                                         compare = -1;           /* NULL &quot;&lt;&quot; NOT_NULL */</span>
+<span class="lineNum">     764 </span>                :            :                                                 else
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :                                                         compare = 1;            /* NULL &quot;&gt;&quot; NOT_NULL */</span>
+<span class="lineNum">     766 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     767 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         else if (isNull2)</span>
+<span class="lineNum">     768 </span>                :            :                                         {
+<span class="lineNum">     769 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 if (entry-&gt;sk_flags &amp; SK_BT_NULLS_FIRST)</span>
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                                                         compare = 1;            /* NOT_NULL &quot;&gt;&quot; NULL */</span>
+<span class="lineNum">     771 </span>                :            :                                                 else
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                                                         compare = -1;           /* NOT_NULL &quot;&lt;&quot; NULL */</span>
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     774 </span>                :            :                                         else
+<span class="lineNum">     775 </span>                :            :                                         {
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :                                                 compare = DatumGetInt32(FunctionCall2(&amp;entry-&gt;sk_func,</span>
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 :                                                                                                                           attrDatum1,</span>
+<span class="lineNum">     778 </span>                :<span class="lineNoCov">          0 :                                                                                                                           attrDatum2));</span>
+<span class="lineNum">     779 </span>                :            : 
+<span class="lineNum">     780 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 if (entry-&gt;sk_flags &amp; SK_BT_DESC)</span>
+<span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 :                                                         compare = -compare;</span>
+<span class="lineNum">     782 </span>                :            :                                         }
+<span class="lineNum">     783 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (compare &gt; 0)</span>
+<span class="lineNum">     784 </span>                :            :                                         {
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :                                                 load1 = false;</span>
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     787 </span>                :            :                                         }
+<span class="lineNum">     788 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         else if (compare &lt; 0)</span>
+<span class="lineNum">     789 </span>                :<span class="lineNoCov">          0 :                                                 break;</span>
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     792 </span>                :            :                         else
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :                                 load1 = false;</span>
+<span class="lineNum">     794 </span>                :            : 
+<span class="lineNum">     795 </span>                :            :                         /* When we see first tuple, create first index page */
+<span class="lineNum">     796 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (state == NULL)</span>
+<span class="lineNum">     797 </span>                :<span class="lineNoCov">          0 :                                 state = _bt_pagestate(wstate, 0);</span>
+<span class="lineNum">     798 </span>                :            : 
+<span class="lineNum">     799 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (load1)</span>
+<span class="lineNum">     800 </span>                :            :                         {
+<span class="lineNum">     801 </span>                :<span class="lineNoCov">          0 :                                 _bt_buildadd(wstate, state, itup);</span>
+<span class="lineNum">     802 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (should_free)</span>
+<span class="lineNum">     803 </span>                :<span class="lineNoCov">          0 :                                         pfree(itup);</span>
+<span class="lineNum">     804 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if(gp_enable_mk_sort)</span>
+<span class="lineNum">     805 </span>                :<span class="lineNoCov">          0 :                                         itup = tuplesort_getindextuple_mk((Tuplesortstate_mk *)btspool-&gt;sortstate, true, &amp;should_free);</span>
+<span class="lineNum">     806 </span>                :            :                                 else
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                                         itup = tuplesort_getindextuple((Tuplesortstate *) btspool-&gt;sortstate, true, &amp;should_free);</span>
+<span class="lineNum">     808 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     809 </span>                :            :                         else
+<span class="lineNum">     810 </span>                :            :                         {
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :                                 _bt_buildadd(wstate, state, itup2);</span>
+<span class="lineNum">     812 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (should_free2)</span>
+<span class="lineNum">     813 </span>                :<span class="lineNoCov">          0 :                                         pfree(itup2);</span>
+<span class="lineNum">     814 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if(gp_enable_mk_sort)</span>
+<span class="lineNum">     815 </span>                :<span class="lineNoCov">          0 :                                         itup2 = tuplesort_getindextuple_mk((Tuplesortstate_mk *) btspool2-&gt;sortstate,</span>
+<span class="lineNum">     816 </span>                :            :                                                         true, &amp;should_free2);
+<span class="lineNum">     817 </span>                :            :                                 else
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :                                         itup2 = tuplesort_getindextuple((Tuplesortstate *) btspool2-&gt;sortstate,</span>
+<span class="lineNum">     819 </span>                :            :                                                         true, &amp;should_free2);
+<span class="lineNum">     820 </span>                :            :                         }
+<span class="lineNum">     821 </span>                :            :                 }
+<span class="lineNum">     822 </span>                :<span class="lineNoCov">          0 :                 _bt_freeskey(indexScanKey);</span>
+<span class="lineNum">     823 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     824 </span>                :            :         else
+<span class="lineNum">     825 </span>                :            :         {
+<span class="lineNum">     826 </span>                :            :                 /* merge is unnecessary */
+<span class="lineNum">     827 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while ((itup = (</span>
+<span class="lineNum">     828 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 gp_enable_mk_sort ? </span>
+<span class="lineNum">     829 </span>                :<span class="lineNoCov">          0 :                                 tuplesort_getindextuple_mk((Tuplesortstate_mk *) btspool-&gt;sortstate, </span>
+<span class="lineNum">     830 </span>                :            :                                                 true, &amp;should_free)
+<span class="lineNum">     831 </span>                :            :                                 :
+<span class="lineNum">     832 </span>                :<span class="lineNoCov">          0 :                                 tuplesort_getindextuple((Tuplesortstate *) btspool-&gt;sortstate, </span>
+<span class="lineNum">     833 </span>                :            :                                                 true, &amp;should_free)
+<span class="lineNum">     834 </span>                :            :                                 ))
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :                         != NULL)</span>
+<span class="lineNum">     836 </span>                :            :                 {
+<span class="lineNum">     837 </span>                :            :                         /* When we see first tuple, create first index page */
+<span class="lineNum">     838 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (state == NULL)</span>
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                                 state = _bt_pagestate(wstate, 0);</span>
+<span class="lineNum">     840 </span>                :            : 
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :                         _bt_buildadd(wstate, state, itup);</span>
+<span class="lineNum">     842 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (should_free)</span>
+<span class="lineNum">     843 </span>                :<span class="lineNoCov">          0 :                                 pfree(itup);</span>
+<span class="lineNum">     844 </span>                :            :                 }
+<span class="lineNum">     845 </span>                :            :         }
+<span class="lineNum">     846 </span>                :            : 
+<span class="lineNum">     847 </span>                :            :         /* Close down final pages and write the metapage */
+<span class="lineNum">     848 </span>                :<span class="lineNoCov">          0 :         _bt_uppershutdown(wstate, state);</span>
+<span class="lineNum">     849 </span>                :            : 
+<span class="lineNum">     850 </span>                :            :         /*
+<span class="lineNum">     851 </span>                :            :          * If the index isn't temp, we must fsync it down to disk before it's safe
+<span class="lineNum">     852 </span>                :            :          * to commit the transaction.  (For a temp index we don't care since the
+<span class="lineNum">     853 </span>                :            :          * index will be uninteresting after a crash anyway.)
+<span class="lineNum">     854 </span>                :            :          *
+<span class="lineNum">     855 </span>                :            :          * It's obvious that we must do this when not WAL-logging the build. It's
+<span class="lineNum">     856 </span>                :            :          * less obvious that we have to do it even if we did WAL-log the index
+<span class="lineNum">     857 </span>                :            :          * pages.  The reason is that since we're building outside shared buffers,
+<span class="lineNum">     858 </span>                :            :          * a CHECKPOINT occurring during the build has no way to flush the
+<span class="lineNum">     859 </span>                :            :          * previously written data to disk (indeed it won't know the index even
+<span class="lineNum">     860 </span>                :            :          * exists).  A crash later on would replay WAL from the checkpoint,
+<span class="lineNum">     861 </span>                :            :          * therefore it wouldn't replay our earlier WAL entries. If we do not
+<span class="lineNum">     862 </span>                :            :          * fsync those pages here, they might still not be on disk when the crash
+<span class="lineNum">     863 </span>                :            :          * occurs.
+<span class="lineNum">     864 </span>                :            :          */
+<span class="lineNum">     865 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!wstate-&gt;index-&gt;rd_istemp)</span>
+<span class="lineNum">     866 </span>                :            :         {
+<span class="lineNum">     867 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 RelationOpenSmgr(wstate-&gt;index);</span>
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 :                 smgrimmedsync(wstate-&gt;index-&gt;rd_smgr);</span>
+<span class="lineNum">     869 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     870 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

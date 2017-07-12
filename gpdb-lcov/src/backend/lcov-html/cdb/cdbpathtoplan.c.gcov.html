@@ -1,0 +1,316 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - cdb/cdbpathtoplan.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">cdb</a> - cdbpathtoplan.c<span style="font-size: 80%;"> (source / <a href="cdbpathtoplan.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">96</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">52</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * cdbpathtoplan.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Copyright (c) 2005-2008, Greenplum inc
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">       8 </span>                :            :  */
+<span class="lineNum">       9 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      10 </span>                :            : 
+<span class="lineNum">      11 </span>                :            : #include &quot;nodes/relation.h&quot;     /* RelOptInfo */
+<span class="lineNum">      12 </span>                :            : #include &quot;optimizer/pathnode.h&quot; /* Path */
+<span class="lineNum">      13 </span>                :            : #include &quot;optimizer/planmain.h&quot; /* make_sort_from_pathkeys() */
+<span class="lineNum">      14 </span>                :            : #include &quot;optimizer/tlist.h&quot;
+<span class="lineNum">      15 </span>                :            : 
+<span class="lineNum">      16 </span>                :            : #include &quot;cdb/cdbllize.h&quot;       /* makeFlow() */
+<span class="lineNum">      17 </span>                :            : #include &quot;cdb/cdbmutate.h&quot;      /* make_*_motion() */
+<span class="lineNum">      18 </span>                :            : #include &quot;cdb/cdbutil.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;cdb/cdbvars.h&quot;        /* gp_singleton_segindex */
+<span class="lineNum">      20 </span>                :            : 
+<span class="lineNum">      21 </span>                :            : #include &quot;cdb/cdbpathtoplan.h&quot;  /* me */
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : /*
+<span class="lineNum">      24 </span>                :            :  * cdbpathtoplan_create_flow
+<a name="25"><span class="lineNum">      25 </span>                :            :  */</a>
+<span class="lineNum">      26 </span>                :            : Flow *
+<span class="lineNum">      27 </span>                :            : cdbpathtoplan_create_flow(PlannerInfo  *root,
+<span class="lineNum">      28 </span>                :            :                           CdbPathLocus  locus,
+<span class="lineNum">      29 </span>                :            :                           Relids        relids,
+<span class="lineNum">      30 </span>                :            :                           List         *pathkeys,
+<span class="lineNum">      31 </span>                :            :                           Plan         *plan)
+<span class="lineNum">      32 </span>                :            : {
+<span class="lineNum">      33 </span>                :<span class="lineNoCov">          0 :     Flow       *flow = NULL;</span>
+<span class="lineNum">      34 </span>                :            : 
+<span class="lineNum">      35 </span>                :            :     /* Distribution */
+<span class="lineNum">      36 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (CdbPathLocus_IsEntry(locus))</span>
+<span class="lineNum">      37 </span>                :            :     {
+<span class="lineNum">      38 </span>                :<span class="lineNoCov">          0 :         flow = makeFlow(FLOW_SINGLETON);</span>
+<span class="lineNum">      39 </span>                :<span class="lineNoCov">          0 :         flow-&gt;segindex = -1;</span>
+<span class="lineNum">      40 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">      41 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsSingleQE(locus))</span>
+<span class="lineNum">      42 </span>                :            :     {
+<span class="lineNum">      43 </span>                :<span class="lineNoCov">          0 :         flow = makeFlow(FLOW_SINGLETON);</span>
+<span class="lineNum">      44 </span>                :<span class="lineNoCov">          0 :         flow-&gt;segindex = 0;</span>
+<span class="lineNum">      45 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">      46 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsGeneral(locus))</span>
+<span class="lineNum">      47 </span>                :            :     {
+<span class="lineNum">      48 </span>                :<span class="lineNoCov">          0 :         flow = makeFlow(FLOW_SINGLETON);</span>
+<span class="lineNum">      49 </span>                :<span class="lineNoCov">          0 :         flow-&gt;segindex = 0;</span>
+<span class="lineNum">      50 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">      51 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsReplicated(locus))</span>
+<span class="lineNum">      52 </span>                :            :     {
+<span class="lineNum">      53 </span>                :<span class="lineNoCov">          0 :         flow = makeFlow(FLOW_REPLICATED);</span>
+<span class="lineNum">      54 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">      55 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsHashed(locus) ||</span>
+<span class="lineNum">      56 </span>                :<span class="lineNoCov">          0 :              CdbPathLocus_IsHashedOJ(locus))</span>
+<span class="lineNum">      57 </span>                :            :     {
+<span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :         flow = makeFlow(FLOW_PARTITIONED);</span>
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :         flow-&gt;hashExpr = cdbpathlocus_get_partkey_exprs(locus,</span>
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :                                                         relids,</span>
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 :                                                         plan-&gt;targetlist);</span>
+<span class="lineNum">      62 </span>                :            :         /*
+<span class="lineNum">      63 </span>                :            :          * hashExpr can be NIL if the rel is partitioned on columns that aren't
+<span class="lineNum">      64 </span>                :            :          * projected (i.e. are not present in the result of this Path operator).
+<span class="lineNum">      65 </span>                :            :          */
+<span class="lineNum">      66 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">      67 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsStrewn(locus))</span>
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :         flow = makeFlow(FLOW_PARTITIONED);</span>
+<span class="lineNum">      69 </span>                :            :     else
+<span class="lineNum">      70 </span>                :<span class="lineNoCov">          0 :         Insist(0);</span>
+<span class="lineNum">      71 </span>                :            :         
+<span class="lineNum">      72 </span>                :            :     /*
+<span class="lineNum">      73 </span>                :            :      * Describe the ordering of the result rows.  The ordering info will be
+<span class="lineNum">      74 </span>                :            :      * truncated upon encountering an expr which is not already present in the
+<span class="lineNum">      75 </span>                :            :      * plan's targetlist.  Duplicate cols and constant cols will be omitted.
+<span class="lineNum">      76 </span>                :            :      */
+<span class="lineNum">      77 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (pathkeys)</span>
+<span class="lineNum">      78 </span>                :            :     {
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :         Sort   *sort = make_sort_from_pathkeys(root, plan, pathkeys, -1.0, false);</span>
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sort)</span>
+<span class="lineNum">      82 </span>                :            :         {
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :             flow-&gt;numSortCols = sort-&gt;numCols;</span>
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :             flow-&gt;sortColIdx = sort-&gt;sortColIdx;</span>
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :             flow-&gt;sortOperators = sort-&gt;sortOperators;</span>
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                         flow-&gt;nullsFirst = sort-&gt;nullsFirst;</span>
+<span class="lineNum">      87 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(flow-&gt;nullsFirst);</span>
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :     flow-&gt;req_move = MOVEMENT_NONE;</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         flow-&gt;locustype = locus.locustype;</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :     return flow;</span>
+<span class="lineNum">      94 </span>                :            : }                               /* cdbpathtoplan_create_flow */
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            : /*
+<span class="lineNum">      98 </span>                :            :  * cdbpathtoplan_create_motion_plan
+<a name="99"><span class="lineNum">      99 </span>                :            :  */</a>
+<span class="lineNum">     100 </span>                :            : Motion *
+<span class="lineNum">     101 </span>                :            : cdbpathtoplan_create_motion_plan(PlannerInfo   *root,
+<span class="lineNum">     102 </span>                :            :                                  CdbMotionPath *path,
+<span class="lineNum">     103 </span>                :            :                                  Plan          *subplan)
+<span class="lineNum">     104 </span>                :            : {
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :     Motion *motion = NULL;</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :     Path   *subpath = path-&gt;subpath;</span>
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :            :     /* Send all tuples to a single process? */
+<span class="lineNum">     109 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (CdbPathLocus_IsBottleneck(path-&gt;path.locus))</span>
+<span class="lineNum">     110 </span>                :            :     {
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :         int destSegIndex = -1;                          /* to dispatcher */</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (CdbPathLocus_IsSingleQE(path-&gt;path.locus))</span>
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :             destSegIndex = gp_singleton_segindex;      /* to singleton qExec */</span>
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (path-&gt;path.pathkeys)</span>
+<span class="lineNum">     117 </span>                :            :         {
+<span class="lineNum">     118 </span>                :            :             /*
+<span class="lineNum">     119 </span>                :            :              * Build a dummy Sort node.  We'll take its sort key info to
+<span class="lineNum">     120 </span>                :            :              * define our Merge Receive keys.  Unchanged subplan ptr is
+<span class="lineNum">     121 </span>                :            :              * returned to us if ordering is degenerate (all cols constant).
+<span class="lineNum">     122 </span>                :            :              */
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :             Sort   *sort = make_sort_from_pathkeys(root,</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                                                    subplan,</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                                                    path-&gt;path.pathkeys,</span>
+<span class="lineNum">     126 </span>                :            :                                                                                                    -1.0,
+<span class="lineNum">     127 </span>                :            :                                                    true);
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :            :             /* Merge Receive to preserve ordering */
+<span class="lineNum">     130 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :             if (sort)</span>
+<span class="lineNum">     131 </span>                :            :             {
+<span class="lineNum">     132 </span>                :            :                 /* Result node might have been added below the Sort */
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                 subplan = sort-&gt;plan.lefttree; </span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                 motion = make_sorted_union_motion(subplan,</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                                                   destSegIndex,</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                                                   sort-&gt;numCols,</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :                                                   sort-&gt;sortColIdx,</span>
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                                                   sort-&gt;sortOperators,</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                                                                                                   sort-&gt;nullsFirst,</span>
+<span class="lineNum">     140 </span>                :            :                                                   false /* useExecutorVarFormat */
+<span class="lineNum">     141 </span>                :            :                                                   );
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :             }</span>
+<span class="lineNum">     143 </span>                :            :         
+<span class="lineNum">     144 </span>                :            :             /* Degenerate ordering... build unordered Union Receive */
+<span class="lineNum">     145 </span>                :            :             else
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :                 motion = make_union_motion(subplan,</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                                            destSegIndex,</span>
+<span class="lineNum">     148 </span>                :            :                                            false /* useExecutorVarFormat */
+<span class="lineNum">     149 </span>                :            :                                            );
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     151 </span>                :            :         
+<span class="lineNum">     152 </span>                :            :         /* Unordered Union Receive */
+<span class="lineNum">     153 </span>                :            :         else
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :             motion = make_union_motion(subplan,</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :                                        destSegIndex,</span>
+<span class="lineNum">     156 </span>                :            :                                        false /* useExecutorVarFormat */
+<span class="lineNum">     157 </span>                :            :                                        );
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            :     /* Send all of the tuples to all of the QEs in gang above... */
+<span class="lineNum">     161 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsReplicated(path-&gt;path.locus))</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :             motion = make_broadcast_motion(subplan,</span>
+<span class="lineNum">     163 </span>                :            :                                            false /* useExecutorVarFormat */
+<span class="lineNum">     164 </span>                :            :                                            );
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :            :     /* Hashed redistribution to all QEs in gang above... */
+<span class="lineNum">     167 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (CdbPathLocus_IsHashed(path-&gt;path.locus) ||</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :              CdbPathLocus_IsHashedOJ(path-&gt;path.locus))</span>
+<span class="lineNum">     169 </span>                :            :     {
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         List   *hashExpr = cdbpathlocus_get_partkey_exprs(path-&gt;path.locus,</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                                                           path-&gt;path.parent-&gt;relids,</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :                                                           subplan-&gt;targetlist);</span>
+<span class="lineNum">     173 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Insist(hashExpr);</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :            :         /**
+<span class="lineNum">     176 </span>                :            :          * If there are subplans in the hashExpr, push it down to lower level.
+<span class="lineNum">     177 </span>                :            :          */
+<span class="lineNum">     178 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (contain_subplans((Node *) hashExpr))</span>
+<span class="lineNum">     179 </span>                :            :                 {
+<span class="lineNum">     180 </span>                :            :                         /* make a Result node to do the projection if necessary */
+<span class="lineNum">     181 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!is_projection_capable_plan(subplan))</span>
+<span class="lineNum">     182 </span>                :            :                         {
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                                 List *tlist = copyObject(subplan-&gt;targetlist);</span>
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                                 subplan = (Plan *) make_result(root, tlist, NULL, subplan);</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                         subplan-&gt;targetlist = add_to_flat_tlist(subplan-&gt;targetlist,</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                                                                                                         hashExpr,</span>
+<span class="lineNum">     189 </span>                :            :                                                                                                         true /* resjunk */);
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :         motion = make_hashed_motion(subplan,</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                                     hashExpr,</span>
+<span class="lineNum">     193 </span>                :            :                                     false /* useExecutorVarFormat */);
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     195 </span>                :            :     else
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         Insist(0);</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :     /*
+<span class="lineNum">     199 </span>                :            :      * Decorate the subplan with a Flow node telling the plan slicer
+<span class="lineNum">     200 </span>                :            :      * what kind of gang will be needed to execute the subplan.
+<span class="lineNum">     201 </span>                :            :      */
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :     subplan-&gt;flow = cdbpathtoplan_create_flow(root,</span>
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                                               subpath-&gt;locus,</span>
+<span class="lineNum">     204 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                               subpath-&gt;parent</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                                                 ? subpath-&gt;parent-&gt;relids</span>
+<span class="lineNum">     206 </span>                :            :                                                 : NULL,
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                                               subpath-&gt;pathkeys,</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                                               subplan);</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :            :         /**
+<span class="lineNum">     211 </span>                :            :          * If plan has a flow node, and its child is projection capable,
+<span class="lineNum">     212 </span>                :            :          * then ensure all entries of hashExpr are in the targetlist.
+<span class="lineNum">     213 </span>                :            :          */
+<span class="lineNum">     214 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (subplan-&gt;flow</span>
+<span class="lineNum">     215 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         &amp;&amp; subplan-&gt;flow-&gt;hashExpr</span>
+<span class="lineNum">     216 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         &amp;&amp; is_projection_capable_plan(subplan))</span>
+<span class="lineNum">     217 </span>                :            :         {
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                 subplan-&gt;targetlist = add_to_flat_tlist(subplan-&gt;targetlist, subplan-&gt;flow-&gt;hashExpr, true /* resjunk */);</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :     return motion;</span>
+<span class="lineNum">     222 </span>                :            : }                               /* cdbpathtoplan_create_motion_plan */
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

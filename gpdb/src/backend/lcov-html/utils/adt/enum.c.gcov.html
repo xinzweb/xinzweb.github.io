@@ -1,0 +1,530 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/adt/enum.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/adt</a> - enum.c<span style="font-size: 80%;"> (source / <a href="enum.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">147</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">92</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * enum.c
+<span class="lineNum">       4 </span>                :            :  *        I/O functions, operators, aggregates etc for enum types
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Copyright (c) 2006-2008, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      10 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/utils/adt/enum.c,v 1.6 2008/01/01 19:45:52 momjian Exp $
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      13 </span>                :            :  */
+<span class="lineNum">      14 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      15 </span>                :            : 
+<span class="lineNum">      16 </span>                :            : #include &quot;catalog/pg_enum.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;fmgr.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;libpq/pqformat.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;utils/array.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;libpq/pqformat.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :            : static ArrayType *enum_range_internal(Oid enumtypoid, Oid lower, Oid upper);
+<span class="lineNum">      29 </span>                :            : static int      enum_elem_cmp(const void *left, const void *right);
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :            : /* Basic I/O support */
+<a name="33"><span class="lineNum">      33 </span>                :            : </a>
+<span class="lineNum">      34 </span>                :            : Datum
+<span class="lineNum">      35 </span>                :            : enum_in(PG_FUNCTION_ARGS)
+<span class="lineNum">      36 </span>                :            : {
+<span class="lineNum">      37 </span>                :<span class="lineNoCov">          0 :         char       *name = PG_GETARG_CSTRING(0);</span>
+<span class="lineNum">      38 </span>                :<span class="lineNoCov">          0 :         Oid                     enumtypoid = PG_GETARG_OID(1);</span>
+<span class="lineNum">      39 </span>                :            :         Oid                     enumoid;
+<span class="lineNum">      40 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            :         /* must check length to prevent Assert failure within SearchSysCache */
+<span class="lineNum">      43 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strlen(name) &gt;= NAMEDATALEN)</span>
+<span class="lineNum">      44 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      45 </span>                :            :                                 (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+<span class="lineNum">      46 </span>                :            :                                  errmsg(&quot;invalid input value for enum %s: \&quot;%s\&quot;&quot;,
+<span class="lineNum">      47 </span>                :            :                                                 format_type_be(enumtypoid),
+<span class="lineNum">      48 </span>                :            :                                                 name)));
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache(ENUMTYPOIDNAME,</span>
+<span class="lineNum">      51 </span>                :<span class="lineNoCov">          0 :                                                  ObjectIdGetDatum(enumtypoid),</span>
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :                                                  CStringGetDatum(name),</span>
+<span class="lineNum">      53 </span>                :            :                                                  0, 0);
+<span class="lineNum">      54 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">      55 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      56 </span>                :            :                                 (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+<span class="lineNum">      57 </span>                :            :                                  errmsg(&quot;invalid input value for enum %s: \&quot;%s\&quot;&quot;,
+<span class="lineNum">      58 </span>                :            :                                                 format_type_be(enumtypoid),
+<span class="lineNum">      59 </span>                :            :                                                 name)));
+<span class="lineNum">      60 </span>                :            : 
+<span class="lineNum">      61 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         enumoid = HeapTupleGetOid(tup);</span>
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_OID(enumoid);</span>
+<span class="lineNum">      66 </span>                :            : }
+<a name="67"><span class="lineNum">      67 </span>                :            : </a>
+<span class="lineNum">      68 </span>                :            : Datum
+<span class="lineNum">      69 </span>                :            : enum_out(PG_FUNCTION_ARGS)
+<span class="lineNum">      70 </span>                :            : {
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :         Oid                     enumval = PG_GETARG_OID(0);</span>
+<span class="lineNum">      72 </span>                :            :         char       *result;
+<span class="lineNum">      73 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">      74 </span>                :            :         Form_pg_enum en;
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache(ENUMOID,</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                                                  ObjectIdGetDatum(enumval),</span>
+<span class="lineNum">      78 </span>                :            :                                                  0, 0, 0);
+<span class="lineNum">      79 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">      80 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      81 </span>                :            :                                 (errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
+<span class="lineNum">      82 </span>                :            :                                  errmsg(&quot;invalid internal value for enum: %u&quot;,
+<span class="lineNum">      83 </span>                :            :                                                 enumval)));
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :         en = (Form_pg_enum) GETSTRUCT(tup);</span>
+<span class="lineNum">      85 </span>                :            : 
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :         result = pstrdup(NameStr(en-&gt;enumlabel));</span>
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_CSTRING(result);</span>
+<span class="lineNum">      91 </span>                :            : }
+<span class="lineNum">      92 </span>                :            : 
+<a name="93"><span class="lineNum">      93 </span>                :            : /* Binary I/O support */</a>
+<span class="lineNum">      94 </span>                :            : Datum
+<span class="lineNum">      95 </span>                :            : enum_recv(PG_FUNCTION_ARGS)
+<span class="lineNum">      96 </span>                :            : {
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         StringInfo      buf = (StringInfo) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :         Oid                     enumtypoid = PG_GETARG_OID(1);</span>
+<span class="lineNum">      99 </span>                :            :         Oid                     enumoid;
+<span class="lineNum">     100 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     101 </span>                :            :         char       *name;
+<span class="lineNum">     102 </span>                :            :         int                     nbytes;
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :         name = pq_getmsgtext(buf, buf-&gt;len - buf-&gt;cursor, &amp;nbytes);</span>
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>                :            :         /* must check length to prevent Assert failure within SearchSysCache */
+<span class="lineNum">     107 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strlen(name) &gt;= NAMEDATALEN)</span>
+<span class="lineNum">     108 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     109 </span>                :            :                                 (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+<span class="lineNum">     110 </span>                :            :                                  errmsg(&quot;invalid input value for enum %s: \&quot;%s\&quot;&quot;,
+<span class="lineNum">     111 </span>                :            :                                                 format_type_be(enumtypoid),
+<span class="lineNum">     112 </span>                :            :                                                 name)));
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache(ENUMTYPOIDNAME,</span>
+<span class="lineNum">     115 </span>                :<span class="lineNoCov">          0 :                                                  ObjectIdGetDatum(enumtypoid),</span>
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :                                                  CStringGetDatum(name),</span>
+<span class="lineNum">     117 </span>                :            :                                                  0, 0);
+<span class="lineNum">     118 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     120 </span>                :            :                                 (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
+<span class="lineNum">     121 </span>                :            :                                  errmsg(&quot;invalid input value for enum %s: \&quot;%s\&quot;&quot;,
+<span class="lineNum">     122 </span>                :            :                                                 format_type_be(enumtypoid),
+<span class="lineNum">     123 </span>                :            :                                                 name)));
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         enumoid = HeapTupleGetOid(tup);</span>
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         pfree(name);</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_OID(enumoid);</span>
+<span class="lineNum">     132 </span>                :            : }
+<a name="133"><span class="lineNum">     133 </span>                :            : </a>
+<span class="lineNum">     134 </span>                :            : Datum
+<span class="lineNum">     135 </span>                :            : enum_send(PG_FUNCTION_ARGS)
+<span class="lineNum">     136 </span>                :            : {
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :         Oid                     enumval = PG_GETARG_OID(0);</span>
+<span class="lineNum">     138 </span>                :            :         StringInfoData buf;
+<span class="lineNum">     139 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     140 </span>                :            :         Form_pg_enum en;
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache(ENUMOID,</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                                                  ObjectIdGetDatum(enumval),</span>
+<span class="lineNum">     144 </span>                :            :                                                  0, 0, 0);
+<span class="lineNum">     145 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     147 </span>                :            :                                 (errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
+<span class="lineNum">     148 </span>                :            :                                  errmsg(&quot;invalid internal value for enum: %u&quot;,
+<span class="lineNum">     149 </span>                :            :                                                 enumval)));
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :         en = (Form_pg_enum) GETSTRUCT(tup);</span>
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         pq_begintypsend(&amp;buf);</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         pq_sendtext(&amp;buf, NameStr(en-&gt;enumlabel), strlen(NameStr(en-&gt;enumlabel)));</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BYTEA_P(pq_endtypsend(&amp;buf));</span>
+<span class="lineNum">     158 </span>                :            : }
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            : /* Comparison functions and related */
+<a name="161"><span class="lineNum">     161 </span>                :            : </a>
+<span class="lineNum">     162 </span>                :            : Datum
+<span class="lineNum">     163 </span>                :            : enum_lt(PG_FUNCTION_ARGS)
+<span class="lineNum">     164 </span>                :            : {
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(a &lt; b);</span>
+<span class="lineNum">     169 </span>                :            : }
+<a name="170"><span class="lineNum">     170 </span>                :            : </a>
+<span class="lineNum">     171 </span>                :            : Datum
+<span class="lineNum">     172 </span>                :            : enum_le(PG_FUNCTION_ARGS)
+<span class="lineNum">     173 </span>                :            : {
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(a &lt;= b);</span>
+<span class="lineNum">     178 </span>                :            : }
+<a name="179"><span class="lineNum">     179 </span>                :            : </a>
+<span class="lineNum">     180 </span>                :            : Datum
+<span class="lineNum">     181 </span>                :            : enum_eq(PG_FUNCTION_ARGS)
+<span class="lineNum">     182 </span>                :            : {
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(a == b);</span>
+<span class="lineNum">     187 </span>                :            : }
+<a name="188"><span class="lineNum">     188 </span>                :            : </a>
+<span class="lineNum">     189 </span>                :            : Datum
+<span class="lineNum">     190 </span>                :            : enum_ne(PG_FUNCTION_ARGS)
+<span class="lineNum">     191 </span>                :            : {
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(a != b);</span>
+<span class="lineNum">     196 </span>                :            : }
+<a name="197"><span class="lineNum">     197 </span>                :            : </a>
+<span class="lineNum">     198 </span>                :            : Datum
+<span class="lineNum">     199 </span>                :            : enum_ge(PG_FUNCTION_ARGS)
+<span class="lineNum">     200 </span>                :            : {
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     203 </span>                :            : 
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(a &gt;= b);</span>
+<span class="lineNum">     205 </span>                :            : }
+<a name="206"><span class="lineNum">     206 </span>                :            : </a>
+<span class="lineNum">     207 </span>                :            : Datum
+<span class="lineNum">     208 </span>                :            : enum_gt(PG_FUNCTION_ARGS)
+<span class="lineNum">     209 </span>                :            : {
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     212 </span>                :            : 
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(a &gt; b);</span>
+<span class="lineNum">     214 </span>                :            : }
+<a name="215"><span class="lineNum">     215 </span>                :            : </a>
+<span class="lineNum">     216 </span>                :            : Datum
+<span class="lineNum">     217 </span>                :            : enum_smaller(PG_FUNCTION_ARGS)
+<span class="lineNum">     218 </span>                :            : {
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     221 </span>                :            : 
+<span class="lineNum">     222 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_RETURN_OID(a &lt;= b ? a : b);</span>
+<span class="lineNum">     223 </span>                :            : }
+<a name="224"><span class="lineNum">     224 </span>                :            : </a>
+<span class="lineNum">     225 </span>                :            : Datum
+<span class="lineNum">     226 </span>                :            : enum_larger(PG_FUNCTION_ARGS)
+<span class="lineNum">     227 </span>                :            : {
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_RETURN_OID(a &gt;= b ? a : b);</span>
+<span class="lineNum">     232 </span>                :            : }
+<a name="233"><span class="lineNum">     233 </span>                :            : </a>
+<span class="lineNum">     234 </span>                :            : Datum
+<span class="lineNum">     235 </span>                :            : enum_cmp(PG_FUNCTION_ARGS)
+<span class="lineNum">     236 </span>                :            : {
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :         Oid                     a = PG_GETARG_OID(0);</span>
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :         Oid                     b = PG_GETARG_OID(1);</span>
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (a &gt; b)</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_INT32(1);</span>
+<span class="lineNum">     242 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (a == b)</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_INT32(0);</span>
+<span class="lineNum">     244 </span>                :            :         else
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_INT32(-1);</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>                :            : /* Enum programming support functions */
+<a name="249"><span class="lineNum">     249 </span>                :            : </a>
+<span class="lineNum">     250 </span>                :            : Datum
+<span class="lineNum">     251 </span>                :            : enum_first(PG_FUNCTION_ARGS)
+<span class="lineNum">     252 </span>                :            : {
+<span class="lineNum">     253 </span>                :            :         Oid                     enumtypoid;
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :         Oid                     min = InvalidOid;</span>
+<span class="lineNum">     255 </span>                :            :         CatCList   *list;
+<span class="lineNum">     256 </span>                :            :         int                     num,
+<span class="lineNum">     257 </span>                :            :                                 i;
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :            :         /*
+<span class="lineNum">     260 </span>                :            :          * We rely on being able to get the specific enum type from the calling
+<span class="lineNum">     261 </span>                :            :          * expression tree.  Notice that the actual value of the argument isn't
+<span class="lineNum">     262 </span>                :            :          * examined at all; in particular it might be NULL.
+<span class="lineNum">     263 </span>                :            :          */
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :         enumtypoid = get_fn_expr_argtype(fcinfo-&gt;flinfo, 0);</span>
+<span class="lineNum">     265 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (enumtypoid == InvalidOid)</span>
+<span class="lineNum">     266 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     267 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     268 </span>                :            :                                  errmsg(&quot;could not determine actual enum type&quot;)));
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :         list = SearchSysCacheList(ENUMTYPOIDNAME, 1,</span>
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                                                           ObjectIdGetDatum(enumtypoid),</span>
+<span class="lineNum">     272 </span>                :            :                                                           0, 0, 0);
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         num = list-&gt;n_members;</span>
+<span class="lineNum">     274 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; num; i++)</span>
+<span class="lineNum">     275 </span>                :            :         {
+<span class="lineNum">     276 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Oid                     valoid = HeapTupleHeaderGetOid(list-&gt;members[i]-&gt;tuple.t_data);</span>
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!OidIsValid(min) || valoid &lt; min)</span>
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                         min = valoid;</span>
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     281 </span>                :            : 
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :         ReleaseCatCacheList(list);</span>
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(min))           /* should not happen */</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;no values found for enum %s&quot;,</span>
+<span class="lineNum">     286 </span>                :            :                          format_type_be(enumtypoid));
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_OID(min);</span>
+<span class="lineNum">     289 </span>                :            : }
+<a name="290"><span class="lineNum">     290 </span>                :            : </a>
+<span class="lineNum">     291 </span>                :            : Datum
+<span class="lineNum">     292 </span>                :            : enum_last(PG_FUNCTION_ARGS)
+<span class="lineNum">     293 </span>                :            : {
+<span class="lineNum">     294 </span>                :            :         Oid                     enumtypoid;
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         Oid                     max = InvalidOid;</span>
+<span class="lineNum">     296 </span>                :            :         CatCList   *list;
+<span class="lineNum">     297 </span>                :            :         int                     num,
+<span class="lineNum">     298 </span>                :            :                                 i;
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :            :         /*
+<span class="lineNum">     301 </span>                :            :          * We rely on being able to get the specific enum type from the calling
+<span class="lineNum">     302 </span>                :            :          * expression tree.  Notice that the actual value of the argument isn't
+<span class="lineNum">     303 </span>                :            :          * examined at all; in particular it might be NULL.
+<span class="lineNum">     304 </span>                :            :          */
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         enumtypoid = get_fn_expr_argtype(fcinfo-&gt;flinfo, 0);</span>
+<span class="lineNum">     306 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (enumtypoid == InvalidOid)</span>
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     308 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     309 </span>                :            :                                  errmsg(&quot;could not determine actual enum type&quot;)));
+<span class="lineNum">     310 </span>                :            : 
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :         list = SearchSysCacheList(ENUMTYPOIDNAME, 1,</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                                                           ObjectIdGetDatum(enumtypoid),</span>
+<span class="lineNum">     313 </span>                :            :                                                           0, 0, 0);
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         num = list-&gt;n_members;</span>
+<span class="lineNum">     315 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; num; i++)</span>
+<span class="lineNum">     316 </span>                :            :         {
+<span class="lineNum">     317 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Oid                     valoid = HeapTupleHeaderGetOid(list-&gt;members[i]-&gt;tuple.t_data);</span>
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!OidIsValid(max) || valoid &gt; max)</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                         max = valoid;</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :         ReleaseCatCacheList(list);</span>
+<span class="lineNum">     324 </span>                :            : 
+<span class="lineNum">     325 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(max))           /* should not happen */</span>
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;no values found for enum %s&quot;,</span>
+<span class="lineNum">     327 </span>                :            :                          format_type_be(enumtypoid));
+<span class="lineNum">     328 </span>                :            : 
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_OID(max);</span>
+<span class="lineNum">     330 </span>                :            : }
+<span class="lineNum">     331 </span>                :            : 
+<a name="332"><span class="lineNum">     332 </span>                :            : /* 2-argument variant of enum_range */</a>
+<span class="lineNum">     333 </span>                :            : Datum
+<span class="lineNum">     334 </span>                :            : enum_range_bounds(PG_FUNCTION_ARGS)
+<span class="lineNum">     335 </span>                :            : {
+<span class="lineNum">     336 </span>                :            :         Oid                     lower;
+<span class="lineNum">     337 </span>                :            :         Oid                     upper;
+<span class="lineNum">     338 </span>                :            :         Oid                     enumtypoid;
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PG_ARGISNULL(0))</span>
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                 lower = InvalidOid;</span>
+<span class="lineNum">     342 </span>                :            :         else
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                 lower = PG_GETARG_OID(0);</span>
+<span class="lineNum">     344 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PG_ARGISNULL(1))</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                 upper = InvalidOid;</span>
+<span class="lineNum">     346 </span>                :            :         else
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                 upper = PG_GETARG_OID(1);</span>
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :            :         /*
+<span class="lineNum">     350 </span>                :            :          * We rely on being able to get the specific enum type from the calling
+<span class="lineNum">     351 </span>                :            :          * expression tree.  The generic type mechanism should have ensured that
+<span class="lineNum">     352 </span>                :            :          * both are of the same type.
+<span class="lineNum">     353 </span>                :            :          */
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :         enumtypoid = get_fn_expr_argtype(fcinfo-&gt;flinfo, 0);</span>
+<span class="lineNum">     355 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (enumtypoid == InvalidOid)</span>
+<span class="lineNum">     356 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     357 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     358 </span>                :            :                                  errmsg(&quot;could not determine actual enum type&quot;)));
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_ARRAYTYPE_P(enum_range_internal(enumtypoid, lower, upper));</span>
+<span class="lineNum">     361 </span>                :            : }
+<span class="lineNum">     362 </span>                :            : 
+<a name="363"><span class="lineNum">     363 </span>                :            : /* 1-argument variant of enum_range */</a>
+<span class="lineNum">     364 </span>                :            : Datum
+<span class="lineNum">     365 </span>                :            : enum_range_all(PG_FUNCTION_ARGS)
+<span class="lineNum">     366 </span>                :            : {
+<span class="lineNum">     367 </span>                :            :         Oid                     enumtypoid;
+<span class="lineNum">     368 </span>                :            : 
+<span class="lineNum">     369 </span>                :            :         /*
+<span class="lineNum">     370 </span>                :            :          * We rely on being able to get the specific enum type from the calling
+<span class="lineNum">     371 </span>                :            :          * expression tree.  Notice that the actual value of the argument isn't
+<span class="lineNum">     372 </span>                :            :          * examined at all; in particular it might be NULL.
+<span class="lineNum">     373 </span>                :            :          */
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         enumtypoid = get_fn_expr_argtype(fcinfo-&gt;flinfo, 0);</span>
+<span class="lineNum">     375 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (enumtypoid == InvalidOid)</span>
+<span class="lineNum">     376 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     377 </span>                :            :                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">     378 </span>                :            :                                  errmsg(&quot;could not determine actual enum type&quot;)));
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_ARRAYTYPE_P(enum_range_internal(enumtypoid,</span>
+<span class="lineNum">     381 </span>                :            :                                                                                           InvalidOid, InvalidOid));
+<span class="lineNum">     382 </span>                :            : }
+<a name="383"><span class="lineNum">     383 </span>                :            : </a>
+<span class="lineNum">     384 </span>                :            : static ArrayType *
+<span class="lineNum">     385 </span>                :            : enum_range_internal(Oid enumtypoid, Oid lower, Oid upper)
+<span class="lineNum">     386 </span>                :            : {
+<span class="lineNum">     387 </span>                :            :         ArrayType  *result;
+<span class="lineNum">     388 </span>                :            :         CatCList   *list;
+<span class="lineNum">     389 </span>                :            :         int                     total,
+<span class="lineNum">     390 </span>                :            :                                 i,
+<span class="lineNum">     391 </span>                :            :                                 j;
+<span class="lineNum">     392 </span>                :            :         Datum      *elems;
+<span class="lineNum">     393 </span>                :            : 
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         list = SearchSysCacheList(ENUMTYPOIDNAME, 1,</span>
+<span class="lineNum">     395 </span>                :<span class="lineNoCov">          0 :                                                           ObjectIdGetDatum(enumtypoid),</span>
+<span class="lineNum">     396 </span>                :            :                                                           0, 0, 0);
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :         total = list-&gt;n_members;</span>
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         elems = (Datum *) palloc(total * sizeof(Datum));</span>
+<span class="lineNum">     400 </span>                :            : 
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :         j = 0;</span>
+<span class="lineNum">     402 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; i &lt; total; i++)</span>
+<span class="lineNum">     403 </span>                :            :         {
+<span class="lineNum">     404 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Oid                     val = HeapTupleGetOid(&amp;(list-&gt;members[i]-&gt;tuple));</span>
+<span class="lineNum">     405 </span>                :            : 
+<span class="lineNum">     406 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((!OidIsValid(lower) || lower &lt;= val) &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     407 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         (!OidIsValid(upper) || val &lt;= upper))</span>
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :                         elems[j++] = ObjectIdGetDatum(val);</span>
+<span class="lineNum">     409 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            :         /* shouldn't need the cache anymore */
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :         ReleaseCatCacheList(list);</span>
+<span class="lineNum">     413 </span>                :            : 
+<span class="lineNum">     414 </span>                :            :         /* sort results into OID order */
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :         qsort(elems, j, sizeof(Datum), enum_elem_cmp);</span>
+<span class="lineNum">     416 </span>                :            : 
+<span class="lineNum">     417 </span>                :            :         /* note this hardwires some details about the representation of Oid */
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :         result = construct_array(elems, j, enumtypoid, sizeof(Oid), true, 'i');</span>
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :         pfree(elems);</span>
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     423 </span>                :            : }
+<span class="lineNum">     424 </span>                :            : 
+<a name="425"><span class="lineNum">     425 </span>                :            : /* qsort comparison function for Datums that are OIDs */</a>
+<span class="lineNum">     426 </span>                :            : static int
+<span class="lineNum">     427 </span>                :            : enum_elem_cmp(const void *left, const void *right)
+<span class="lineNum">     428 </span>                :            : {
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         Oid                     l = DatumGetObjectId(*((const Datum *) left));</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 :         Oid                     r = DatumGetObjectId(*((const Datum *) right));</span>
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (l &lt; r)</span>
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     434 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (l &gt; r)</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                 return 1;</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

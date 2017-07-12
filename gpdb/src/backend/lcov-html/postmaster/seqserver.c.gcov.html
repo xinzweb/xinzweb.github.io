@@ -1,0 +1,1162 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - postmaster/seqserver.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">postmaster</a> - seqserver.c<span style="font-size: 80%;"> (source / <a href="seqserver.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">336</td>
+            <td class="headerCovTableEntryLo">0.9 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">2</td>
+            <td class="headerCovTableEntry">9</td>
+            <td class="headerCovTableEntryLo">22.2 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">355</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * seqserver.c
+<span class="lineNum">       4 </span>                :            :  *        Process under QD postmaster used for doling out sequence values to
+<span class="lineNum">       5 </span>                :            :  *              QEs.
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * Copyright (c) 2006-2008, Greenplum inc
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      11 </span>                :            :  */
+<span class="lineNum">      12 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      13 </span>                :            : 
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : #include &lt;signal.h&gt;
+<span class="lineNum">      16 </span>                :            : #include &lt;sys/types.h&gt;
+<span class="lineNum">      17 </span>                :            : #include &lt;sys/socket.h&gt;
+<span class="lineNum">      18 </span>                :            : #include &lt;time.h&gt;
+<span class="lineNum">      19 </span>                :            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      20 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      21 </span>                :            : #include &lt;arpa/inet.h&gt;
+<span class="lineNum">      22 </span>                :            : #include &lt;sys/time.h&gt;
+<span class="lineNum">      23 </span>                :            : #include &lt;netinet/in.h&gt;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;libpq/pqsignal.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;cdb/cdbselect.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;commands/sequence.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;postmaster/fork_process.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;postmaster/postmaster.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;postmaster/seqserver.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;catalog/catalog.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;catalog/pg_database.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;catalog/pg_tablespace.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;storage/pmsignal.h&quot;                 /* PostmasterIsAlive */
+<span class="lineNum">      38 </span>                :            : #include &quot;storage/proc.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;storage/procsignal.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;storage/sinvaladt.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      42 </span>                :            : #include &quot;utils/ps_status.h&quot;
+<span class="lineNum">      43 </span>                :            : #include &quot;storage/backendid.h&quot;
+<span class="lineNum">      44 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      45 </span>                :            : 
+<span class="lineNum">      46 </span>                :            : #include &quot;tcop/tcopprot.h&quot;
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : #ifdef WIN32
+<span class="lineNum">      49 </span>                :            : #define WIN32_LEAN_AND_MEAN
+<span class="lineNum">      50 </span>                :            : #include &lt;winsock2.h&gt;
+<span class="lineNum">      51 </span>                :            : #include &lt;ws2tcpip.h&gt;
+<span class="lineNum">      52 </span>                :            : #define SHUT_RDWR SD_BOTH
+<span class="lineNum">      53 </span>                :            : #define SHUT_RD SD_RECEIVE
+<span class="lineNum">      54 </span>                :            : #define SHUT_WR SD_SEND
+<span class="lineNum">      55 </span>                :            : #endif
+<span class="lineNum">      56 </span>                :            : 
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            :  /*
+<span class="lineNum">      59 </span>                :            :   * backlog for listen() call:
+<span class="lineNum">      60 </span>                :            :   */
+<span class="lineNum">      61 </span>                :            : #define LISTEN_BACKLOG 64
+<span class="lineNum">      62 </span>                :            : #define getInt16(pNetData)        ntohs(*((int16 *)(pNetData)))
+<span class="lineNum">      63 </span>                :            : #define getInt32(pNetData)        ntohl(*((int32 *)(pNetData)))
+<span class="lineNum">      64 </span>                :            : #define getOid(pNetData)        
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>                :            : /*=========================================================================
+<span class="lineNum">      69 </span>                :            :  * FUNCTIONS PROTOTYPES
+<span class="lineNum">      70 </span>                :            :  */
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">      74 </span>                :            : static pid_t seqserver_forkexec(void);
+<span class="lineNum">      75 </span>                :            : #endif
+<span class="lineNum">      76 </span>                :            : NON_EXEC_STATIC void SeqServerMain(int argc, char *argv[]);
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :            : static void SeqServerLoop(void);
+<span class="lineNum">      79 </span>                :            : static bool processSequenceRequest( int sockfd );
+<span class="lineNum">      80 </span>                :            : static int listenerSetup(void);
+<span class="lineNum">      81 </span>                :            : 
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :            : /*=========================================================================
+<span class="lineNum">      84 </span>                :            :  * GLOBAL STATE VARIABLES
+<span class="lineNum">      85 </span>                :            :  */
+<span class="lineNum">      86 </span>                :            : /* Socket file descriptor for the listener. */
+<span class="lineNum">      87 </span>                :            : static int      listenerFd;
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            : /* our timeout value for select() and other socket operations. */
+<span class="lineNum">      90 </span>                :            : static struct timeval tval;
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :            : static bool am_seqserver = false;
+<span class="lineNum">      93 </span>                :            : uint8 *inputBuff;
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            : /*=========================================================================
+<a name="96"><span class="lineNum">      96 </span>                :            :  * VISIBLE FUNCTIONS</a>
+<span class="lineNum">      97 </span>                :            :  */
+<span class="lineNum">      98 </span>                :            : int SeqServerShmemSize(void)
+<span class="lineNum">      99 </span>                :            : {
+<span class="lineNum">     100 </span>                :            :         /* just our one int4 */
+<span class="lineNum">     101 </span>                :<span class="lineCov">        108 :         return sizeof(SeqServerControlBlock);</span>
+<a name="102"><span class="lineNum">     102 </span>                :            : }</a>
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :            : void SeqServerShmemInit(void)
+<span class="lineNum">     105 </span>                :            : {
+<span class="lineNum">     106 </span>                :            :         bool            found;
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :            :         /* Create or attach to the SharedSnapshot shared structure */
+<span class="lineNum">     109 </span>                :<span class="lineCov">         54 :         seqServerCtl = (SeqServerControlBlock *) ShmemInitStruct(&quot;Sequence Server&quot;, SeqServerShmemSize(), &amp;found);</span>
+<span class="lineNum">     110 </span>                :<span class="lineCov">         54 : }</span>
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            : /*
+<span class="lineNum">     113 </span>                :            :  * Main entry point for seqserver controller process.
+<span class="lineNum">     114 </span>                :            :  *
+<span class="lineNum">     115 </span>                :            :  * This code is heavily based on pgarch.c, q.v.
+<a name="116"><span class="lineNum">     116 </span>                :            :  */</a>
+<span class="lineNum">     117 </span>                :            : int
+<span class="lineNum">     118 </span>                :            : seqserver_start(void)
+<span class="lineNum">     119 </span>                :            : {
+<span class="lineNum">     120 </span>                :            :         pid_t           SeqServerPID;
+<span class="lineNum">     121 </span>                :            : 
+<span class="lineNum">     122 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">     123 </span>                :            :         switch ((SeqServerPID = seqserver_forkexec()))
+<span class="lineNum">     124 </span>                :            : #else
+<span class="lineNum">     125 </span>     [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span>]:<span class="lineNoCov">          0 :         switch ((SeqServerPID = fork_process()))</span>
+<span class="lineNum">     126 </span>                :            : #endif
+<span class="lineNum">     127 </span>                :            :         {
+<span class="lineNum">     128 </span>                :            :                 case -1:
+<span class="lineNum">     129 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">     130 </span>                :            :                                         (errmsg(&quot;could not fork seqserver process: %m&quot;)));
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                         return 0;</span>
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :            : #ifndef EXEC_BACKEND
+<span class="lineNum">     134 </span>                :            :                 case 0:
+<span class="lineNum">     135 </span>                :            :                         /* in postmaster child ... */
+<span class="lineNum">     136 </span>                :            :                         /* Close the postmaster's sockets */
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :                         ClosePostmasterPorts(false);</span>
+<span class="lineNum">     138 </span>                :            : 
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                         SeqServerMain(0, NULL);</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     141 </span>                :            : #endif
+<span class="lineNum">     142 </span>                :            :                 default:
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                         return (int) SeqServerPID;</span>
+<span class="lineNum">     144 </span>                :            :         }
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>                :            :         /* shouldn't get here */
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :            : /*
+<span class="lineNum">     151 </span>                :            :  * Used by clients to sequence server to send a Sequence Request
+<a name="152"><span class="lineNum">     152 </span>                :            :  */</a>
+<span class="lineNum">     153 </span>                :            : void
+<span class="lineNum">     154 </span>                :            : sendSequenceRequest(int     sockfd, 
+<span class="lineNum">     155 </span>                :            :                                         Relation seqrel,
+<span class="lineNum">     156 </span>                :            :                     int     session_id,
+<span class="lineNum">     157 </span>                :            :                                         int64  *plast, 
+<span class="lineNum">     158 </span>                :            :                     int64  *pcached,
+<span class="lineNum">     159 </span>                :            :                                         int64  *pincrement,
+<span class="lineNum">     160 </span>                :            :                                         bool   *poverflow)
+<span class="lineNum">     161 </span>                :            : {       
+<span class="lineNum">     162 </span>                :            :         int             n;
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         int    bytesWritten = 0;</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         int        bytesRead = 0;</span>
+<span class="lineNum">     165 </span>                :            :         int                     saved_err;
+<span class="lineNum">     166 </span>                :            :         mpp_fd_set      rset, wset;
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         Oid     dbid = seqrel-&gt;rd_node.dbNode;</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :     Oid     tablespaceid = seqrel-&gt;rd_node.spcNode;</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :     Oid     seq_oid = seqrel-&gt;rd_id;</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :     bool    isTemp = seqrel-&gt;rd_istemp;</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :            :         /* request message */
+<span class="lineNum">     174 </span>                :            :     NextValRequest  request;
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         int     reqlen = sizeof(request);</span>
+<span class="lineNum">     176 </span>                :            :         
+<span class="lineNum">     177 </span>                :            :         /* response message */
+<span class="lineNum">     178 </span>                :            :     NextValResponse response;
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :         int     resplen = sizeof(response);</span>
+<span class="lineNum">     180 </span>                :            :         
+<span class="lineNum">     181 </span>                :            :         
+<span class="lineNum">     182 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sockfd == -1)</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Lost Connection to seqserver&quot;);</span>
+<span class="lineNum">     184 </span>                :            :                 
+<span class="lineNum">     185 </span>                :            :         /*
+<span class="lineNum">     186 </span>                :            :          * send the sequence request to the sequence server
+<span class="lineNum">     187 </span>                :            :          */
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :     memset(&amp;request, 0, sizeof(request));   </span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         request.startCookie = SEQ_SERVER_REQUEST_START;</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         request.dbid = htonl(dbid);</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :         request.tablespaceid = htonl(tablespaceid);</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         request.seq_oid = htonl(seq_oid);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         request.isTemp = htonl(isTemp);</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :     request.session_id = htonl(session_id);</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         request.endCookie = SEQ_SERVER_REQUEST_END;</span>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :            :         /*
+<span class="lineNum">     198 </span>                :            :          * write the request
+<span class="lineNum">     199 </span>                :            :          */     
+<span class="lineNum">     200 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (bytesWritten &lt; reqlen)</span>
+<span class="lineNum">     201 </span>                :            :         {
+<span class="lineNum">     202 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     203 </span>                :            :                                         
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                 n = write(sockfd, ((char *)&amp;request)+bytesWritten, reqlen - bytesWritten);</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                 saved_err = errno;</span>
+<span class="lineNum">     206 </span>                :            :         
+<span class="lineNum">     207 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n == 0)</span>
+<span class="lineNum">     208 </span>                :            :                 {
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;Error: seqserver socket closed.&quot;);</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                         return;</span>
+<span class="lineNum">     211 </span>                :            :                 }
+<span class="lineNum">     212 </span>                :            :                 
+<span class="lineNum">     213 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n &lt; 0)</span>
+<span class="lineNum">     214 </span>                :            :                 {
+<span class="lineNum">     215 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err != EINTR &amp;&amp; saved_err != EWOULDBLOCK)</span>
+<span class="lineNum">     216 </span>                :            :                         {
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR, (errcode(ERRCODE_GP_INTERNAL_ERROR),</span>
+<span class="lineNum">     218 </span>                :            :                                                                 errmsg(&quot;Error: Could not write()  message to seqserver: %s&quot;,
+<span class="lineNum">     219 </span>                :            :                                                                            strerror(errno)),
+<span class="lineNum">     220 </span>                :            :                                                                 errdetail(&quot;error during write() call (error:%d) to seqserver on sockfd: %d &quot;,
+<span class="lineNum">     221 </span>                :            :                                                                                   errno, sockfd)));
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err == EWOULDBLOCK)</span>
+<span class="lineNum">     225 </span>                :            :                         {
+<span class="lineNum">     226 </span>                :            :                                 /* we shouldn't really get here since we are dealing with
+<span class="lineNum">     227 </span>                :            :                                  * small messages, but once we've read a bit of data we
+<span class="lineNum">     228 </span>                :            :                                  * need to finish out reading till we get the message (or error)
+<span class="lineNum">     229 </span>                :            :                                  */
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                                 do</span>
+<span class="lineNum">     231 </span>                :            :                                 {
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                                         struct timeval timeout = tval;</span>
+<span class="lineNum">     233 </span>                :            :                                         
+<span class="lineNum">     234 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     235 </span>                :            :                                         
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                                         MPP_FD_ZERO(&amp;wset);</span>
+<span class="lineNum">     237 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         MPP_FD_SET(sockfd, &amp;wset);</span>
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :                                         n = select(sockfd + 1, NULL, (fd_set *)&amp;wset, NULL, &amp;timeout);</span>
+<span class="lineNum">     239 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (n == 0 || (n &lt; 0 &amp;&amp; errno == EINTR))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                                                 continue;</span>
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         else if (n &lt; 0)</span>
+<span class="lineNum">     242 </span>                :            :                                         {
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                                                 saved_err = errno;</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR, (errcode(ERRCODE_GP_INTERNAL_ERROR),</span>
+<span class="lineNum">     246 </span>                :            :                                                                                 errmsg(&quot;Error: Could not write()  message to seqserver: %s&quot;,
+<span class="lineNum">     247 </span>                :            :                                                                                            strerror(errno)),
+<span class="lineNum">     248 </span>                :            :                                                                                 errdetail(&quot;error during write() call (error:%d) to seqserver on sockfd: %d &quot;,
+<span class="lineNum">     249 </span>                :            :                                                                                                   errno, sockfd)));
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                                                 return;</span>
+<span class="lineNum">     251 </span>                :            :                                         }
+<span class="lineNum">     252 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :                                 while (n &lt; 1);</span>
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     255 </span>                :            :                         /* else saved_err == EINTR */
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     258 </span>                :            :                 }
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :                 bytesWritten += n;</span>
+<span class="lineNum">     261 </span>                :            :         }
+<span class="lineNum">     262 </span>                :            :         
+<span class="lineNum">     263 </span>                :            :         /*
+<span class="lineNum">     264 </span>                :            :          * read the response
+<span class="lineNum">     265 </span>                :            :          */     
+<span class="lineNum">     266 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (bytesRead &lt; resplen)</span>
+<span class="lineNum">     267 </span>                :            :         {
+<span class="lineNum">     268 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     269 </span>                :            :                         
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :                 n = read(sockfd, ((char *)&amp;response)+bytesRead, resplen - bytesRead);</span>
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                 saved_err = errno;</span>
+<span class="lineNum">     272 </span>                :            :                 
+<span class="lineNum">     273 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n == 0)</span>
+<span class="lineNum">     274 </span>                :            :                 {
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :                         elog( ERROR, &quot;seqserver socket is closed&quot;);</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :                         return;</span>
+<span class="lineNum">     277 </span>                :            :                 }
+<span class="lineNum">     278 </span>                :            :                 
+<span class="lineNum">     279 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n &lt; 0)</span>
+<span class="lineNum">     280 </span>                :            :                 {
+<span class="lineNum">     281 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err != EINTR &amp;&amp; saved_err != EWOULDBLOCK)</span>
+<span class="lineNum">     282 </span>                :            :                         {
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :                                 elog( ERROR, &quot;Error: Could not read() message from seqserver.&quot;</span>
+<span class="lineNum">     284 </span>                :            :                                           &quot;(error:%d). Closing connection.&quot;, saved_err);
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err == EWOULDBLOCK)</span>
+<span class="lineNum">     288 </span>                :            :                         {
+<span class="lineNum">     289 </span>                :            :                                 /* we shouldn't really get here since we are dealing with
+<span class="lineNum">     290 </span>                :            :                                  * small messages, but once we've read a bit of data we
+<span class="lineNum">     291 </span>                :            :                                  * need to finish out reading till we get the message (or error)
+<span class="lineNum">     292 </span>                :            :                                  */
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                                 do</span>
+<span class="lineNum">     294 </span>                :            :                                 {
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                                         struct timeval timeout = tval;</span>
+<span class="lineNum">     296 </span>                :            :                                         
+<span class="lineNum">     297 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     298 </span>                :            :                                         
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                                         MPP_FD_ZERO(&amp;rset);</span>
+<span class="lineNum">     300 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         MPP_FD_SET(sockfd, &amp;rset);</span>
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :                                         n = select(sockfd + 1, (fd_set *)&amp;rset, NULL, NULL, &amp;timeout);</span>
+<span class="lineNum">     302 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (n == 0 || (n &lt; 0 &amp;&amp; errno == EINTR))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :                                                 continue;</span>
+<span class="lineNum">     304 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         else if (n &lt; 0)</span>
+<span class="lineNum">     305 </span>                :            :                                         {
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                                                 saved_err = errno;</span>
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 ereport(ERROR, (errcode(ERRCODE_GP_INTERNAL_ERROR),</span>
+<span class="lineNum">     309 </span>                :            :                                                                             errmsg(&quot;Error: Could not read() message from seqserver&quot;),
+<span class="lineNum">     310 </span>                :            :                                                                                 errdetail(&quot;error during read() call (error:%d) from remote&quot;
+<span class="lineNum">     311 </span>                :            :                                                                                                   &quot;sockfd = %d&quot;, errno, sockfd)));
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                                                 return;         </span>
+<span class="lineNum">     313 </span>                :            :                                         }
+<span class="lineNum">     314 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                                 while (n &lt; 1);</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     317 </span>                :            :                         /* else saved_err == EINTR */
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     320 </span>                :            :                 }
+<span class="lineNum">     321 </span>                :            :                 else
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :                         bytesRead += n;</span>
+<span class="lineNum">     323 </span>                :            :         }
+<span class="lineNum">     324 </span>                :            :         
+<span class="lineNum">     325 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (response.poverflowed)</span>
+<span class="lineNum">     326 </span>                :            :         {
+<span class="lineNum">     327 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     328 </span>                :            :                                 (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+<span class="lineNum">     329 </span>                :            :                                                 errmsg(&quot;nextval: reached %s value of sequence \&quot;%s\&quot; (&quot; INT64_FORMAT &quot;)&quot;,
+<span class="lineNum">     330 </span>                :            :                                                                 response.pincrement&gt;0 ? &quot;maximum&quot;:&quot;minimum&quot;,
+<span class="lineNum">     331 </span>                :            :                                                                 RelationGetRelationName(seqrel), response.plast)));
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     333 </span>                :            : 
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :         *plast = response.plast;</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :         *pcached = response.pcached;</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         *pincrement = response.pincrement;</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :         *poverflow = response.poverflowed;</span>
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>                :            : 
+<span class="lineNum">     341 </span>                :            : 
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :            : /*=========================================================================
+<span class="lineNum">     344 </span>                :            :  * HELPER FUNCTIONS
+<span class="lineNum">     345 </span>                :            :  */
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :            : 
+<span class="lineNum">     348 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">     349 </span>                :            : /*
+<span class="lineNum">     350 </span>                :            :  * seqserver_forkexec()
+<span class="lineNum">     351 </span>                :            :  *
+<span class="lineNum">     352 </span>                :            :  * Format up the arglist for the serqserver process, then fork and exec.
+<span class="lineNum">     353 </span>                :            :  */
+<span class="lineNum">     354 </span>                :            : static pid_t
+<span class="lineNum">     355 </span>                :            : seqserver_forkexec(void)
+<span class="lineNum">     356 </span>                :            : {
+<span class="lineNum">     357 </span>                :            :         char       *av[10];
+<span class="lineNum">     358 </span>                :            :         int                     ac = 0;
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            :         av[ac++] = &quot;postgres&quot;;
+<span class="lineNum">     361 </span>                :            :         av[ac++] = &quot;--forkseqserver&quot;;
+<span class="lineNum">     362 </span>                :            :         av[ac++] = NULL;                        /* filled in by postmaster_forkexec */
+<span class="lineNum">     363 </span>                :            :         av[ac] = NULL;
+<span class="lineNum">     364 </span>                :            : 
+<span class="lineNum">     365 </span>                :            :         Assert(ac &lt; lengthof(av));
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :            :         return postmaster_forkexec(ac, av);
+<span class="lineNum">     368 </span>                :            : }
+<span class="lineNum">     369 </span>                :            : #endif   /* EXEC_BACKEND */
+<span class="lineNum">     370 </span>                :            : 
+<span class="lineNum">     371 </span>                :            : static bool shutdown_requested=false;
+<a name="372"><span class="lineNum">     372 </span>                :            : </a>
+<span class="lineNum">     373 </span>                :            : static void
+<span class="lineNum">     374 </span>                :            : RequestShutdown(SIGNAL_ARGS)
+<span class="lineNum">     375 </span>                :            : {
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         shutdown_requested = true;</span>
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     378 </span>                :            : 
+<span class="lineNum">     379 </span>                :            : static char *knownDatabase = &quot;postgres&quot;;
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>                :            : /*
+<span class="lineNum">     382 </span>                :            :  * AutoVacMain
+<a name="383"><span class="lineNum">     383 </span>                :            :  */</a>
+<span class="lineNum">     384 </span>                :            : NON_EXEC_STATIC void
+<span class="lineNum">     385 </span>                :            : SeqServerMain(int argc, char *argv[])
+<span class="lineNum">     386 </span>                :            : {
+<span class="lineNum">     387 </span>                :            :         sigjmp_buf      local_sigjmp_buf;
+<span class="lineNum">     388 </span>                :            :         char       *fullpath;
+<span class="lineNum">     389 </span>                :            : 
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :         IsUnderPostmaster = true;</span>
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :         am_seqserver = true;</span>
+<span class="lineNum">     392 </span>                :            : 
+<span class="lineNum">     393 </span>                :            :         /* Stay away from PMChildSlot */
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         MyPMChildSlot = -1;</span>
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>                :            :         /* reset MyProcPid */
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :         MyProcPid = getpid();</span>
+<span class="lineNum">     398 </span>                :            :         
+<span class="lineNum">     399 </span>                :            :         /* Lose the postmaster's on-exit routines */
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         on_exit_reset();</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>                :            :         /* Identify myself via ps */
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :         init_ps_display(&quot;seqserver process&quot;, &quot;&quot;, &quot;&quot;, &quot;&quot;);</span>
+<span class="lineNum">     404 </span>                :            : 
+<span class="lineNum">     405 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         SetProcessingMode(InitProcessing);</span>
+<span class="lineNum">     406 </span>                :            : 
+<span class="lineNum">     407 </span>                :            :         /*
+<span class="lineNum">     408 </span>                :            :          * Set up signal handlers.      We operate on databases much like a regular
+<span class="lineNum">     409 </span>                :            :          * backend, so we use the same signal handling.  See equivalent code in
+<span class="lineNum">     410 </span>                :            :          * tcop/postgres.c.
+<span class="lineNum">     411 </span>                :            :          *
+<span class="lineNum">     412 </span>                :            :          * Currently, we don't pay attention to postgresql.conf changes that
+<span class="lineNum">     413 </span>                :            :          * happen during a single daemon iteration, so we can ignore SIGHUP.
+<span class="lineNum">     414 </span>                :            :          */
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGHUP, SIG_IGN);</span>
+<span class="lineNum">     416 </span>                :            : 
+<span class="lineNum">     417 </span>                :            :         /*
+<span class="lineNum">     418 </span>                :            :          * Presently, SIGINT will lead to autovacuum shutdown, because that's how
+<span class="lineNum">     419 </span>                :            :          * we handle ereport(ERROR).  It could be improved however.
+<span class="lineNum">     420 </span>                :            :          */
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGINT, StatementCancelHandler);</span>
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGTERM, die);</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGQUIT, quickdie); /* we don't do any seq-server specific cleanup, just use the standard. */</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGALRM, handle_sig_alarm);</span>
+<span class="lineNum">     425 </span>                :            : 
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGPIPE, SIG_IGN);</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGUSR1, procsignal_sigusr1_handler);</span>
+<span class="lineNum">     428 </span>                :            :         /* We don't listen for async notifies */
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGUSR2, RequestShutdown);</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGFPE, FloatExceptionHandler);</span>
+<span class="lineNum">     431 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGCHLD, SIG_DFL);</span>
+<span class="lineNum">     432 </span>                :            : 
+<span class="lineNum">     433 </span>                :            :         /* Early initialization */
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :         BaseInit();</span>
+<span class="lineNum">     435 </span>                :            : 
+<span class="lineNum">     436 </span>                :            :         /* See InitPostgres()... */
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :     InitProcess();      </span>
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :         InitBufferPoolBackend();</span>
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :         InitXLOGAccess();</span>
+<span class="lineNum">     440 </span>                :            : 
+<span class="lineNum">     441 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         SetProcessingMode(NormalProcessing);</span>
+<span class="lineNum">     442 </span>                :            : 
+<span class="lineNum">     443 </span>                :            :         /*
+<span class="lineNum">     444 </span>                :            :          * If an exception is encountered, processing resumes here.
+<span class="lineNum">     445 </span>                :            :          *
+<span class="lineNum">     446 </span>                :            :          * See notes in postgres.c about the design of this coding.
+<span class="lineNum">     447 </span>                :            :          */
+<span class="lineNum">     448 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sigsetjmp(local_sigjmp_buf, 1) != 0)</span>
+<span class="lineNum">     449 </span>                :            :         {
+<span class="lineNum">     450 </span>                :            :                 /* Prevents interrupts while cleaning up */
+<span class="lineNum">     451 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 HOLD_INTERRUPTS();</span>
+<span class="lineNum">     452 </span>                :            : 
+<span class="lineNum">     453 </span>                :            :                 /* Report the error to the server log */
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 :                 EmitErrorReport();</span>
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            :                 /*
+<span class="lineNum">     457 </span>                :            :                  * We can now go away.  Note that because we'll call InitProcess, a
+<span class="lineNum">     458 </span>                :            :                  * callback will be registered to do ProcKill, which will clean up
+<span class="lineNum">     459 </span>                :            :                  * necessary state.
+<span class="lineNum">     460 </span>                :            :                  */
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :                 proc_exit(0);</span>
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     463 </span>                :            : 
+<span class="lineNum">     464 </span>                :            :         /* We can now handle ereport(ERROR) */
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 :         PG_exception_stack = &amp;local_sigjmp_buf;</span>
+<span class="lineNum">     466 </span>                :            : 
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :         PG_SETMASK(&amp;UnBlockSig);</span>
+<span class="lineNum">     468 </span>                :            : 
+<span class="lineNum">     469 </span>                :            :         /* set up a listener port and put it in shmem */
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :         seqServerCtl-&gt;seqServerPort = listenerSetup();</span>
+<span class="lineNum">     471 </span>                :            :         
+<span class="lineNum">     472 </span>                :            :         /*
+<span class="lineNum">     473 </span>                :            :          * setup scratch buffers
+<span class="lineNum">     474 </span>                :            :          */
+<span class="lineNum">     475 </span>                :<span class="lineNoCov">          0 :         inputBuff = palloc(sizeof(NextValRequest));</span>
+<span class="lineNum">     476 </span>                :            :         
+<span class="lineNum">     477 </span>                :            :         /*
+<span class="lineNum">     478 </span>                :            :          * The following additional initialization allows us to call the persistent meta-data modules.
+<span class="lineNum">     479 </span>                :            :          */
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>                :            :         /*
+<span class="lineNum">     482 </span>                :            :          * Create a resource owner to keep track of our resources (currently only
+<span class="lineNum">     483 </span>                :            :          * buffer pins).
+<span class="lineNum">     484 </span>                :            :          */
+<span class="lineNum">     485 </span>                :<span class="lineNoCov">          0 :         CurrentResourceOwner = ResourceOwnerCreate(NULL, &quot;SeqServer&quot;);</span>
+<span class="lineNum">     486 </span>                :            : 
+<span class="lineNum">     487 </span>                :            :         /*
+<span class="lineNum">     488 </span>                :            :          * Add my PGPROC struct to the ProcArray.
+<span class="lineNum">     489 </span>                :            :          *
+<span class="lineNum">     490 </span>                :            :          * Once I have done this, I am visible to other backends!
+<span class="lineNum">     491 </span>                :            :          */
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :         InitProcessPhase2();</span>
+<span class="lineNum">     493 </span>                :            : 
+<span class="lineNum">     494 </span>                :            :         /*
+<span class="lineNum">     495 </span>                :            :          * Initialize my entry in the shared-invalidation manager's array of
+<span class="lineNum">     496 </span>                :            :          * per-backend data.
+<span class="lineNum">     497 </span>                :            :          *
+<span class="lineNum">     498 </span>                :            :          * Sets up MyBackendId, a unique backend identifier.
+<span class="lineNum">     499 </span>                :            :          */
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :         MyBackendId = InvalidBackendId;</span>
+<span class="lineNum">     501 </span>                :            : 
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :         SharedInvalBackendInit(false);</span>
+<span class="lineNum">     503 </span>                :            : 
+<span class="lineNum">     504 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MyBackendId &gt; MaxBackends || MyBackendId &lt;= 0)</span>
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                 elog(FATAL, &quot;bad backend id: %d&quot;, MyBackendId);</span>
+<span class="lineNum">     506 </span>                :            : 
+<span class="lineNum">     507 </span>                :            :         /*
+<span class="lineNum">     508 </span>                :            :          * bufmgr needs another initialization call too
+<span class="lineNum">     509 </span>                :            :          */
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :         InitBufferPoolBackend();</span>
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :            :         /* heap access requires the rel-cache */
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         RelationCacheInitialize();</span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :         InitCatalogCache();</span>
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>                :            :         /*
+<span class="lineNum">     517 </span>                :            :          * It's now possible to do real access to the system catalogs.
+<span class="lineNum">     518 </span>                :            :          *
+<span class="lineNum">     519 </span>                :            :          * Load relcache entries for the system catalogs.  This must create at
+<span class="lineNum">     520 </span>                :            :          * least the minimum set of &quot;nailed-in&quot; cache entries.
+<span class="lineNum">     521 </span>                :            :          */
+<span class="lineNum">     522 </span>                :<span class="lineNoCov">          0 :         RelationCacheInitializePhase2();</span>
+<span class="lineNum">     523 </span>                :            : 
+<span class="lineNum">     524 </span>                :            :         /*
+<span class="lineNum">     525 </span>                :            :          * In order to access the catalog, we need a database, and a
+<span class="lineNum">     526 </span>                :            :          * tablespace; our access to the heap is going to be slightly
+<span class="lineNum">     527 </span>                :            :          * limited, so we'll just use some defaults.
+<span class="lineNum">     528 </span>                :            :          */
+<span class="lineNum">     529 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!FindMyDatabase(knownDatabase, &amp;MyDatabaseId, &amp;MyDatabaseTableSpace))</span>
+<span class="lineNum">     530 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     531 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_DATABASE),
+<span class="lineNum">     532 </span>                :            :                                  errmsg(&quot;database \&quot;%s\&quot; does not exit&quot;, knownDatabase)));
+<span class="lineNum">     533 </span>                :            : 
+<span class="lineNum">     534 </span>                :            :         /* Now we can mark our PGPROC entry with the database ID */
+<span class="lineNum">     535 </span>                :            :         /* (We assume this is an atomic store so no lock is needed) */
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;databaseId = MyDatabaseId;</span>
+<span class="lineNum">     537 </span>                :            : 
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :         fullpath = GetDatabasePath(MyDatabaseId, MyDatabaseTableSpace);</span>
+<span class="lineNum">     539 </span>                :            : 
+<span class="lineNum">     540 </span>                :<span class="lineNoCov">          0 :         SetDatabasePath(fullpath);</span>
+<span class="lineNum">     541 </span>                :            : 
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :         RelationCacheInitializePhase3();</span>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :<span class="lineNoCov">          0 :         SeqServerLoop();</span>
+<span class="lineNum">     545 </span>                :            : 
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :         ResourceOwnerRelease(CurrentResourceOwner,</span>
+<span class="lineNum">     547 </span>                :            :                                                  RESOURCE_RELEASE_BEFORE_LOCKS,
+<span class="lineNum">     548 </span>                :            :                                                  false, true);                                                  
+<span class="lineNum">     549 </span>                :            : 
+<span class="lineNum">     550 </span>                :            :         /* One iteration done, go away */
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :         proc_exit(0);</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="553"><span class="lineNum">     553 </span>                :            : </a>
+<span class="lineNum">     554 </span>                :            : static void
+<span class="lineNum">     555 </span>                :            : SeqServerLoop(void)
+<span class="lineNum">     556 </span>                :            : {
+<span class="lineNum">     557 </span>                :            :         int                     n,
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                 highsock = 0,</span>
+<span class="lineNum">     559 </span>                :            :                 newsockfd;
+<span class="lineNum">     560 </span>                :            :         mpp_fd_set      rset,
+<span class="lineNum">     561 </span>                :            :                 rrset;
+<span class="lineNum">     562 </span>                :            :         
+<span class="lineNum">     563 </span>                :            :         struct sockaddr_in addr;
+<span class="lineNum">     564 </span>                :            :         socklen_t       addrlen;
+<span class="lineNum">     565 </span>                :            :         
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :         List   *connectedSockets = NIL;</span>
+<span class="lineNum">     567 </span>                :            :         ListCell   *cell;
+<span class="lineNum">     568 </span>                :            :         
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 :         tval.tv_sec = 3;</span>
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :         tval.tv_usec = 500000;</span>
+<span class="lineNum">     571 </span>                :            :         
+<span class="lineNum">     572 </span>                :<span class="lineNoCov">          0 :         MPP_FD_ZERO(&amp;rset);</span>
+<span class="lineNum">     573 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MPP_FD_SET(listenerFd, &amp;rset);</span>
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :         highsock = listenerFd + 1;</span>
+<span class="lineNum">     575 </span>                :            :         
+<span class="lineNum">     576 </span>                :            :         /* we'll handle many incoming sockets but keep the sockets in blocking
+<span class="lineNum">     577 </span>                :            :          * mode since we are dealing with very small messages.
+<span class="lineNum">     578 </span>                :            :          */
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :         while(true)</span>
+<span class="lineNum">     580 </span>                :            :         {
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                 struct timeval timeout = tval;</span>
+<span class="lineNum">     582 </span>                :            :                                 
+<span class="lineNum">     583 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     584 </span>                :            : 
+<span class="lineNum">     585 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (shutdown_requested)</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     587 </span>                :            :                 
+<span class="lineNum">     588 </span>                :            :                 /* no need to live on if postmaster has died */
+<span class="lineNum">     589 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!PostmasterIsAlive(true))</span>
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :                         exit(1);</span>
+<span class="lineNum">     591 </span>                :            :                 
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                 memcpy(&amp;rrset, &amp;rset, sizeof(mpp_fd_set));</span>
+<span class="lineNum">     593 </span>                :            :                 
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :                 n = select(highsock + 1, (fd_set *)&amp;rrset, NULL, NULL, &amp;timeout);</span>
+<span class="lineNum">     595 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n == 0 || (n &lt; 0 &amp;&amp; errno == EINTR))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     596 </span>                :            :                 {
+<span class="lineNum">     597 </span>                :            :                         /* intr or timeout: Have we been here too long ? */                     
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     599 </span>                :            :                 }
+<span class="lineNum">     600 </span>                :            : 
+<span class="lineNum">     601 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n &lt; 0)</span>
+<span class="lineNum">     602 </span>                :            :                 {
+<span class="lineNum">     603 </span>                :            :                         /* this may be a little severe, but if we error on select() 
+<span class="lineNum">     604 </span>                :            :                          * we'll just go ahead and blow up.  This will result in the 
+<span class="lineNum">     605 </span>                :            :                          * postmaster re-spawning a new process. 
+<span class="lineNum">     606 </span>                :            :                          */
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR,&quot;Error during select() call (error:%d).&quot;, errno);</span>
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                         break;  </span>
+<span class="lineNum">     609 </span>                :            :                 }
+<span class="lineNum">     610 </span>                :            :                 
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :                 elog(DEBUG5, &quot;seqserver select() returned %d ready sockets&quot;, n);</span>
+<span class="lineNum">     612 </span>                :            : 
+<span class="lineNum">     613 </span>                :            :                 /* is it someone tickling our listener port? */
+<span class="lineNum">     614 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (MPP_FD_ISSET(listenerFd, &amp;rrset))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     615 </span>                :            :                 {
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :                         elog(DEBUG3, &quot;seqserver: accepting an Incoming Connection &quot;);</span>
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :             addrlen = sizeof(addr);</span>
+<span class="lineNum">     618 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ((newsockfd = accept(listenerFd, (struct sockaddr *) &amp; addr, &amp;addrlen)) &lt; 0)</span>
+<span class="lineNum">     619 </span>                :            :                         {
+<span class="lineNum">     620 </span>                :            :                                 /*
+<span class="lineNum">     621 </span>                :            :                                  * TODO: would be nice to read the errno and try and provide
+<span class="lineNum">     622 </span>                :            :                                  * more useful info as to why this happened.
+<span class="lineNum">     623 </span>                :            :                                  */
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :                                 elog(LOG, &quot;seqserver: error during accept() call (error:%d)&quot;, errno);</span>
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     626 </span>                :            :                         
+<span class="lineNum">     627 </span>                :            :                         /* make socket non-blocking BEFORE we connect. */
+<span class="lineNum">     628 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!pg_set_noblock(newsockfd))</span>
+<span class="lineNum">     629 </span>                :            :                         {
+<span class="lineNum">     630 </span>                :            :                                 /*
+<span class="lineNum">     631 </span>                :            :                                  * TODO: would be nice to read the errno and try and provide
+<span class="lineNum">     632 </span>                :            :                                  * more useful info as to why this happened.
+<span class="lineNum">     633 </span>                :            :                                  */
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :                                 elog(DEBUG3, &quot;seqserver: Could not set outbound socket to non-blocking mode&quot;</span>
+<span class="lineNum">     635 </span>                :            :                                          &quot;error during fcntl() call (error:%d) for sockfd: %d&quot;,
+<span class="lineNum">     636 </span>                :            :                                          errno, newsockfd);
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     638 </span>                :            :                         
+<span class="lineNum">     639 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (newsockfd &gt; highsock)</span>
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                                 highsock = newsockfd + 1;</span>
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         MPP_FD_SET(newsockfd, &amp;rset);</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :                         connectedSockets = lappend_int(connectedSockets, newsockfd);                                            </span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     646 </span>                :            :                 
+<span class="lineNum">     647 </span>                :            :                 
+<span class="lineNum">     648 </span>                :            :                 /* loop through all of our established sockets */                                       
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                 cell = list_head(connectedSockets);</span>
+<span class="lineNum">     650 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (cell != NULL)</span>
+<span class="lineNum">     651 </span>                :            :                 {
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :                         int     fd = lfirst_int(cell);</span>
+<span class="lineNum">     653 </span>                :            : 
+<span class="lineNum">     654 </span>                :            :                         /* get the next cell ready before we delete */                  
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 :                         cell = lnext(cell);</span>
+<span class="lineNum">     656 </span>                :            :                         
+<span class="lineNum">     657 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (MPP_FD_ISSET(fd, &amp;rrset))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     658 </span>                :            :                         {                               
+<span class="lineNum">     659 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!processSequenceRequest(fd))</span>
+<span class="lineNum">     660 </span>                :            :                                 {
+<span class="lineNum">     661 </span>                :            :                                         /* close it down */     
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :                                         MPP_FD_CLR( fd, &amp;rset);</span>
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :                                         connectedSockets = list_delete_int(connectedSockets, fd);</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                                         shutdown(fd, SHUT_WR);</span>
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :                                         close(fd);</span>
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :                                 }                                                       </span>
+<span class="lineNum">     667 </span>                :<span class="lineNoCov">          0 :                         }       </span>
+<span class="lineNum">     668 </span>                :            :                 }
+<span class="lineNum">     669 </span>                :            :         } /* end server loop */
+<span class="lineNum">     670 </span>                :            : 
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     672 </span>                :            : }
+<span class="lineNum">     673 </span>                :            : 
+<span class="lineNum">     674 </span>                :            : /*
+<span class="lineNum">     675 </span>                :            :  * Used by sequenceServer to process incoming Sequence Requests
+<a name="676"><span class="lineNum">     676 </span>                :            :  */</a>
+<span class="lineNum">     677 </span>                :            : static bool
+<span class="lineNum">     678 </span>                :            : processSequenceRequest(int sockfd )
+<span class="lineNum">     679 </span>                :            : {
+<span class="lineNum">     680 </span>                :            :         NextValRequest nextValRequest;
+<span class="lineNum">     681 </span>                :            :     NextValResponse response;
+<span class="lineNum">     682 </span>                :            :         int                     saved_err;
+<span class="lineNum">     683 </span>                :            :         mpp_fd_set      rset, wset;
+<span class="lineNum">     684 </span>                :            :         int64 plast;
+<span class="lineNum">     685 </span>                :            :         int64 pcached;
+<span class="lineNum">     686 </span>                :            :         int64 pincrement;
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :         bool poverflow = false;</span>
+<span class="lineNum">     688 </span>                :            :         
+<span class="lineNum">     689 </span>                :            :         int n;
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :         int bytesRead = 0;</span>
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :         int bytesWritten = 0;</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :         int reqlen = sizeof(NextValRequest);</span>
+<span class="lineNum">     693 </span>                :<span class="lineNoCov">          0 :     int outputBuffLength = sizeof(NextValResponse);</span>
+<span class="lineNum">     694 </span>                :            : 
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :         bool checkCookie = true;</span>
+<span class="lineNum">     696 </span>                :            : 
+<span class="lineNum">     697 </span>                :            :         /* Read in the incoming request message */
+<span class="lineNum">     698 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (bytesRead &lt; reqlen)</span>
+<span class="lineNum">     699 </span>                :            :         {
+<span class="lineNum">     700 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     701 </span>                :            : 
+<span class="lineNum">     702 </span>                :<span class="lineNoCov">          0 :                 n = read(sockfd, inputBuff + bytesRead, reqlen - bytesRead);</span>
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :                 saved_err = errno;</span>
+<span class="lineNum">     704 </span>                :            : 
+<span class="lineNum">     705 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n == 0)</span>
+<span class="lineNum">     706 </span>                :            :                 {
+<span class="lineNum">     707 </span>                :<span class="lineNoCov">          0 :                         elog(DEBUG3, &quot;client socket is closed&quot;);</span>
+<span class="lineNum">     708 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     709 </span>                :            :                 }
+<span class="lineNum">     710 </span>                :            :                 
+<span class="lineNum">     711 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n &lt; 0)</span>
+<span class="lineNum">     712 </span>                :            :                 {
+<span class="lineNum">     713 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err != EINTR &amp;&amp; saved_err != EWOULDBLOCK)</span>
+<span class="lineNum">     714 </span>                :            :                         {
+<span class="lineNum">     715 </span>                :<span class="lineNoCov">          0 :                                 elog(DEBUG3, &quot;Error: Could not read() message from client.&quot;</span>
+<span class="lineNum">     716 </span>                :            :                                           &quot;(error:%d). Closing connection.&quot;, saved_err);
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                                 return false;</span>
+<span class="lineNum">     718 </span>                :            :                         }
+<span class="lineNum">     719 </span>                :            : 
+<span class="lineNum">     720 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err == EWOULDBLOCK)</span>
+<span class="lineNum">     721 </span>                :            :                         {
+<span class="lineNum">     722 </span>                :            :                                 /* we shouldn't really get here since we are dealing with
+<span class="lineNum">     723 </span>                :            :                                  * small messages, but once we've read a bit of data we
+<span class="lineNum">     724 </span>                :            :                                  * need to finish out reading till we get the message (or error)
+<span class="lineNum">     725 </span>                :            :                                  */
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :                                 do</span>
+<span class="lineNum">     727 </span>                :            :                                 {
+<span class="lineNum">     728 </span>                :<span class="lineNoCov">          0 :                                         struct timeval timeout = tval;</span>
+<span class="lineNum">     729 </span>                :            :                                         
+<span class="lineNum">     730 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     731 </span>                :            :                                         
+<span class="lineNum">     732 </span>                :<span class="lineNoCov">          0 :                                         MPP_FD_ZERO(&amp;rset);</span>
+<span class="lineNum">     733 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         MPP_FD_SET(sockfd, &amp;rset);</span>
+<span class="lineNum">     734 </span>                :            : 
+<span class="lineNum">     735 </span>                :<span class="lineNoCov">          0 :                                         n = select(sockfd + 1, (fd_set *)&amp;rset, NULL, NULL, &amp;timeout);</span>
+<span class="lineNum">     736 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (n == 0 || (n &lt; 0 &amp;&amp; errno == EINTR))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :                                                 continue;</span>
+<span class="lineNum">     738 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         else if (n &lt; 0)</span>
+<span class="lineNum">     739 </span>                :            :                                         {
+<span class="lineNum">     740 </span>                :<span class="lineNoCov">          0 :                                                 saved_err = errno;</span>
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>                :<span class="lineNoCov">          0 :                                                 elog(DEBUG3, &quot;error reading incoming message from client. (errno: %d)&quot;,</span>
+<span class="lineNum">     743 </span>                :            :                                                          saved_err);
+<span class="lineNum">     744 </span>                :<span class="lineNoCov">          0 :                                                 return false;</span>
+<span class="lineNum">     745 </span>                :            :                                         }
+<span class="lineNum">     746 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     747 </span>                :<span class="lineNoCov">          0 :                                 while (n &lt; 1);</span>
+<span class="lineNum">     748 </span>                :            :                                 
+<span class="lineNum">     749 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     750 </span>                :            :                         /* else saved_err == EINTR */
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     752 </span>                :            :                 }
+<span class="lineNum">     753 </span>                :            : 
+<span class="lineNum">     754 </span>                :<span class="lineNoCov">          0 :                 bytesRead += n;</span>
+<span class="lineNum">     755 </span>                :            : 
+<span class="lineNum">     756 </span>                :            :                 /*
+<span class="lineNum">     757 </span>                :            :                  * MPP-10189: validate input, if it looks like we got
+<span class="lineNum">     758 </span>                :            :                  * something invalid, either slam the connection shut, or
+<span class="lineNum">     759 </span>                :            :                  * should we look for a valid embedded message ?
+<span class="lineNum">     760 </span>                :            :                  */
+<span class="lineNum">     761 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (checkCookie &amp;&amp; bytesRead &gt; sizeof(uint32_t))</span>
+<span class="lineNum">     762 </span>                :            :                 {
+<span class="lineNum">     763 </span>                :            :                         uint32_t c;
+<span class="lineNum">     764 </span>                :            : 
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :                         memcpy(&amp;c, inputBuff, sizeof(uint32_t));</span>
+<span class="lineNum">     766 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (c != SEQ_SERVER_REQUEST_START)</span>
+<span class="lineNum">     767 </span>                :            :                         {
+<span class="lineNum">     768 </span>                :<span class="lineNoCov">          0 :                                 elog(LOG, &quot;bogus start cookie.&quot;);</span>
+<span class="lineNum">     769 </span>                :<span class="lineNoCov">          0 :                                 return false; /* this will close the connection */</span>
+<span class="lineNum">     770 </span>                :            :                         }
+<span class="lineNum">     771 </span>                :<span class="lineNoCov">          0 :                         checkCookie = false;</span>
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     773 </span>                :            :         }
+<span class="lineNum">     774 </span>                :            : 
+<span class="lineNum">     775 </span>                :            :         /*
+<span class="lineNum">     776 </span>                :            :          * MPP-10189: Verify end-cookie
+<span class="lineNum">     777 </span>                :            :          */
+<span class="lineNum">     778 </span>                :            :         {
+<span class="lineNum">     779 </span>                :            :                 uint32_t c;
+<span class="lineNum">     780 </span>                :            : 
+<span class="lineNum">     781 </span>                :<span class="lineNoCov">          0 :                 memcpy(&amp;c, inputBuff + bytesRead - sizeof(uint32_t), sizeof(uint32_t));</span>
+<span class="lineNum">     782 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (c != SEQ_SERVER_REQUEST_END)</span>
+<span class="lineNum">     783 </span>                :            :                 {
+<span class="lineNum">     784 </span>                :<span class="lineNoCov">          0 :                         elog(LOG, &quot;bogus end cookie.&quot;);</span>
+<span class="lineNum">     785 </span>                :<span class="lineNoCov">          0 :                         return false; /* this will close the connection */</span>
+<span class="lineNum">     786 </span>                :            :                 }
+<span class="lineNum">     787 </span>                :            :         }
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>                :            :         /*
+<span class="lineNum">     790 </span>                :            :          * process what we've read
+<span class="lineNum">     791 </span>                :            :          */
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :         memcpy(&amp;nextValRequest, inputBuff, sizeof(nextValRequest));</span>
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :         nextValRequest.dbid         = ntohl(nextValRequest.dbid);</span>
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :         nextValRequest.tablespaceid = ntohl(nextValRequest.tablespaceid);</span>
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :         nextValRequest.seq_oid      = ntohl(nextValRequest.seq_oid);</span>
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :         nextValRequest.isTemp       = ntohl(nextValRequest.isTemp);</span>
+<span class="lineNum">     797 </span>                :<span class="lineNoCov">          0 :     nextValRequest.session_id   = ntohl(nextValRequest.session_id);</span>
+<span class="lineNum">     798 </span>                :            :         
+<span class="lineNum">     799 </span>                :<span class="lineNoCov">          0 :         elog(DEBUG5, &quot;Received nextval request for dbid: %ld tablespaceid: %ld seqoid: &quot;</span>
+<span class="lineNum">     800 </span>                :            :                                   &quot;%ld isTemp: %s session_id: %ld&quot;,
+<span class="lineNum">     801 </span>                :            :                                   (long int)nextValRequest.dbid,
+<span class="lineNum">     802 </span>                :            :                                   (long int)nextValRequest.tablespaceid,
+<span class="lineNum">     803 </span>                :            :                                   (long int)nextValRequest.seq_oid,
+<span class="lineNum">     804 </span>                :            :                                   nextValRequest.isTemp ? &quot;true&quot; : &quot;false&quot;,
+<span class="lineNum">     805 </span>                :            :                                   (long)nextValRequest.session_id);
+<span class="lineNum">     806 </span>                :            : 
+<span class="lineNum">     807 </span>                :            :         /*
+<span class="lineNum">     808 </span>                :            :          * Process request.
+<span class="lineNum">     809 </span>                :            :          *
+<span class="lineNum">     810 </span>                :            :          * MPP-10189: May throw an error, we need to catch it -- just slam
+<span class="lineNum">     811 </span>                :            :          * our connection shut (caller will do that if we return false).
+<span class="lineNum">     812 </span>                :            :          */
+<span class="lineNum">     813 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_TRY();</span>
+<span class="lineNum">     814 </span>                :            :         {
+<span class="lineNum">     815 </span>                :<span class="lineNoCov">          0 :                 cdb_sequence_nextval_server(nextValRequest.tablespaceid,</span>
+<span class="lineNum">     816 </span>                :<span class="lineNoCov">          0 :                                                                         nextValRequest.dbid,</span>
+<span class="lineNum">     817 </span>                :<span class="lineNoCov">          0 :                                                                         nextValRequest.seq_oid,</span>
+<span class="lineNum">     818 </span>                :<span class="lineNoCov">          0 :                                                                         nextValRequest.isTemp,</span>
+<span class="lineNum">     819 </span>                :            :                                                                         &amp;plast,
+<span class="lineNum">     820 </span>                :            :                                                                         &amp;pcached,
+<span class="lineNum">     821 </span>                :            :                                                                         &amp;pincrement,
+<span class="lineNum">     822 </span>                :            :                                                                         &amp;poverflow);
+<span class="lineNum">     823 </span>                :            :         }
+<span class="lineNum">     824 </span>                :<span class="lineNoCov">          0 :         PG_CATCH();</span>
+<span class="lineNum">     825 </span>                :            :         {
+<span class="lineNum">     826 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!elog_demote(LOG))</span>
+<span class="lineNum">     827 </span>                :            :                 {
+<span class="lineNum">     828 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;unable to demote error&quot;);</span>
+<span class="lineNum">     829 </span>                :<span class="lineNoCov">          0 :                         PG_RE_THROW();</span>
+<span class="lineNum">     830 </span>                :            :                 }
+<span class="lineNum">     831 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     832 </span>                :            :         }
+<span class="lineNum">     833 </span>                :<span class="lineNoCov">          0 :         PG_END_TRY();</span>
+<span class="lineNum">     834 </span>                :            : 
+<span class="lineNum">     835 </span>                :            :         /*
+<span class="lineNum">     836 </span>                :            :          * Create the response
+<span class="lineNum">     837 </span>                :            :          */
+<span class="lineNum">     838 </span>                :            : 
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :         response.plast = plast;</span>
+<span class="lineNum">     840 </span>                :<span class="lineNoCov">          0 :         response.pcached = pcached;</span>
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :         response.pincrement = pincrement;</span>
+<span class="lineNum">     842 </span>                :<span class="lineNoCov">          0 :         response.poverflowed = poverflow;</span>
+<span class="lineNum">     843 </span>                :            : 
+<span class="lineNum">     844 </span>                :            :         /*
+<span class="lineNum">     845 </span>                :            :          * Write the response
+<span class="lineNum">     846 </span>                :            :          */
+<span class="lineNum">     847 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (bytesWritten &lt; outputBuffLength )</span>
+<span class="lineNum">     848 </span>                :            :         {
+<span class="lineNum">     849 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>                :<span class="lineNoCov">          0 :                 n = write(sockfd, ((uint8 *)&amp;response)+bytesWritten, outputBuffLength - bytesWritten);</span>
+<span class="lineNum">     852 </span>                :<span class="lineNoCov">          0 :                 saved_err = errno;</span>
+<span class="lineNum">     853 </span>                :            : 
+<span class="lineNum">     854 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n == 0)</span>
+<span class="lineNum">     855 </span>                :            :                 {
+<span class="lineNum">     856 </span>                :<span class="lineNoCov">          0 :                         elog(DEBUG3, &quot;client socket is closed&quot;);</span>
+<span class="lineNum">     857 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     858 </span>                :            :                 }
+<span class="lineNum">     859 </span>                :            : 
+<span class="lineNum">     860 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (n &lt; 0)</span>
+<span class="lineNum">     861 </span>                :            :                 {
+<span class="lineNum">     862 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err != EINTR &amp;&amp; saved_err != EWOULDBLOCK)</span>
+<span class="lineNum">     863 </span>                :            :                         {
+<span class="lineNum">     864 </span>                :<span class="lineNoCov">          0 :                                 elog(DEBUG3, &quot;Error: Could not write() message from client.&quot;</span>
+<span class="lineNum">     865 </span>                :            :                                           &quot;(error:%d). Closing connection.&quot;, sockfd);
+<span class="lineNum">     866 </span>                :<span class="lineNoCov">          0 :                                 return false;</span>
+<span class="lineNum">     867 </span>                :            :                         }
+<span class="lineNum">     868 </span>                :            : 
+<span class="lineNum">     869 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (saved_err == EWOULDBLOCK)</span>
+<span class="lineNum">     870 </span>                :            :                         {
+<span class="lineNum">     871 </span>                :            :                                 /*
+<span class="lineNum">     872 </span>                :            :                                  * we shouldn't really get here since we are dealing with
+<span class="lineNum">     873 </span>                :            :                                  * small messages, but once we've read a bit of data we
+<span class="lineNum">     874 </span>                :            :                                  * need to finish out reading till we get the message (or error)
+<span class="lineNum">     875 </span>                :            :                                  */
+<span class="lineNum">     876 </span>                :<span class="lineNoCov">          0 :                                 do</span>
+<span class="lineNum">     877 </span>                :            :                                 {
+<span class="lineNum">     878 </span>                :<span class="lineNoCov">          0 :                                         struct timeval timeout = tval;</span>
+<span class="lineNum">     879 </span>                :            :                                         
+<span class="lineNum">     880 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     881 </span>                :            :                                         
+<span class="lineNum">     882 </span>                :<span class="lineNoCov">          0 :                                         MPP_FD_ZERO(&amp;wset);</span>
+<span class="lineNum">     883 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         MPP_FD_SET(sockfd, &amp;wset);</span>
+<span class="lineNum">     884 </span>                :<span class="lineNoCov">          0 :                                         n = select(sockfd + 1, NULL, (fd_set *)&amp;wset, NULL, &amp;timeout);</span>
+<span class="lineNum">     885 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (n == 0 || (n &lt; 0 &amp;&amp; errno == EINTR))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     886 </span>                :<span class="lineNoCov">          0 :                                                 continue;</span>
+<span class="lineNum">     887 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         else if (n &lt; 0)</span>
+<span class="lineNum">     888 </span>                :            :                                         {
+<span class="lineNum">     889 </span>                :<span class="lineNoCov">          0 :                                                 saved_err = errno;</span>
+<span class="lineNum">     890 </span>                :            : 
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                                                 elog(DEBUG3, &quot;error writing incoming message from client. (errno: %d)&quot;, saved_err);</span>
+<span class="lineNum">     892 </span>                :<span class="lineNoCov">          0 :                                                 return false;</span>
+<span class="lineNum">     893 </span>                :            :                                         }
+<span class="lineNum">     894 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     895 </span>                :<span class="lineNoCov">          0 :                                 while (n &lt; 1);                               </span>
+<span class="lineNum">     896 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     897 </span>                :            :                         /* else saved_err == EINTR */
+<span class="lineNum">     898 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     899 </span>                :            :                 }
+<span class="lineNum">     900 </span>                :            :                 else
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                         bytesWritten += n;</span>
+<span class="lineNum">     902 </span>                :            :         }
+<span class="lineNum">     903 </span>                :            :         
+<span class="lineNum">     904 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     905 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     906 </span>                :            : 
+<span class="lineNum">     907 </span>                :            : 
+<span class="lineNum">     908 </span>                :            : 
+<span class="lineNum">     909 </span>                :            : 
+<span class="lineNum">     910 </span>                :            : /* listenerSetup
+<span class="lineNum">     911 </span>                :            :  *
+<span class="lineNum">     912 </span>                :            :  * Sets up a listener on a system-picked port.  Returns the port that the
+<span class="lineNum">     913 </span>                :            :  * system port.
+<a name="914"><span class="lineNum">     914 </span>                :            :  */</a>
+<span class="lineNum">     915 </span>                :            : static int
+<span class="lineNum">     916 </span>                :            : listenerSetup(void)
+<span class="lineNum">     917 </span>                :            : {
+<span class="lineNum">     918 </span>                :            :         int listenerPort;
+<span class="lineNum">     919 </span>                :            : 
+<span class="lineNum">     920 </span>                :            :         struct sockaddr_storage addr;
+<span class="lineNum">     921 </span>                :            :         socklen_t       addrlen;
+<span class="lineNum">     922 </span>                :            : 
+<span class="lineNum">     923 </span>                :            :     struct addrinfo hints;
+<span class="lineNum">     924 </span>                :            :         struct addrinfo *addrs, *rp;
+<span class="lineNum">     925 </span>                :            :         int  s;
+<span class="lineNum">     926 </span>                :            :         char service[32];
+<span class="lineNum">     927 </span>                :            : 
+<span class="lineNum">     928 </span>                :            :         /*
+<span class="lineNum">     929 </span>                :            :          * we let the system pick the TCP port here so we don't have to
+<span class="lineNum">     930 </span>                :            :          * manage port resources ourselves.
+<span class="lineNum">     931 </span>                :            :          */
+<span class="lineNum">     932 </span>                :<span class="lineNoCov">          0 :     snprintf(service,32,&quot;%d&quot;,0);</span>
+<span class="lineNum">     933 </span>                :<span class="lineNoCov">          0 :     memset(&amp;hints, 0, sizeof(struct addrinfo));</span>
+<span class="lineNum">     934 </span>                :<span class="lineNoCov">          0 :         hints.ai_family = AF_UNSPEC;            /* Allow IPv4 or IPv6 */</span>
+<span class="lineNum">     935 </span>                :<span class="lineNoCov">          0 :         hints.ai_socktype = SOCK_STREAM;        /* TCP socket */</span>
+<span class="lineNum">     936 </span>                :<span class="lineNoCov">          0 :         hints.ai_flags = AI_PASSIVE;            /* For wildcard IP address */</span>
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 :         hints.ai_protocol = 0;                  /* Any protocol */</span>
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>                :<span class="lineNoCov">          0 :         s = getaddrinfo(NULL, service, &amp;hints, &amp;addrs);</span>
+<span class="lineNum">     940 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (s != 0)</span>
+<span class="lineNum">     941 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR,&quot;getaddrinfo says %s&quot;,gai_strerror(s));</span>
+<span class="lineNum">     942 </span>                :            : 
+<span class="lineNum">     943 </span>                :            :         /*
+<span class="lineNum">     944 </span>                :            :          * getaddrinfo() returns a list of address structures,
+<span class="lineNum">     945 </span>                :            :          * one for each valid address and family we can use.
+<span class="lineNum">     946 </span>                :            :          *
+<span class="lineNum">     947 </span>                :            :          * Try each address until we successfully bind.
+<span class="lineNum">     948 </span>                :            :          * If socket (or bind) fails, we (close the socket
+<span class="lineNum">     949 </span>                :            :          * and) try the next address.  This can happen if
+<span class="lineNum">     950 </span>                :            :          * the system supports IPv6, but IPv6 is disabled from
+<span class="lineNum">     951 </span>                :            :          * working, or if it supports IPv6 and IPv4 is disabled.
+<span class="lineNum">     952 </span>                :            :          */
+<span class="lineNum">     953 </span>                :            : 
+<span class="lineNum">     954 </span>                :            :         /*
+<span class="lineNum">     955 </span>                :            :          * If there is both an AF_INET6 and an AF_INET choice,
+<span class="lineNum">     956 </span>                :            :          * we prefer the AF_INET6, because on UNIX it can receive either
+<span class="lineNum">     957 </span>                :            :          * protocol, whereas AF_INET can only get IPv4.  Otherwise we'd need
+<span class="lineNum">     958 </span>                :            :          * to bind two sockets, one for each protocol.
+<span class="lineNum">     959 </span>                :            :          *
+<span class="lineNum">     960 </span>                :            :          * Why not just use AF_INET6 in the hints?  That works perfect
+<span class="lineNum">     961 </span>                :            :          * if we know this machine supports IPv6 and IPv6 is enabled,
+<span class="lineNum">     962 </span>                :            :          * but we don't know that.
+<span class="lineNum">     963 </span>                :            :          */
+<span class="lineNum">     964 </span>                :            : 
+<span class="lineNum">     965 </span>                :            : #ifdef HAVE_IPV6
+<span class="lineNum">     966 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (addrs-&gt;ai_family == AF_INET &amp;&amp; addrs-&gt;ai_next != NULL &amp;&amp; addrs-&gt;ai_next-&gt;ai_family == AF_INET6)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     967 </span>                :            :         {
+<span class="lineNum">     968 </span>                :            :                 /*
+<span class="lineNum">     969 </span>                :            :                  * We got both an INET and INET6 possibility, but we want to prefer the INET6 one if it works.
+<span class="lineNum">     970 </span>                :            :                  * Reverse the order we got from getaddrinfo so that we try things in our preferred order.
+<span class="lineNum">     971 </span>                :            :                  * If we got more possibilities (other AFs??), I don't think we care about them, so don't
+<span class="lineNum">     972 </span>                :            :                  * worry if the list is more that two, we just rearrange the first two.
+<span class="lineNum">     973 </span>                :            :                  */
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :                 struct addrinfo *temp = addrs-&gt;ai_next;      /* second node */</span>
+<span class="lineNum">     975 </span>                :<span class="lineNoCov">          0 :                 addrs-&gt;ai_next = addrs-&gt;ai_next-&gt;ai_next;      /* point old first node to third node if any */</span>
+<span class="lineNum">     976 </span>                :<span class="lineNoCov">          0 :                 temp-&gt;ai_next = addrs;                                       /* point second node to first */</span>
+<span class="lineNum">     977 </span>                :<span class="lineNoCov">          0 :                 addrs = temp;                                                           /* start the list with the old second node */</span>
+<span class="lineNum">     978 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     979 </span>                :            : #endif
+<span class="lineNum">     980 </span>                :            : 
+<span class="lineNum">     981 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (rp = addrs; rp != NULL; rp = rp-&gt;ai_next)</span>
+<span class="lineNum">     982 </span>                :            :         {
+<span class="lineNum">     983 </span>                :            :                 /*
+<span class="lineNum">     984 </span>                :            :                  * getaddrinfo gives us all the parameters for the socket() call
+<span class="lineNum">     985 </span>                :            :                  * as well as the parameters for the bind() call.
+<span class="lineNum">     986 </span>                :            :                  */
+<span class="lineNum">     987 </span>                :<span class="lineNoCov">          0 :                 elog(DEBUG1,&quot;seqserver  listener socket %d %d %d&quot;,rp-&gt;ai_family, rp-&gt;ai_socktype, rp-&gt;ai_protocol);</span>
+<span class="lineNum">     988 </span>                :            : 
+<span class="lineNum">     989 </span>                :<span class="lineNoCov">          0 :                 listenerFd = socket(rp-&gt;ai_family, rp-&gt;ai_socktype, rp-&gt;ai_protocol);</span>
+<span class="lineNum">     990 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (listenerFd == -1)</span>
+<span class="lineNum">     991 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     992 </span>                :            : 
+<span class="lineNum">     993 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bind(listenerFd, rp-&gt;ai_addr, rp-&gt;ai_addrlen) == 0)</span>
+<span class="lineNum">     994 </span>                :<span class="lineNoCov">          0 :                         break;              /* Success */</span>
+<span class="lineNum">     995 </span>                :            : 
+<span class="lineNum">     996 </span>                :<span class="lineNoCov">          0 :                 close(listenerFd);</span>
+<span class="lineNum">     997 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     998 </span>                :            : 
+<span class="lineNum">     999 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rp == NULL)</span>
+<span class="lineNum">    1000 </span>                :            :         {               /* No address succeeded */
+<span class="lineNum">    1001 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR, (errcode(ERRCODE_GP_INTERNAL_ERROR),</span>
+<span class="lineNum">    1002 </span>                :            :                            errmsg(&quot;SeqServer Error: Could not setup listener socket: %m&quot;),
+<span class="lineNum">    1003 </span>                :            :                                   errdetail(&quot;error during bind() call (error:%d).&quot;, errno)));
+<span class="lineNum">    1004 </span>                :            :                 
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1006 </span>                :            : 
+<span class="lineNum">    1007 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (listen(listenerFd, LISTEN_BACKLOG) &lt; 0)</span>
+<span class="lineNum">    1008 </span>                :            :         {
+<span class="lineNum">    1009 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR, (errcode(ERRCODE_GP_INTERNAL_ERROR),</span>
+<span class="lineNum">    1010 </span>                :            :                                                 errmsg(&quot;SeqServer Error: Could not setup listener socket: %s&quot;, strerror(errno)),
+<span class="lineNum">    1011 </span>                :            :                                 errdetail(&quot;error during listen() call (error:%d).&quot;, errno)));
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1013 </span>                :            : 
+<span class="lineNum">    1014 </span>                :            : 
+<span class="lineNum">    1015 </span>                :<span class="lineNoCov">          0 :         addrlen = sizeof(addr);</span>
+<span class="lineNum">    1016 </span>                :            : 
+<span class="lineNum">    1017 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (getsockname(listenerFd, (struct sockaddr *) &amp; addr, &amp;addrlen) &lt; 0)</span>
+<span class="lineNum">    1018 </span>                :            :         {
+<span class="lineNum">    1019 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR, (errcode(ERRCODE_GP_INTERNAL_ERROR),</span>
+<span class="lineNum">    1020 </span>                :            :                                                 errmsg(&quot;SeqServer Error: Could not setup listener socket: %s&quot;, strerror(errno)),
+<span class="lineNum">    1021 </span>                :            :                    errdetail(&quot;error during getsockname() call (error:%d).&quot;, errno)));
+<span class="lineNum">    1022 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1023 </span>                :            : 
+<span class="lineNum">    1024 </span>                :            : 
+<span class="lineNum">    1025 </span>                :            :         /* display which port was chosen by the system. */
+<span class="lineNum">    1026 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (addr.ss_family == AF_INET6)</span>
+<span class="lineNum">    1027 </span>                :<span class="lineNoCov">          0 :                 listenerPort = ntohs(((struct sockaddr_in6*)&amp;addr)-&gt;sin6_port);</span>
+<span class="lineNum">    1028 </span>                :            :         else
+<span class="lineNum">    1029 </span>                :<span class="lineNoCov">          0 :                 listenerPort = ntohs(((struct sockaddr_in*)&amp;addr)-&gt;sin_port);</span>
+<span class="lineNum">    1030 </span>                :            : 
+<span class="lineNum">    1031 </span>                :<span class="lineNoCov">          0 :         elog(DEBUG1, &quot;SeqServer listener on port: %d&quot;, listenerPort);</span>
+<span class="lineNum">    1032 </span>                :            : 
+<span class="lineNum">    1033 </span>                :<span class="lineNoCov">          0 :         return listenerPort;</span>
+<span class="lineNum">    1034 </span>                :            : }
+<span class="lineNum">    1035 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

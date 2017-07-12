@@ -1,0 +1,1232 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/init/postinit.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/init</a> - postinit.c<span style="font-size: 80%;"> (source / <a href="postinit.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">295</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">240</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * postinit.c
+<span class="lineNum">       4 </span>                :            :  *        postgres initialization utilities
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/utils/init/postinit.c,v 1.180.2.1 2008/09/11 14:01:35 alvherre Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &lt;fcntl.h&gt;
+<span class="lineNum">      19 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      20 </span>                :            : 
+<span class="lineNum">      21 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;catalog/catalog.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;catalog/namespace.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;catalog/pg_authid.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;catalog/pg_database.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;catalog/pg_tablespace.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;libpq/auth.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;libpq/hba.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;libpq/libpq-be.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;cdb/cdbutil.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;mb/pg_wchar.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;postmaster/autovacuum.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;postmaster/postmaster.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;replication/walsender.h&quot;
+<span class="lineNum">      40 </span>                :            : #include &quot;storage/backendid.h&quot;
+<span class="lineNum">      41 </span>                :            : #include &quot;storage/fd.h&quot;
+<span class="lineNum">      42 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      43 </span>                :            : #include &quot;storage/proc.h&quot;
+<span class="lineNum">      44 </span>                :            : #include &quot;storage/procarray.h&quot;
+<span class="lineNum">      45 </span>                :            : #include &quot;storage/procsignal.h&quot;
+<span class="lineNum">      46 </span>                :            : #include &quot;storage/sinvaladt.h&quot;
+<span class="lineNum">      47 </span>                :            : #include &quot;storage/smgr.h&quot;
+<span class="lineNum">      48 </span>                :            : #include &quot;utils/acl.h&quot;
+<span class="lineNum">      49 </span>                :            : #include &quot;utils/flatfiles.h&quot;
+<span class="lineNum">      50 </span>                :            : #include &quot;utils/fmgroids.h&quot;
+<span class="lineNum">      51 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      52 </span>                :            : #include &quot;utils/plancache.h&quot;
+<span class="lineNum">      53 </span>                :            : #include &quot;utils/portal.h&quot;
+<span class="lineNum">      54 </span>                :            : #include &quot;utils/ps_status.h&quot;
+<span class="lineNum">      55 </span>                :            : #include &quot;utils/relcache.h&quot;
+<span class="lineNum">      56 </span>                :            : #include &quot;utils/resscheduler.h&quot;
+<span class="lineNum">      57 </span>                :            : #include &quot;utils/sharedsnapshot.h&quot;
+<span class="lineNum">      58 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      59 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      60 </span>                :            : #include &quot;utils/session_state.h&quot;
+<span class="lineNum">      61 </span>                :            : #include &quot;codegen/codegen_wrapper.h&quot;
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : static HeapTuple GetDatabaseTuple(const char *dbname);
+<span class="lineNum">      64 </span>                :            : static HeapTuple GetDatabaseTupleByOid(Oid dboid);
+<span class="lineNum">      65 </span>                :            : static void PerformAuthentication(Port *port);
+<span class="lineNum">      66 </span>                :            : static void CheckMyDatabase(const char *name, bool am_superuser);
+<span class="lineNum">      67 </span>                :            : static void ProcessRoleGUC(void);
+<span class="lineNum">      68 </span>                :            : static void InitCommunication(void);
+<span class="lineNum">      69 </span>                :            : static void ShutdownPostgres(int code, Datum arg);
+<span class="lineNum">      70 </span>                :            : static bool ThereIsAtLeastOneRole(void);
+<span class="lineNum">      71 </span>                :            : static void process_startup_options(Port *port, bool am_superuser);
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            : #ifdef USE_ORCA
+<span class="lineNum">      74 </span>                :            : extern void InitGPOPT();
+<span class="lineNum">      75 </span>                :            : extern void TerminateGPOPT();
+<span class="lineNum">      76 </span>                :            : #endif
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :            : /*** InitPostgres support ***/
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>                :            : /*
+<span class="lineNum">      82 </span>                :            :  * FindMyDatabase
+<span class="lineNum">      83 </span>                :            :  *
+<span class="lineNum">      84 </span>                :            :  * Get oids of the database and default tablespace by the database name.
+<span class="lineNum">      85 </span>                :            :  * Returns true if succeeded.
+<span class="lineNum">      86 </span>                :            :  *
+<span class="lineNum">      87 </span>                :            :  * XXX: This shouldn't be necessary, but for now it's here for fts, etc.
+<a name="88"><span class="lineNum">      88 </span>                :            :  */</a>
+<span class="lineNum">      89 </span>                :            : bool
+<span class="lineNum">      90 </span>                :            : FindMyDatabase(const char *dbname, Oid *db_id, Oid *db_tablespace)
+<span class="lineNum">      91 </span>                :            : {
+<span class="lineNum">      92 </span>                :            :         HeapTuple               tuple;
+<span class="lineNum">      93 </span>                :            :         Form_pg_database dbform;
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :         tuple = GetDatabaseTuple(dbname);</span>
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            :         /* Return oids to the caller */
+<span class="lineNum">     101 </span>                :<span class="lineNoCov">          0 :         dbform = (Form_pg_database) GETSTRUCT(tuple);</span>
+<span class="lineNum">     102 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         *db_id = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :         *db_tablespace = dbform-&gt;dattablespace;</span>
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>                :            :         /* Be tidy */
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         pfree(tuple);</span>
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            : /*
+<span class="lineNum">     112 </span>                :            :  * GetDatabaseTuple -- fetch the pg_database row for a database
+<span class="lineNum">     113 </span>                :            :  *
+<span class="lineNum">     114 </span>                :            :  * This is used during backend startup when we don't yet have any access to
+<span class="lineNum">     115 </span>                :            :  * system catalogs in general.  In the worst case, we can seqscan pg_database
+<span class="lineNum">     116 </span>                :            :  * using nothing but the hard-wired descriptor that relcache.c creates for
+<span class="lineNum">     117 </span>                :            :  * pg_database.  In more typical cases, relcache.c was able to load
+<span class="lineNum">     118 </span>                :            :  * descriptors for both pg_database and its indexes from the shared relcache
+<span class="lineNum">     119 </span>                :            :  * cache file, and so we can do an indexscan.  criticalSharedRelcachesBuilt
+<span class="lineNum">     120 </span>                :            :  * tells whether we got the cached descriptors.
+<a name="121"><span class="lineNum">     121 </span>                :            :  */</a>
+<span class="lineNum">     122 </span>                :            : static HeapTuple
+<span class="lineNum">     123 </span>                :            : GetDatabaseTuple(const char *dbname)
+<span class="lineNum">     124 </span>                :            : {
+<span class="lineNum">     125 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     126 </span>                :            :         Relation        relation;
+<span class="lineNum">     127 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     128 </span>                :            :         ScanKeyData key[1];
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :            :         /*
+<span class="lineNum">     131 </span>                :            :          * form a scan key
+<span class="lineNum">     132 </span>                :            :          */
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;key[0],</span>
+<span class="lineNum">     134 </span>                :            :                                 Anum_pg_database_datname,
+<span class="lineNum">     135 </span>                :            :                                 BTEqualStrategyNumber, F_NAMEEQ,
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :                                 CStringGetDatum(dbname));</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :            :         /*
+<span class="lineNum">     139 </span>                :            :          * Open pg_database and fetch a tuple.  Force heap scan if we haven't yet
+<span class="lineNum">     140 </span>                :            :          * built the critical shared relcache entries (i.e., we're starting up
+<span class="lineNum">     141 </span>                :            :          * without a shared relcache cache file).
+<span class="lineNum">     142 </span>                :            :          */
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         relation = heap_open(DatabaseRelationId, AccessShareLock);</span>
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(relation, DatabaseNameIndexId,</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                                                           criticalSharedRelcachesBuilt,</span>
+<span class="lineNum">     146 </span>                :            :                                                           SnapshotNow,
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                                                           1, key);</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>                :            :         /* Must copy tuple before releasing buffer */
+<span class="lineNum">     152 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 tuple = heap_copytuple(tuple);</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :            :         /* all done */
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :         heap_close(relation, AccessShareLock);</span>
+<span class="lineNum">     158 </span>                :            : 
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :         return tuple;</span>
+<span class="lineNum">     160 </span>                :            : }
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>                :            : /*
+<span class="lineNum">     163 </span>                :            :  * GetDatabaseTupleByOid -- as above, but search by database OID
+<a name="164"><span class="lineNum">     164 </span>                :            :  */</a>
+<span class="lineNum">     165 </span>                :            : static HeapTuple
+<span class="lineNum">     166 </span>                :            : GetDatabaseTupleByOid(Oid dboid)
+<span class="lineNum">     167 </span>                :            : {
+<span class="lineNum">     168 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     169 </span>                :            :         Relation        relation;
+<span class="lineNum">     170 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     171 </span>                :            :         ScanKeyData key[1];
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :            :         /*
+<span class="lineNum">     174 </span>                :            :          * form a scan key
+<span class="lineNum">     175 </span>                :            :          */
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;key[0],</span>
+<span class="lineNum">     177 </span>                :            :                                 ObjectIdAttributeNumber,
+<span class="lineNum">     178 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(dboid));</span>
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :            :         /*
+<span class="lineNum">     182 </span>                :            :          * Open pg_database and fetch a tuple.  Force heap scan if we haven't yet
+<span class="lineNum">     183 </span>                :            :          * built the critical shared relcache entries (i.e., we're starting up
+<span class="lineNum">     184 </span>                :            :          * without a shared relcache cache file).
+<span class="lineNum">     185 </span>                :            :          */
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         relation = heap_open(DatabaseRelationId, AccessShareLock);</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(relation, DatabaseOidIndexId,</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                                                           criticalSharedRelcachesBuilt,</span>
+<span class="lineNum">     189 </span>                :            :                                                           SnapshotNow,
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :                                                           1, key);</span>
+<span class="lineNum">     191 </span>                :            : 
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     193 </span>                :            : 
+<span class="lineNum">     194 </span>                :            :         /* Must copy tuple before releasing buffer */
+<span class="lineNum">     195 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :                 tuple = heap_copytuple(tuple);</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :         /* all done */
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :         heap_close(relation, AccessShareLock);</span>
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :         return tuple;</span>
+<span class="lineNum">     203 </span>                :            : }
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :            : 
+<span class="lineNum">     206 </span>                :            : /*
+<span class="lineNum">     207 </span>                :            :  * PerformAuthentication -- authenticate a remote client
+<span class="lineNum">     208 </span>                :            :  *
+<span class="lineNum">     209 </span>                :            :  * returns: nothing.  Will not return at all if there's any failure.
+<a name="210"><span class="lineNum">     210 </span>                :            :  */</a>
+<span class="lineNum">     211 </span>                :            : static void
+<span class="lineNum">     212 </span>                :            : PerformAuthentication(Port *port)
+<span class="lineNum">     213 </span>                :            : {
+<span class="lineNum">     214 </span>                :            :         /* This should be set already, but let's make sure */
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :         ClientAuthInProgress = true;    /* limit visibility of log messages */</span>
+<span class="lineNum">     216 </span>                :            : 
+<span class="lineNum">     217 </span>                :            :         /*
+<span class="lineNum">     218 </span>                :            :          * In EXEC_BACKEND case, we didn't inherit the contents of pg_hba.conf
+<span class="lineNum">     219 </span>                :            :          * etcetera from the postmaster, and have to load them ourselves.  Note we
+<span class="lineNum">     220 </span>                :            :          * are loading them into the startup transaction's memory context, not
+<span class="lineNum">     221 </span>                :            :          * PostmasterContext, but that shouldn't matter.
+<span class="lineNum">     222 </span>                :            :          *
+<span class="lineNum">     223 </span>                :            :          * FIXME: [fork/exec] Ugh.      Is there a way around this overhead?
+<span class="lineNum">     224 </span>                :            :          */
+<span class="lineNum">     225 </span>                :            : #ifdef EXEC_BACKEND
+<span class="lineNum">     226 </span>                :            :         if (!load_hba())
+<span class="lineNum">     227 </span>                :            :         {
+<span class="lineNum">     228 </span>                :            :                 /*
+<span class="lineNum">     229 </span>                :            :                  * It makes no sense to continue if we fail to load the HBA file,
+<span class="lineNum">     230 </span>                :            :                  * since there is no way to connect to the database in this case.
+<span class="lineNum">     231 </span>                :            :                  */
+<span class="lineNum">     232 </span>                :            :                 ereport(FATAL,
+<span class="lineNum">     233 </span>                :            :                                 (errmsg(&quot;could not load pg_hba.conf&quot;)));
+<span class="lineNum">     234 </span>                :            :         }
+<span class="lineNum">     235 </span>                :            :         load_ident();
+<span class="lineNum">     236 </span>                :            : #endif
+<span class="lineNum">     237 </span>                :            : 
+<span class="lineNum">     238 </span>                :            :         /*
+<span class="lineNum">     239 </span>                :            :          * Set up a timeout in case a buggy or malicious client fails to respond
+<span class="lineNum">     240 </span>                :            :          * during authentication.  Since we're inside a transaction and might do
+<span class="lineNum">     241 </span>                :            :          * database access, we have to use the statement_timeout infrastructure.
+<span class="lineNum">     242 </span>                :            :          */
+<span class="lineNum">     243 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!enable_sig_alarm(AuthenticationTimeout * 1000, true))</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                 elog(FATAL, &quot;could not set timer for authorization timeout&quot;);</span>
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>                :            :         /*
+<span class="lineNum">     247 </span>                :            :          * Now perform authentication exchange.
+<span class="lineNum">     248 </span>                :            :          */
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :         ClientAuthentication(port); /* might not return, if failure */</span>
+<span class="lineNum">     250 </span>                :            : 
+<span class="lineNum">     251 </span>                :            :         /*
+<span class="lineNum">     252 </span>                :            :          * Done with authentication.  Disable the timeout, and log if needed.
+<span class="lineNum">     253 </span>                :            :          */
+<span class="lineNum">     254 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!disable_sig_alarm(true))</span>
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                 elog(FATAL, &quot;could not disable timer for authorization timeout&quot;);</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Log_connections)</span>
+<span class="lineNum">     258 </span>                :            :         {
+<span class="lineNum">     259 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (am_walsender)</span>
+<span class="lineNum">     260 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">     261 </span>                :            :                                         (errmsg(&quot;replication connection authorized: user=%s&quot;,
+<span class="lineNum">     262 </span>                :            :                                                         port-&gt;user_name)));
+<span class="lineNum">     263 </span>                :            :                 else
+<span class="lineNum">     264 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(LOG,</span>
+<span class="lineNum">     265 </span>                :            :                                         (errmsg(&quot;connection authorized: user=%s database=%s&quot;,
+<span class="lineNum">     266 </span>                :            :                                                         port-&gt;user_name, port-&gt;database_name)));
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     268 </span>                :            : 
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :         set_ps_display(&quot;startup&quot;, false);</span>
+<span class="lineNum">     270 </span>                :            : 
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :         ClientAuthInProgress = false;           /* client_min_messages is active now */</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :            : 
+<span class="lineNum">     275 </span>                :            : /*
+<span class="lineNum">     276 </span>                :            :  * ProcessRoleGUC --
+<span class="lineNum">     277 </span>                :            :  * We now process pg_authid.rolconfig separately from InitializeSessionUserId,
+<span class="lineNum">     278 </span>                :            :  * since it's too early to access toast table before initializing all
+<span class="lineNum">     279 </span>                :            :  * relcaches in phase3.
+<a name="280"><span class="lineNum">     280 </span>                :            :  */</a>
+<span class="lineNum">     281 </span>                :            : static void
+<span class="lineNum">     282 </span>                :            : ProcessRoleGUC(void)
+<span class="lineNum">     283 </span>                :            : {
+<span class="lineNum">     284 </span>                :            :         Oid                     roleId;
+<span class="lineNum">     285 </span>                :            :         HeapTuple       roleTup;
+<span class="lineNum">     286 </span>                :            :         Datum           datum;
+<span class="lineNum">     287 </span>                :            :         bool            isnull;
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :            :         /* This should have been set by now */
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :         roleId = GetUserId();</span>
+<span class="lineNum">     291 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(roleId));</span>
+<span class="lineNum">     292 </span>                :            : 
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :         roleTup = SearchSysCache1(AUTHOID,</span>
+<span class="lineNum">     294 </span>                :            :                                                           ObjectIdGetDatum(roleId));
+<span class="lineNum">     295 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(roleTup))</span>
+<span class="lineNum">     296 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     297 </span>                :            :                                 (errcode(ERRCODE_INVALID_AUTHORIZATION_SPECIFICATION),
+<span class="lineNum">     298 </span>                :            :                                  errmsg(&quot;role %u does not exist&quot;, roleId), errSendAlert(false)));
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :            :         /*
+<span class="lineNum">     301 </span>                :            :          * Set up user-specific configuration variables.  This is a good place to
+<span class="lineNum">     302 </span>                :            :          * do it so we don't have to read pg_authid twice during session startup.
+<span class="lineNum">     303 </span>                :            :          */
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         datum = SysCacheGetAttr(AUTHOID, roleTup,</span>
+<span class="lineNum">     305 </span>                :            :                                                         Anum_pg_authid_rolconfig, &amp;isnull);
+<span class="lineNum">     306 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!isnull)</span>
+<span class="lineNum">     307 </span>                :            :         {
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                 ArrayType  *a = DatumGetArrayTypeP(datum);</span>
+<span class="lineNum">     309 </span>                :            : 
+<span class="lineNum">     310 </span>                :            :                 /*
+<span class="lineNum">     311 </span>                :            :                  * We process all the options at SUSET level.  We assume that the
+<span class="lineNum">     312 </span>                :            :                  * right to insert an option into pg_authid was checked when it was
+<span class="lineNum">     313 </span>                :            :                  * inserted.
+<span class="lineNum">     314 </span>                :            :                  */
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                 ProcessGUCArray(a, PGC_SUSET, PGC_S_USER, GUC_ACTION_SET);</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(roleTup);</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>                :            : /*
+<span class="lineNum">     322 </span>                :            :  * CheckMyDatabase -- fetch information from the pg_database entry for our DB
+<a name="323"><span class="lineNum">     323 </span>                :            :  */</a>
+<span class="lineNum">     324 </span>                :            : static void
+<span class="lineNum">     325 </span>                :            : CheckMyDatabase(const char *name, bool am_superuser)
+<span class="lineNum">     326 </span>                :            : {
+<span class="lineNum">     327 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     328 </span>                :            :         Form_pg_database dbform;
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>                :            :         /* Fetch our pg_database row normally, via syscache */
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache(DATABASEOID,</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :                                                  ObjectIdGetDatum(MyDatabaseId),</span>
+<span class="lineNum">     333 </span>                :            :                                                  0, 0, 0);
+<span class="lineNum">     334 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup))</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for database %u&quot;, MyDatabaseId);</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         dbform = (Form_pg_database) GETSTRUCT(tup);</span>
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :            :         /* This recheck is strictly paranoia */
+<span class="lineNum">     339 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strcmp(name, NameStr(dbform-&gt;datname)) != 0)</span>
+<span class="lineNum">     340 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     341 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_DATABASE),
+<span class="lineNum">     342 </span>                :            :                                  errmsg(&quot;database \&quot;%s\&quot; has disappeared from pg_database&quot;,
+<span class="lineNum">     343 </span>                :            :                                                 name),
+<span class="lineNum">     344 </span>                :            :                                  errdetail(&quot;Database OID %u now seems to belong to \&quot;%s\&quot;.&quot;,
+<span class="lineNum">     345 </span>                :            :                                                    MyDatabaseId, NameStr(dbform-&gt;datname))));
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :            :         /*
+<span class="lineNum">     348 </span>                :            :          * Check permissions to connect to the database.
+<span class="lineNum">     349 </span>                :            :          *
+<span class="lineNum">     350 </span>                :            :          * These checks are not enforced when in standalone mode, so that there is
+<span class="lineNum">     351 </span>                :            :          * a way to recover from disabling all access to all databases, for
+<span class="lineNum">     352 </span>                :            :          * example &quot;UPDATE pg_database SET datallowconn = false;&quot;.
+<span class="lineNum">     353 </span>                :            :          *
+<span class="lineNum">     354 </span>                :            :          * We do not enforce them for the autovacuum worker processes either.
+<span class="lineNum">     355 </span>                :            :          */
+<span class="lineNum">     356 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsUnderPostmaster &amp;&amp; !IsAutoVacuumWorkerProcess())</span>
+<span class="lineNum">     357 </span>                :            :         {
+<span class="lineNum">     358 </span>                :            :                 /*
+<span class="lineNum">     359 </span>                :            :                  * Check that the database is currently allowing connections.
+<span class="lineNum">     360 </span>                :            :                  */
+<span class="lineNum">     361 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!dbform-&gt;datallowconn)</span>
+<span class="lineNum">     362 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     363 </span>                :            :                                         (errcode(ERRCODE_OBJECT_NOT_IN_PREREQUISITE_STATE),
+<span class="lineNum">     364 </span>                :            :                          errmsg(&quot;database \&quot;%s\&quot; is not currently accepting connections&quot;,
+<span class="lineNum">     365 </span>                :            :                                         name)));
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :            :                 /*
+<span class="lineNum">     368 </span>                :            :                  * Check privilege to connect to the database.  (The am_superuser test
+<span class="lineNum">     369 </span>                :            :                  * is redundant, but since we have the flag, might as well check it
+<span class="lineNum">     370 </span>                :            :                  * and save a few cycles.)
+<span class="lineNum">     371 </span>                :            :                  */
+<span class="lineNum">     372 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!am_superuser &amp;&amp;</span>
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :                         pg_database_aclcheck(MyDatabaseId, GetUserId(),</span>
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :                                                                  ACL_CONNECT) != ACLCHECK_OK)</span>
+<span class="lineNum">     375 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     376 </span>                :            :                                         (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     377 </span>                :            :                                          errmsg(&quot;permission denied for database \&quot;%s\&quot;&quot;, name),
+<span class="lineNum">     378 </span>                :            :                                          errdetail(&quot;User does not have CONNECT privilege.&quot;)));
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :            :                 /*
+<span class="lineNum">     381 </span>                :            :                  * Check connection limit for this database.
+<span class="lineNum">     382 </span>                :            :                  *
+<span class="lineNum">     383 </span>                :            :                  * There is a race condition here --- we create our PGPROC before
+<span class="lineNum">     384 </span>                :            :                  * checking for other PGPROCs.  If two backends did this at about the
+<span class="lineNum">     385 </span>                :            :                  * same time, they might both think they were over the limit, while
+<span class="lineNum">     386 </span>                :            :                  * ideally one should succeed and one fail.  Getting that to work
+<span class="lineNum">     387 </span>                :            :                  * exactly seems more trouble than it is worth, however; instead we
+<span class="lineNum">     388 </span>                :            :                  * just document that the connection limit is approximate.
+<span class="lineNum">     389 </span>                :            :                  */
+<span class="lineNum">     390 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (dbform-&gt;datconnlimit &gt;= 0 &amp;&amp;</span>
+<span class="lineNum">     391 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         !am_superuser &amp;&amp;</span>
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :                         CountDBBackends(MyDatabaseId) &gt; dbform-&gt;datconnlimit)</span>
+<span class="lineNum">     393 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     394 </span>                :            :                                         (errcode(ERRCODE_TOO_MANY_CONNECTIONS),
+<span class="lineNum">     395 </span>                :            :                                          errmsg(&quot;too many connections for database \&quot;%s\&quot;&quot;,
+<span class="lineNum">     396 </span>                :            :                                                         name)));
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :            :         /*
+<span class="lineNum">     400 </span>                :            :          * OK, we're golden.  Next to-do item is to save the encoding info out of
+<span class="lineNum">     401 </span>                :            :          * the pg_database tuple.
+<span class="lineNum">     402 </span>                :            :          */
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :         SetDatabaseEncoding(dbform-&gt;encoding);</span>
+<span class="lineNum">     404 </span>                :            :         /* Record it as a GUC internal option, too */
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         SetConfigOption(&quot;server_encoding&quot;, GetDatabaseEncodingName(),</span>
+<span class="lineNum">     406 </span>                :            :                                         PGC_INTERNAL, PGC_S_OVERRIDE);
+<span class="lineNum">     407 </span>                :            :         /* If we have no other source of client_encoding, use server encoding */
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :         SetConfigOption(&quot;client_encoding&quot;, GetDatabaseEncodingName(),</span>
+<span class="lineNum">     409 </span>                :            :                                         PGC_BACKEND, PGC_S_DEFAULT);
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            :         /* Use the right encoding in translated messages */
+<span class="lineNum">     412 </span>                :            : #ifdef ENABLE_NLS
+<span class="lineNum">     413 </span>                :            :         pg_bind_textdomain_codeset(textdomain(NULL));
+<span class="lineNum">     414 </span>                :            : #endif
+<span class="lineNum">     415 </span>                :            : 
+<span class="lineNum">     416 </span>                :            :         /*
+<span class="lineNum">     417 </span>                :            :          * Lastly, set up any database-specific configuration variables.
+<span class="lineNum">     418 </span>                :            :          */
+<span class="lineNum">     419 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsUnderPostmaster)</span>
+<span class="lineNum">     420 </span>                :            :         {
+<span class="lineNum">     421 </span>                :            :                 Datum           datum;
+<span class="lineNum">     422 </span>                :            :                 bool            isnull;
+<span class="lineNum">     423 </span>                :            : 
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                 datum = SysCacheGetAttr(DATABASEOID, tup, Anum_pg_database_datconfig,</span>
+<span class="lineNum">     425 </span>                :            :                                                                 &amp;isnull);
+<span class="lineNum">     426 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!isnull)</span>
+<span class="lineNum">     427 </span>                :            :                 {
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                         ArrayType  *a = DatumGetArrayTypeP(datum);</span>
+<span class="lineNum">     429 </span>                :            : 
+<span class="lineNum">     430 </span>                :            :                         /*
+<span class="lineNum">     431 </span>                :            :                          * We process all the options at SUSET level.  We assume that the
+<span class="lineNum">     432 </span>                :            :                          * right to insert an option into pg_database was checked when it
+<span class="lineNum">     433 </span>                :            :                          * was inserted.
+<span class="lineNum">     434 </span>                :            :                          */
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                         ProcessGUCArray(a, PGC_SUSET, PGC_S_DATABASE, GUC_ACTION_SET);</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     441 </span>                :            : 
+<span class="lineNum">     442 </span>                :            : 
+<span class="lineNum">     443 </span>                :            : 
+<span class="lineNum">     444 </span>                :            : /* --------------------------------
+<span class="lineNum">     445 </span>                :            :  *              InitCommunication
+<span class="lineNum">     446 </span>                :            :  *
+<span class="lineNum">     447 </span>                :            :  *              This routine initializes stuff needed for ipc, locking, etc.
+<span class="lineNum">     448 </span>                :            :  *              it should be called something more informative.
+<span class="lineNum">     449 </span>                :            :  * --------------------------------
+<a name="450"><span class="lineNum">     450 </span>                :            :  */</a>
+<span class="lineNum">     451 </span>                :            : static void
+<span class="lineNum">     452 </span>                :            : InitCommunication(void)
+<span class="lineNum">     453 </span>                :            : {
+<span class="lineNum">     454 </span>                :            :         /*
+<span class="lineNum">     455 </span>                :            :          * initialize shared memory and semaphores appropriately.
+<span class="lineNum">     456 </span>                :            :          */
+<span class="lineNum">     457 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsUnderPostmaster)         /* postmaster already did this */</span>
+<span class="lineNum">     458 </span>                :            :         {
+<span class="lineNum">     459 </span>                :            :                 /*
+<span class="lineNum">     460 </span>                :            :                  * We're running a postgres bootstrap process or a standalone backend.
+<span class="lineNum">     461 </span>                :            :                  * Create private &quot;shmem&quot; and semaphores.
+<span class="lineNum">     462 </span>                :            :                  */
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :                 CreateSharedMemoryAndSemaphores(true, 0);</span>
+<span class="lineNum">     464 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     466 </span>                :            : 
+<span class="lineNum">     467 </span>                :            : /*
+<span class="lineNum">     468 </span>                :            :  * pg_split_opts -- split a string of options and append it to an argv array
+<span class="lineNum">     469 </span>                :            :  *
+<span class="lineNum">     470 </span>                :            :  * The caller is responsible for ensuring the argv array is large enough.  The
+<span class="lineNum">     471 </span>                :            :  * maximum possible number of arguments added by this routine is
+<span class="lineNum">     472 </span>                :            :  * (strlen(optstr) + 1) / 2.
+<span class="lineNum">     473 </span>                :            :  *
+<span class="lineNum">     474 </span>                :            :  * Because some option values can contain spaces we allow escaping using
+<span class="lineNum">     475 </span>                :            :  * backslashes, with \\ representing a literal backslash.
+<a name="476"><span class="lineNum">     476 </span>                :            :  */</a>
+<span class="lineNum">     477 </span>                :            : void
+<span class="lineNum">     478 </span>                :            : pg_split_opts(char **argv, int *argcp, char *optstr)
+<span class="lineNum">     479 </span>                :            : {
+<span class="lineNum">     480 </span>                :            :         StringInfoData s;
+<span class="lineNum">     481 </span>                :            : 
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;s);</span>
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (*optstr)</span>
+<span class="lineNum">     485 </span>                :            :         {
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :                 bool last_was_escape = false;</span>
+<span class="lineNum">     487 </span>                :            : 
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :                 resetStringInfo(&amp;s);</span>
+<span class="lineNum">     489 </span>                :            : 
+<span class="lineNum">     490 </span>                :            :                 /* skip over leading space */
+<span class="lineNum">     491 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (isspace((unsigned char) *optstr))</span>
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :                         optstr++;</span>
+<span class="lineNum">     493 </span>                :            : 
+<span class="lineNum">     494 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*optstr == '\0')</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     496 </span>                :            : 
+<span class="lineNum">     497 </span>                :            :                 /*
+<span class="lineNum">     498 </span>                :            :                  * Parse a single option + value, stopping at the first space, unless
+<span class="lineNum">     499 </span>                :            :                  * it's escaped.
+<span class="lineNum">     500 </span>                :            :                  */
+<span class="lineNum">     501 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (*optstr)</span>
+<span class="lineNum">     502 </span>                :            :                 {
+<span class="lineNum">     503 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (isspace((unsigned char) *optstr) &amp;&amp; !last_was_escape)</span>
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     505 </span>                :            : 
+<span class="lineNum">     506 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!last_was_escape &amp;&amp; *optstr == '\\')</span>
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :                                 last_was_escape = true;</span>
+<span class="lineNum">     508 </span>                :            :                         else
+<span class="lineNum">     509 </span>                :            :                         {
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :                                 last_was_escape = false;</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                                 appendStringInfoChar(&amp;s, *optstr);</span>
+<span class="lineNum">     512 </span>                :            :                         }
+<span class="lineNum">     513 </span>                :            : 
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                         optstr++;</span>
+<span class="lineNum">     515 </span>                :            :                 }
+<span class="lineNum">     516 </span>                :            : 
+<span class="lineNum">     517 </span>                :            :                 /* now store the option */
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                 argv[(*argcp)++] = pstrdup(s.data);</span>
+<span class="lineNum">     519 </span>                :            :         }
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :         resetStringInfo(&amp;s);</span>
+<span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     522 </span>                :            : 
+<span class="lineNum">     523 </span>                :            : 
+<span class="lineNum">     524 </span>                :            : /*
+<span class="lineNum">     525 </span>                :            :  * Early initialization of a backend (either standalone or under postmaster).
+<span class="lineNum">     526 </span>                :            :  * This happens even before InitPostgres.
+<span class="lineNum">     527 </span>                :            :  *
+<span class="lineNum">     528 </span>                :            :  * If you're wondering why this is separate from InitPostgres at all:
+<span class="lineNum">     529 </span>                :            :  * the critical distinction is that this stuff has to happen before we can
+<span class="lineNum">     530 </span>                :            :  * run XLOG-related initialization, which is done before InitPostgres --- in
+<span class="lineNum">     531 </span>                :            :  * fact, for cases such as the background writer process, InitPostgres may
+<span class="lineNum">     532 </span>                :            :  * never be done at all.
+<a name="533"><span class="lineNum">     533 </span>                :            :  */</a>
+<span class="lineNum">     534 </span>                :            : void
+<span class="lineNum">     535 </span>                :            : BaseInit(void)
+<span class="lineNum">     536 </span>                :            : {
+<span class="lineNum">     537 </span>                :            :         /*
+<span class="lineNum">     538 </span>                :            :          * Attach to shared memory and semaphores, and initialize our
+<span class="lineNum">     539 </span>                :            :          * input/output/debugging file descriptors.
+<span class="lineNum">     540 </span>                :            :          */
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :         InitCommunication();</span>
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :         DebugFileOpen();</span>
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            :         /* Do local initialization of file, storage and buffer managers */
+<span class="lineNum">     545 </span>                :<span class="lineNoCov">          0 :         InitFileAccess();</span>
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :         smgrinit();</span>
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :         InitBufferPoolAccess();</span>
+<span class="lineNum">     548 </span>                :            : 
+<span class="lineNum">     549 </span>                :            :         /* Initialize llvm library if USE_CODEGEN is defined */
+<span class="lineNum">     550 </span>                :            :         init_codegen();
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :            : /* --------------------------------
+<span class="lineNum">     555 </span>                :            :  * InitPostgres
+<span class="lineNum">     556 </span>                :            :  *              Initialize POSTGRES.
+<span class="lineNum">     557 </span>                :            :  *
+<span class="lineNum">     558 </span>                :            :  * The database can be specified by name, using the in_dbname parameter, or by
+<span class="lineNum">     559 </span>                :            :  * OID, using the dboid parameter.      In the latter case, the actual database
+<span class="lineNum">     560 </span>                :            :  * name can be returned to the caller in out_dbname.  If out_dbname isn't
+<span class="lineNum">     561 </span>                :            :  * NULL, it must point to a buffer of size NAMEDATALEN.
+<span class="lineNum">     562 </span>                :            :  *
+<span class="lineNum">     563 </span>                :            :  * In bootstrap mode no parameters are used.
+<span class="lineNum">     564 </span>                :            :  *
+<span class="lineNum">     565 </span>                :            :  * The return value indicates whether the userID is a superuser.  (That
+<span class="lineNum">     566 </span>                :            :  * can only be tested inside a transaction, so we want to do it during
+<span class="lineNum">     567 </span>                :            :  * the startup transaction rather than doing a separate one in postgres.c.)
+<span class="lineNum">     568 </span>                :            :  *
+<span class="lineNum">     569 </span>                :            :  * As of PostgreSQL 8.2, we expect InitProcess() was already called, so we
+<span class="lineNum">     570 </span>                :            :  * already have a PGPROC struct ... but it's not filled in yet.
+<span class="lineNum">     571 </span>                :            :  *
+<span class="lineNum">     572 </span>                :            :  * Note:
+<span class="lineNum">     573 </span>                :            :  *              Be very careful with the order of calls in the InitPostgres function.
+<span class="lineNum">     574 </span>                :            :  * --------------------------------
+<a name="575"><span class="lineNum">     575 </span>                :            :  */</a>
+<span class="lineNum">     576 </span>                :            : void
+<span class="lineNum">     577 </span>                :            : InitPostgres(const char *in_dbname, Oid dboid, const char *username,
+<span class="lineNum">     578 </span>                :            :                          char *out_dbname)
+<span class="lineNum">     579 </span>                :            : {
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :         bool            bootstrap = IsBootstrapProcessingMode();</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :         bool            autovacuum = IsAutoVacuumWorkerProcess();</span>
+<span class="lineNum">     582 </span>                :            :         bool            am_superuser;
+<span class="lineNum">     583 </span>                :            :         char       *fullpath;
+<span class="lineNum">     584 </span>                :            :         char            dbname[NAMEDATALEN];
+<span class="lineNum">     585 </span>                :            : 
+<span class="lineNum">     586 </span>                :            :         /*
+<span class="lineNum">     587 </span>                :            :          * Add my PGPROC struct to the ProcArray.
+<span class="lineNum">     588 </span>                :            :          *
+<span class="lineNum">     589 </span>                :            :          * Once I have done this, I am visible to other backends!
+<span class="lineNum">     590 </span>                :            :          */
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :         InitProcessPhase2();</span>
+<span class="lineNum">     592 </span>                :            : 
+<span class="lineNum">     593 </span>                :            :         /* Initialize SessionState entry */
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         SessionState_Init();</span>
+<span class="lineNum">     595 </span>                :            :         /* Initialize memory protection */
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :         GPMemoryProtect_Init();</span>
+<span class="lineNum">     597 </span>                :            : 
+<span class="lineNum">     598 </span>                :            : #ifdef USE_ORCA
+<span class="lineNum">     599 </span>                :            :         /* Initialize GPOPT */
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :         InitGPOPT();</span>
+<span class="lineNum">     601 </span>                :            : #endif
+<span class="lineNum">     602 </span>                :            : 
+<span class="lineNum">     603 </span>                :            :         /*
+<span class="lineNum">     604 </span>                :            :          * Initialize my entry in the shared-invalidation manager's array of
+<span class="lineNum">     605 </span>                :            :          * per-backend data.
+<span class="lineNum">     606 </span>                :            :          *
+<span class="lineNum">     607 </span>                :            :          * Sets up MyBackendId, a unique backend identifier.
+<span class="lineNum">     608 </span>                :            :          */
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :         MyBackendId = InvalidBackendId;</span>
+<span class="lineNum">     610 </span>                :            : 
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :         SharedInvalBackendInit(false);</span>
+<span class="lineNum">     612 </span>                :            : 
+<span class="lineNum">     613 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MyBackendId &gt; MaxBackends || MyBackendId &lt;= 0)</span>
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 :                 elog(FATAL, &quot;bad backend id: %d&quot;, MyBackendId);</span>
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :            :         /* Now that we have a BackendId, we can participate in ProcSignal */
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :         ProcSignalInit(MyBackendId);</span>
+<span class="lineNum">     618 </span>                :            : 
+<span class="lineNum">     619 </span>                :            :         /*
+<span class="lineNum">     620 </span>                :            :          * bufmgr needs another initialization call too
+<span class="lineNum">     621 </span>                :            :          */
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :         InitBufferPoolBackend();</span>
+<span class="lineNum">     623 </span>                :            : 
+<span class="lineNum">     624 </span>                :            :         /*
+<span class="lineNum">     625 </span>                :            :          * Initialize local process's access to XLOG.  In bootstrap case we may
+<span class="lineNum">     626 </span>                :            :          * skip this since StartupXLOG() was run instead.
+<span class="lineNum">     627 </span>                :            :          */
+<span class="lineNum">     628 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                 InitXLOGAccess();</span>
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :            :         /*
+<span class="lineNum">     632 </span>                :            :          * Initialize the relation cache and the system catalog caches.  Note that
+<span class="lineNum">     633 </span>                :            :          * no catalog access happens here; we only set up the hashtable structure.
+<span class="lineNum">     634 </span>                :            :          * We must do this before starting a transaction because transaction abort
+<span class="lineNum">     635 </span>                :            :          * would try to touch these hashtables.
+<span class="lineNum">     636 </span>                :            :          */
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :         RelationCacheInitialize();</span>
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :         InitCatalogCache();</span>
+<span class="lineNum">     639 </span>                :<span class="lineNoCov">          0 :         InitPlanCache();</span>
+<span class="lineNum">     640 </span>                :            : 
+<span class="lineNum">     641 </span>                :            :         /* Initialize portal manager */
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :         EnablePortalManager();</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :            :         /* Initialize stats collection --- must happen before first xact */
+<span class="lineNum">     645 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :                 pgstat_initialize();</span>
+<span class="lineNum">     647 </span>                :            : 
+<span class="lineNum">     648 </span>                :            :         /*
+<span class="lineNum">     649 </span>                :            :          * Load relcache entries for the shared system catalogs.  This must create
+<span class="lineNum">     650 </span>                :            :          * at least entries for pg_database and catalogs used for authentication.
+<span class="lineNum">     651 </span>                :            :          */
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :         RelationCacheInitializePhase2();</span>
+<span class="lineNum">     653 </span>                :            : 
+<span class="lineNum">     654 </span>                :            :         /*
+<span class="lineNum">     655 </span>                :            :          * Set up process-exit callback to do pre-shutdown cleanup.  This has to
+<span class="lineNum">     656 </span>                :            :          * be after we've initialized all the low-level modules like the buffer
+<span class="lineNum">     657 </span>                :            :          * manager, because during shutdown this has to run before the low-level
+<span class="lineNum">     658 </span>                :            :          * modules start to close down.  On the other hand, we want it in place
+<span class="lineNum">     659 </span>                :            :          * before we begin our first transaction --- if we fail during the
+<span class="lineNum">     660 </span>                :            :          * initialization transaction, as is entirely possible, we need the
+<span class="lineNum">     661 </span>                :            :          * AbortTransaction call to clean up.
+<span class="lineNum">     662 </span>                :            :          */
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :         on_shmem_exit(ShutdownPostgres, 0);</span>
+<span class="lineNum">     664 </span>                :            : 
+<span class="lineNum">     665 </span>                :            :         /* TODO: autovacuum launcher should be done here? */
+<span class="lineNum">     666 </span>                :            : 
+<span class="lineNum">     667 </span>                :            :         /*
+<span class="lineNum">     668 </span>                :            :          * Start a new transaction here before first access to db, and get a
+<span class="lineNum">     669 </span>                :            :          * snapshot.  We don't have a use for the snapshot itself, but we're
+<span class="lineNum">     670 </span>                :            :          * interested in the secondary effect that it sets RecentGlobalXmin.
+<span class="lineNum">     671 </span>                :            :          */
+<span class="lineNum">     672 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     673 </span>                :            :         {
+<span class="lineNum">     674 </span>                :<span class="lineNoCov">          0 :                 StartTransactionCommand();</span>
+<span class="lineNum">     675 </span>                :<span class="lineNoCov">          0 :                 (void) GetTransactionSnapshot();</span>
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     677 </span>                :            : 
+<span class="lineNum">     678 </span>                :            :         /*
+<span class="lineNum">     679 </span>                :            :          * Figure out our postgres user id, and see if we are a superuser.
+<span class="lineNum">     680 </span>                :            :          *
+<span class="lineNum">     681 </span>                :            :          * In standalone mode and in the autovacuum process, we use a fixed id,
+<span class="lineNum">     682 </span>                :            :          * otherwise we figure it out from the authenticated user name.
+<span class="lineNum">     683 </span>                :            :          */
+<span class="lineNum">     684 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (bootstrap || autovacuum)</span>
+<span class="lineNum">     685 </span>                :            :         {
+<span class="lineNum">     686 </span>                :<span class="lineNoCov">          0 :                 InitializeSessionUserIdStandalone();</span>
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :                 am_superuser = true;</span>
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     689 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (!IsUnderPostmaster)</span>
+<span class="lineNum">     690 </span>                :            :         {
+<span class="lineNum">     691 </span>                :<span class="lineNoCov">          0 :                 InitializeSessionUserIdStandalone();</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :                 am_superuser = true;</span>
+<span class="lineNum">     693 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!ThereIsAtLeastOneRole())</span>
+<span class="lineNum">     694 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(WARNING,</span>
+<span class="lineNum">     695 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     696 </span>                :            :                                          errmsg(&quot;no roles are defined in this database system&quot;),
+<span class="lineNum">     697 </span>                :            :                                          errhint(&quot;You should immediately run CREATE USER \&quot;%s\&quot; CREATEUSER;.&quot;,
+<span class="lineNum">     698 </span>                :            :                                                          username)));
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     700 </span>                :            :         else
+<span class="lineNum">     701 </span>                :            :         {
+<span class="lineNum">     702 </span>                :            :                 /* normal multiuser case */
+<span class="lineNum">     703 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(MyProcPort != NULL);</span>
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                 PerformAuthentication(MyProcPort);</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                 InitializeSessionUserId(username);</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                 am_superuser = superuser();</span>
+<span class="lineNum">     707 </span>                :            :         }
+<span class="lineNum">     708 </span>                :            : 
+<span class="lineNum">     709 </span>                :            :         /*
+<span class="lineNum">     710 </span>                :            :          * Binary upgrades only allowed super-user connections
+<span class="lineNum">     711 </span>                :            :          */
+<span class="lineNum">     712 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsBinaryUpgrade &amp;&amp; !am_superuser)</span>
+<span class="lineNum">     713 </span>                :            :         {
+<span class="lineNum">     714 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     715 </span>                :            :                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     716 </span>                :            :                                  errmsg(&quot;must be superuser to connect in binary upgrade mode&quot;)));
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     718 </span>                :            : 
+<span class="lineNum">     719 </span>                :            :         /*
+<span class="lineNum">     720 </span>                :            :          * Check a normal user hasn't connected to a superuser reserved slot.
+<span class="lineNum">     721 </span>                :            :          */
+<span class="lineNum">     722 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!am_superuser &amp;&amp;</span>
+<span class="lineNum">     723 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ReservedBackends &gt; 0 &amp;&amp;</span>
+<span class="lineNum">     724 </span>                :<span class="lineNoCov">          0 :                 !HaveNFreeProcs(ReservedBackends))</span>
+<span class="lineNum">     725 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     726 </span>                :            :                                 (errcode(ERRCODE_TOO_MANY_CONNECTIONS),
+<span class="lineNum">     727 </span>                :            :                                  errmsg(&quot;connection limit exceeded for non-superusers&quot;),
+<span class="lineNum">     728 </span>                :            :                                  errSendAlert(true)));
+<span class="lineNum">     729 </span>                :            : 
+<span class="lineNum">     730 </span>                :            :         /*
+<span class="lineNum">     731 </span>                :            :          * If walsender, we don't want to connect to any particular database. Just
+<span class="lineNum">     732 </span>                :            :          * finish the backend startup by processing any options from the startup
+<span class="lineNum">     733 </span>                :            :          * packet, and we're done.
+<span class="lineNum">     734 </span>                :            :          */
+<span class="lineNum">     735 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (am_walsender)</span>
+<span class="lineNum">     736 </span>                :            :         {
+<span class="lineNum">     737 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!bootstrap);</span>
+<span class="lineNum">     738 </span>                :            : 
+<span class="lineNum">     739 </span>                :            :                 /*
+<span class="lineNum">     740 </span>                :            :                  * We don't have replication role, which existed in postgres.
+<span class="lineNum">     741 </span>                :            :                  */
+<span class="lineNum">     742 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!superuser())</span>
+<span class="lineNum">     743 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     744 </span>                :            :                                         (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     745 </span>                :            :                                          errmsg(&quot;must be superuser role to start walsender&quot;)));
+<span class="lineNum">     746 </span>                :            : 
+<span class="lineNum">     747 </span>                :            :                 /* process any options passed in the startup packet */
+<span class="lineNum">     748 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (MyProcPort != NULL)</span>
+<span class="lineNum">     749 </span>                :<span class="lineNoCov">          0 :                         process_startup_options(MyProcPort, am_superuser);</span>
+<span class="lineNum">     750 </span>                :            : 
+<span class="lineNum">     751 </span>                :            :                 /* Apply PostAuthDelay as soon as we've read all options */
+<span class="lineNum">     752 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (PostAuthDelay &gt; 0)</span>
+<span class="lineNum">     753 </span>                :<span class="lineNoCov">          0 :                         pg_usleep(PostAuthDelay * 1000000L);</span>
+<span class="lineNum">     754 </span>                :            : 
+<span class="lineNum">     755 </span>                :            :                 /* initialize client encoding */
+<span class="lineNum">     756 </span>                :<span class="lineNoCov">          0 :                 InitializeClientEncoding();</span>
+<span class="lineNum">     757 </span>                :            : 
+<span class="lineNum">     758 </span>                :            :                 /* report this backend in the PgBackendStatus array */
+<span class="lineNum">     759 </span>                :<span class="lineNoCov">          0 :                 pgstat_bestart();</span>
+<span class="lineNum">     760 </span>                :            : 
+<span class="lineNum">     761 </span>                :            :                 /* close the transaction we started above */
+<span class="lineNum">     762 </span>                :<span class="lineNoCov">          0 :                 CommitTransactionCommand();</span>
+<span class="lineNum">     763 </span>                :            : 
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     765 </span>                :            :         }
+<span class="lineNum">     766 </span>                :            : 
+<span class="lineNum">     767 </span>                :            :         /*
+<span class="lineNum">     768 </span>                :            :          * Set up the global variables holding database id and path.  But note we
+<span class="lineNum">     769 </span>                :            :          * won't actually try to touch the database just yet.
+<span class="lineNum">     770 </span>                :            :          *
+<span class="lineNum">     771 </span>                :            :          * We take a shortcut in the bootstrap case, otherwise we have to look up
+<span class="lineNum">     772 </span>                :            :          * the db name in pg_database.
+<span class="lineNum">     773 </span>                :            :          */
+<span class="lineNum">     774 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (bootstrap)</span>
+<span class="lineNum">     775 </span>                :            :         {
+<span class="lineNum">     776 </span>                :<span class="lineNoCov">          0 :                 MyDatabaseId = TemplateDbOid;</span>
+<span class="lineNum">     777 </span>                :<span class="lineNoCov">          0 :                 MyDatabaseTableSpace = DEFAULTTABLESPACE_OID;</span>
+<span class="lineNum">     778 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     779 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (in_dbname != NULL)</span>
+<span class="lineNum">     780 </span>                :            :         {
+<span class="lineNum">     781 </span>                :            :                 HeapTuple       tuple;
+<span class="lineNum">     782 </span>                :            :                 Form_pg_database dbform;
+<span class="lineNum">     783 </span>                :            : 
+<span class="lineNum">     784 </span>                :<span class="lineNoCov">          0 :                 tuple = GetDatabaseTuple(in_dbname);</span>
+<span class="lineNum">     785 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     786 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     787 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_DATABASE),
+<span class="lineNum">     788 </span>                :            :                                          errmsg(&quot;database \&quot;%s\&quot; does not exist&quot;, in_dbname)));
+<span class="lineNum">     789 </span>                :<span class="lineNoCov">          0 :                 dbform = (Form_pg_database) GETSTRUCT(tuple);</span>
+<span class="lineNum">     790 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MyDatabaseId = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                 MyDatabaseTableSpace = dbform-&gt;dattablespace;</span>
+<span class="lineNum">     792 </span>                :            :                 /* take database name from the caller, just for paranoia */
+<span class="lineNum">     793 </span>                :<span class="lineNoCov">          0 :                 strlcpy(dbname, in_dbname, sizeof(dbname));</span>
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :                 pfree(tuple);</span>
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     796 </span>                :            :         else
+<span class="lineNum">     797 </span>                :            :         {
+<span class="lineNum">     798 </span>                :            :                 /* caller specified database by OID */
+<span class="lineNum">     799 </span>                :            :                 HeapTuple       tuple;
+<span class="lineNum">     800 </span>                :            :                 Form_pg_database dbform;
+<span class="lineNum">     801 </span>                :            : 
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 :                 tuple = GetDatabaseTupleByOid(dboid);</span>
+<span class="lineNum">     803 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     804 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     805 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_DATABASE),
+<span class="lineNum">     806 </span>                :            :                                          errmsg(&quot;database %u does not exist&quot;, dboid)));
+<span class="lineNum">     807 </span>                :<span class="lineNoCov">          0 :                 dbform = (Form_pg_database) GETSTRUCT(tuple);</span>
+<span class="lineNum">     808 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 MyDatabaseId = HeapTupleGetOid(tuple);</span>
+<span class="lineNum">     809 </span>                :<span class="lineNoCov">          0 :                 MyDatabaseTableSpace = dbform-&gt;dattablespace;</span>
+<span class="lineNum">     810 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(MyDatabaseId == dboid);</span>
+<span class="lineNum">     811 </span>                :<span class="lineNoCov">          0 :                 strlcpy(dbname, NameStr(dbform-&gt;datname), sizeof(dbname));</span>
+<span class="lineNum">     812 </span>                :            :                 /* pass the database name back to the caller */
+<span class="lineNum">     813 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (out_dbname)</span>
+<span class="lineNum">     814 </span>                :<span class="lineNoCov">          0 :                         strcpy(out_dbname, dbname);</span>
+<span class="lineNum">     815 </span>                :<span class="lineNoCov">          0 :                 pfree(tuple);</span>
+<span class="lineNum">     816 </span>                :            :         }
+<span class="lineNum">     817 </span>                :            : 
+<span class="lineNum">     818 </span>                :            :         /* Now we can mark our PGPROC entry with the database ID */
+<span class="lineNum">     819 </span>                :            :         /* (We assume this is an atomic store so no lock is needed) */
+<span class="lineNum">     820 </span>                :<span class="lineNoCov">          0 :         MyProc-&gt;databaseId = MyDatabaseId;</span>
+<span class="lineNum">     821 </span>                :            : 
+<span class="lineNum">     822 </span>                :            :         /*
+<span class="lineNum">     823 </span>                :            :          * Now, take a writer's lock on the database we are trying to connect to.
+<span class="lineNum">     824 </span>                :            :          * If there is a concurrently running DROP DATABASE on that database, this
+<span class="lineNum">     825 </span>                :            :          * will block us until it finishes (and has committed its update of
+<span class="lineNum">     826 </span>                :            :          * pg_database).
+<span class="lineNum">     827 </span>                :            :          *
+<span class="lineNum">     828 </span>                :            :          * Note that the lock is not held long, only until the end of this startup
+<span class="lineNum">     829 </span>                :            :          * transaction.  This is OK since we are already advertising our use of
+<span class="lineNum">     830 </span>                :            :          * the database in the PGPROC array; anyone trying a DROP DATABASE after
+<span class="lineNum">     831 </span>                :            :          * this point will see us there.
+<span class="lineNum">     832 </span>                :            :          *
+<span class="lineNum">     833 </span>                :            :          * Note: use of RowExclusiveLock here is reasonable because we envision
+<span class="lineNum">     834 </span>                :            :          * our session as being a concurrent writer of the database.  If we had a
+<span class="lineNum">     835 </span>                :            :          * way of declaring a session as being guaranteed-read-only, we could use
+<span class="lineNum">     836 </span>                :            :          * AccessShareLock for such sessions and thereby not conflict against
+<span class="lineNum">     837 </span>                :            :          * CREATE DATABASE.
+<span class="lineNum">     838 </span>                :            :          */
+<span class="lineNum">     839 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     840 </span>                :<span class="lineNoCov">          0 :                 LockSharedObject(DatabaseRelationId, MyDatabaseId, 0,</span>
+<span class="lineNum">     841 </span>                :            :                                                  RowExclusiveLock);
+<span class="lineNum">     842 </span>                :            : 
+<span class="lineNum">     843 </span>                :            :         /*
+<span class="lineNum">     844 </span>                :            :          * Recheck pg_database to make sure the target database hasn't gone away.
+<span class="lineNum">     845 </span>                :            :          * If there was a concurrent DROP DATABASE, this ensures we will die
+<span class="lineNum">     846 </span>                :            :          * cleanly without creating a mess.
+<span class="lineNum">     847 </span>                :            :          */
+<span class="lineNum">     848 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     849 </span>                :            :         {
+<span class="lineNum">     850 </span>                :            :                 HeapTuple       tuple;
+<span class="lineNum">     851 </span>                :            : 
+<span class="lineNum">     852 </span>                :<span class="lineNoCov">          0 :                 tuple = GetDatabaseTuple(dbname);</span>
+<span class="lineNum">     853 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!HeapTupleIsValid(tuple) ||</span>
+<span class="lineNum">     854 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         MyDatabaseId != HeapTupleGetOid(tuple) ||</span>
+<span class="lineNum">     855 </span>                :<span class="lineNoCov">          0 :                         MyDatabaseTableSpace != ((Form_pg_database) GETSTRUCT(tuple))-&gt;dattablespace)</span>
+<span class="lineNum">     856 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(FATAL,</span>
+<span class="lineNum">     857 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_DATABASE),
+<span class="lineNum">     858 </span>                :            :                                          errmsg(&quot;database \&quot;%s\&quot; does not exist&quot;, dbname),
+<span class="lineNum">     859 </span>                :            :                            errdetail(&quot;It seems to have just been dropped or renamed.&quot;)));
+<span class="lineNum">     860 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     861 </span>                :            : 
+<span class="lineNum">     862 </span>                :<span class="lineNoCov">          0 :         fullpath = GetDatabasePath(MyDatabaseId, MyDatabaseTableSpace);</span>
+<span class="lineNum">     863 </span>                :            : 
+<span class="lineNum">     864 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     865 </span>                :            :         {
+<span class="lineNum">     866 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (access(fullpath, F_OK) == -1)</span>
+<span class="lineNum">     867 </span>                :            :                 {
+<span class="lineNum">     868 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (errno == ENOENT)</span>
+<span class="lineNum">     869 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(FATAL,</span>
+<span class="lineNum">     870 </span>                :            :                                                 (errcode(ERRCODE_UNDEFINED_DATABASE),
+<span class="lineNum">     871 </span>                :            :                                                  errmsg(&quot;database \&quot;%s\&quot; does not exist&quot;,
+<span class="lineNum">     872 </span>                :            :                                                                 dbname),
+<span class="lineNum">     873 </span>                :            :                                         errdetail(&quot;The database subdirectory \&quot;%s\&quot; is missing.&quot;,
+<span class="lineNum">     874 </span>                :            :                                                           fullpath)));
+<span class="lineNum">     875 </span>                :            :                         else
+<span class="lineNum">     876 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(FATAL,</span>
+<span class="lineNum">     877 </span>                :            :                                                 (errcode_for_file_access(),
+<span class="lineNum">     878 </span>                :            :                                                  errmsg(&quot;could not access directory \&quot;%s\&quot;: %m&quot;,
+<span class="lineNum">     879 </span>                :            :                                                                 fullpath)));
+<span class="lineNum">     880 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     881 </span>                :            : 
+<span class="lineNum">     882 </span>                :<span class="lineNoCov">          0 :                 ValidatePgVersion(fullpath);</span>
+<span class="lineNum">     883 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     884 </span>                :            : 
+<span class="lineNum">     885 </span>                :<span class="lineNoCov">          0 :         SetDatabasePath(fullpath);</span>
+<span class="lineNum">     886 </span>                :            : 
+<span class="lineNum">     887 </span>                :            :         /*
+<span class="lineNum">     888 </span>                :            :          * It's now possible to do real access to the system catalogs.
+<span class="lineNum">     889 </span>                :            :          *
+<span class="lineNum">     890 </span>                :            :          * Load relcache entries for the system catalogs.  This must create at
+<span class="lineNum">     891 </span>                :            :          * least the minimum set of &quot;nailed-in&quot; cache entries.
+<span class="lineNum">     892 </span>                :            :          */
+<span class="lineNum">     893 </span>                :<span class="lineNoCov">          0 :         RelationCacheInitializePhase3();</span>
+<span class="lineNum">     894 </span>                :            : 
+<span class="lineNum">     895 </span>                :            :         /*
+<span class="lineNum">     896 </span>                :            :          * Now we have full access to catalog including toast tables,
+<span class="lineNum">     897 </span>                :            :          * we can process pg_authid.rolconfig.  This ought to come before
+<span class="lineNum">     898 </span>                :            :          * processing startup options so that it can override the settings.
+<span class="lineNum">     899 </span>                :            :          */
+<span class="lineNum">     900 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                 ProcessRoleGUC();</span>
+<span class="lineNum">     902 </span>                :            : 
+<span class="lineNum">     903 </span>                :            :         /* set up ACL framework (so CheckMyDatabase can check permissions) */
+<span class="lineNum">     904 </span>                :<span class="lineNoCov">          0 :         initialize_acl();</span>
+<span class="lineNum">     905 </span>                :            : 
+<span class="lineNum">     906 </span>                :            :         /*
+<span class="lineNum">     907 </span>                :            :          * Re-read the pg_database row for our database, check permissions and set
+<span class="lineNum">     908 </span>                :            :          * up database-specific GUC settings.  We can't do this until all the
+<span class="lineNum">     909 </span>                :            :          * database-access infrastructure is up.  (Also, it wants to know if the
+<span class="lineNum">     910 </span>                :            :          * user is a superuser, so the above stuff has to happen first.)
+<span class="lineNum">     911 </span>                :            :          */
+<span class="lineNum">     912 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     913 </span>                :<span class="lineNoCov">          0 :                 CheckMyDatabase(dbname, am_superuser);</span>
+<span class="lineNum">     914 </span>                :            : 
+<span class="lineNum">     915 </span>                :            :         /*
+<span class="lineNum">     916 </span>                :            :          * Now process any command-line switches and any additional GUC variable
+<span class="lineNum">     917 </span>                :            :          * settings passed in the startup packet.       We couldn't do this before
+<span class="lineNum">     918 </span>                :            :          * because we didn't know if client is a superuser.
+<span class="lineNum">     919 </span>                :            :          */
+<span class="lineNum">     920 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (MyProcPort != NULL)</span>
+<span class="lineNum">     921 </span>                :<span class="lineNoCov">          0 :                 process_startup_options(MyProcPort, am_superuser);</span>
+<span class="lineNum">     922 </span>                :            : 
+<span class="lineNum">     923 </span>                :            :         /*
+<span class="lineNum">     924 </span>                :            :          * Maintenance Mode: allow superuser to connect when
+<span class="lineNum">     925 </span>                :            :          * gp_maintenance_conn GUC is set.  We cannot check it until
+<span class="lineNum">     926 </span>                :            :          * process_startup_options parses the GUC.
+<span class="lineNum">     927 </span>                :            :          */
+<span class="lineNum">     928 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (gp_maintenance_mode &amp;&amp; Gp_role == GP_ROLE_DISPATCH &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     929 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 !(superuser() &amp;&amp; gp_maintenance_conn))</span>
+<span class="lineNum">     930 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     931 </span>                :            :                                 (errcode(ERRCODE_INSUFFICIENT_PRIVILEGE),
+<span class="lineNum">     932 </span>                :            :                                  errmsg(&quot;maintenance mode: connected by superuser only&quot;),
+<span class="lineNum">     933 </span>                :            :                                  errSendAlert(false)));
+<span class="lineNum">     934 </span>                :            : 
+<span class="lineNum">     935 </span>                :            :         /*
+<span class="lineNum">     936 </span>                :            :          * MPP:  If we were started in utility mode then we only want to allow
+<span class="lineNum">     937 </span>                :            :          * incoming sessions that specify gp_session_role=utility as well.  This
+<span class="lineNum">     938 </span>                :            :          * lets the bash scripts start the QD in utility mode and connect in but
+<span class="lineNum">     939 </span>                :            :          * protect ourselves from normal clients who might be trying to connect to
+<span class="lineNum">     940 </span>                :            :          * the system while we startup.
+<span class="lineNum">     941 </span>                :            :          */
+<span class="lineNum">     942 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((Gp_role == GP_ROLE_UTILITY) &amp;&amp; (Gp_session_role != GP_ROLE_UTILITY))</span>
+<span class="lineNum">     943 </span>                :            :         {
+<span class="lineNum">     944 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(FATAL,</span>
+<span class="lineNum">     945 </span>                :            :                                 (errcode(ERRCODE_CANNOT_CONNECT_NOW),
+<span class="lineNum">     946 </span>                :            :                                  errmsg(&quot;System was started in master-only utility mode - only utility mode connections are allowed&quot;)));
+<span class="lineNum">     947 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     948 </span>                :            : 
+<span class="lineNum">     949 </span>                :            :         /* Apply PostAuthDelay as soon as we've read all options */
+<span class="lineNum">     950 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PostAuthDelay &gt; 0)</span>
+<span class="lineNum">     951 </span>                :<span class="lineNoCov">          0 :                 pg_usleep(PostAuthDelay * 1000000L);</span>
+<span class="lineNum">     952 </span>                :            : 
+<span class="lineNum">     953 </span>                :            :         /* set default namespace search path */
+<span class="lineNum">     954 </span>                :<span class="lineNoCov">          0 :         InitializeSearchPath();</span>
+<span class="lineNum">     955 </span>                :            : 
+<span class="lineNum">     956 </span>                :            :         /* initialize client encoding */
+<span class="lineNum">     957 </span>                :<span class="lineNoCov">          0 :         InitializeClientEncoding();</span>
+<span class="lineNum">     958 </span>                :            : 
+<span class="lineNum">     959 </span>                :            :         /* report this backend in the PgBackendStatus array */
+<span class="lineNum">     960 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">     961 </span>                :<span class="lineNoCov">          0 :                 pgstat_bestart();</span>
+<span class="lineNum">     962 </span>                :            :                 
+<span class="lineNum">     963 </span>                :            :         /* 
+<span class="lineNum">     964 </span>                :            :      * MPP package setup 
+<span class="lineNum">     965 </span>                :            :      *
+<span class="lineNum">     966 </span>                :            :      * Primary function is to establish connctions to the qExecs.
+<span class="lineNum">     967 </span>                :            :      * This is SKIPPED when the database is in bootstrap mode or 
+<span class="lineNum">     968 </span>                :            :      * Is not UnderPostmaster.
+<span class="lineNum">     969 </span>                :            :      */
+<span class="lineNum">     970 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (!bootstrap &amp;&amp; IsUnderPostmaster)</span>
+<span class="lineNum">     971 </span>                :            :     {
+<span class="lineNum">     972 </span>                :<span class="lineNoCov">          0 :                 cdb_setup();</span>
+<span class="lineNum">     973 </span>                :<span class="lineNoCov">          0 :                 on_proc_exit( cdb_cleanup, 0 );</span>
+<span class="lineNum">     974 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     975 </span>                :            : 
+<span class="lineNum">     976 </span>                :            :     /* 
+<span class="lineNum">     977 </span>                :            :      * MPP SharedSnapshot Setup
+<span class="lineNum">     978 </span>                :            :          */
+<span class="lineNum">     979 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     980 </span>                :            :         {
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :                 addSharedSnapshot(&quot;Query Dispatcher&quot;, gp_session_id);</span>
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     983 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (Gp_segment == -1 &amp;&amp; Gp_role == GP_ROLE_EXECUTE &amp;&amp; !Gp_is_writer)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     984 </span>                :            :     {
+<span class="lineNum">     985 </span>                :            :                 /* 
+<span class="lineNum">     986 </span>                :            :                  * Entry db singleton QE is a user of the shared snapshot -- not a creator.
+<span class="lineNum">     987 </span>                :            :                  * The lookup will occur once the distributed snapshot has been received.
+<span class="lineNum">     988 </span>                :            :                  */     
+<span class="lineNum">     989 </span>                :<span class="lineNoCov">          0 :                 lookupSharedSnapshot(&quot;Entry DB Singleton&quot;, &quot;Query Dispatcher&quot;, gp_session_id);</span>
+<span class="lineNum">     990 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     991 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     else if (Gp_role == GP_ROLE_EXECUTE)</span>
+<span class="lineNum">     992 </span>                :            :         {
+<span class="lineNum">     993 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (Gp_is_writer)</span>
+<span class="lineNum">     994 </span>                :            :                 {
+<span class="lineNum">     995 </span>                :<span class="lineNoCov">          0 :                         addSharedSnapshot(&quot;Writer qExec&quot;, gp_session_id);</span>
+<span class="lineNum">     996 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     997 </span>                :            :                 else
+<span class="lineNum">     998 </span>                :            :                 {
+<span class="lineNum">     999 </span>                :            :                         /*
+<span class="lineNum">    1000 </span>                :            :                          * NOTE: This assumes that the Slot has already been
+<span class="lineNum">    1001 </span>                :            :                          *       allocated by the writer.  Need to make sure we
+<span class="lineNum">    1002 </span>                :            :                          *       always allocate the writer qExec first.
+<span class="lineNum">    1003 </span>                :            :                          */                                             
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                         lookupSharedSnapshot(&quot;Reader qExec&quot;, &quot;Writer qExec&quot;, gp_session_id);</span>
+<span class="lineNum">    1005 </span>                :            :                 }
+<span class="lineNum">    1006 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1007 </span>                :            : 
+<span class="lineNum">    1008 </span>                :            :         /* close the transaction we started above */
+<span class="lineNum">    1009 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!bootstrap)</span>
+<span class="lineNum">    1010 </span>                :<span class="lineNoCov">          0 :                 CommitTransactionCommand();</span>
+<span class="lineNum">    1011 </span>                :            : 
+<span class="lineNum">    1012 </span>                :<span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">    1013 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1014 </span>                :            : 
+<span class="lineNum">    1015 </span>                :            : /*
+<span class="lineNum">    1016 </span>                :            :  * Process any command-line switches and any additional GUC variable
+<span class="lineNum">    1017 </span>                :            :  * settings passed in the startup packet.
+<a name="1018"><span class="lineNum">    1018 </span>                :            :  */</a>
+<span class="lineNum">    1019 </span>                :            : static void
+<span class="lineNum">    1020 </span>                :            : process_startup_options(Port *port, bool am_superuser)
+<span class="lineNum">    1021 </span>                :            : {
+<span class="lineNum">    1022 </span>                :            :         GucContext      gucctx;
+<span class="lineNum">    1023 </span>                :            :         ListCell   *gucopts;
+<span class="lineNum">    1024 </span>                :            : 
+<span class="lineNum">    1025 </span>                :<span class="lineNoCov">          0 :         gucctx = am_superuser ? PGC_SUSET : PGC_BACKEND;</span>
+<span class="lineNum">    1026 </span>                :            : 
+<span class="lineNum">    1027 </span>                :            :         /*
+<span class="lineNum">    1028 </span>                :            :          * First process any command-line switches that were included in the
+<span class="lineNum">    1029 </span>                :            :          * startup packet, if we are in a regular backend.
+<span class="lineNum">    1030 </span>                :            :          */
+<span class="lineNum">    1031 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (port-&gt;cmdline_options != NULL)</span>
+<span class="lineNum">    1032 </span>                :            :         {
+<span class="lineNum">    1033 </span>                :            :                 /*
+<span class="lineNum">    1034 </span>                :            :                  * The maximum possible number of commandline arguments that could
+<span class="lineNum">    1035 </span>                :            :                  * come from port-&gt;cmdline_options is (strlen + 1) / 2; see
+<span class="lineNum">    1036 </span>                :            :                  * pg_split_opts().
+<span class="lineNum">    1037 </span>                :            :                  */
+<span class="lineNum">    1038 </span>                :            :                 char      **av;
+<span class="lineNum">    1039 </span>                :            :                 int                     maxac;
+<span class="lineNum">    1040 </span>                :            :                 int                     ac;
+<span class="lineNum">    1041 </span>                :            : 
+<span class="lineNum">    1042 </span>                :<span class="lineNoCov">          0 :                 maxac = 2 + (strlen(port-&gt;cmdline_options) + 1) / 2;</span>
+<span class="lineNum">    1043 </span>                :            : 
+<span class="lineNum">    1044 </span>                :<span class="lineNoCov">          0 :                 av = (char **) palloc(maxac * sizeof(char *));</span>
+<span class="lineNum">    1045 </span>                :<span class="lineNoCov">          0 :                 ac = 0;</span>
+<span class="lineNum">    1046 </span>                :            : 
+<span class="lineNum">    1047 </span>                :<span class="lineNoCov">          0 :                 av[ac++] = &quot;postgres&quot;;</span>
+<span class="lineNum">    1048 </span>                :            : 
+<span class="lineNum">    1049 </span>                :<span class="lineNoCov">          0 :                 pg_split_opts(av, &amp;ac, port-&gt;cmdline_options);</span>
+<span class="lineNum">    1050 </span>                :            : 
+<span class="lineNum">    1051 </span>                :<span class="lineNoCov">          0 :                 av[ac] = NULL;</span>
+<span class="lineNum">    1052 </span>                :            : 
+<span class="lineNum">    1053 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(ac &lt; maxac);</span>
+<span class="lineNum">    1054 </span>                :            : 
+<span class="lineNum">    1055 </span>                :<span class="lineNoCov">          0 :                 (void) process_postgres_switches(ac, av, gucctx, NULL);</span>
+<span class="lineNum">    1056 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1057 </span>                :            : 
+<span class="lineNum">    1058 </span>                :            :         /*
+<span class="lineNum">    1059 </span>                :            :          * Process any additional GUC variable settings passed in startup packet.
+<span class="lineNum">    1060 </span>                :            :          * These are handled exactly like command-line variables.
+<span class="lineNum">    1061 </span>                :            :          */
+<span class="lineNum">    1062 </span>                :<span class="lineNoCov">          0 :         gucopts = list_head(port-&gt;guc_options);</span>
+<span class="lineNum">    1063 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (gucopts)</span>
+<span class="lineNum">    1064 </span>                :            :         {
+<span class="lineNum">    1065 </span>                :            :                 char       *name;
+<span class="lineNum">    1066 </span>                :            :                 char       *value;
+<span class="lineNum">    1067 </span>                :            : 
+<span class="lineNum">    1068 </span>                :<span class="lineNoCov">          0 :                 name = lfirst(gucopts);</span>
+<span class="lineNum">    1069 </span>                :<span class="lineNoCov">          0 :                 gucopts = lnext(gucopts);</span>
+<span class="lineNum">    1070 </span>                :            : 
+<span class="lineNum">    1071 </span>                :<span class="lineNoCov">          0 :                 value = lfirst(gucopts);</span>
+<span class="lineNum">    1072 </span>                :<span class="lineNoCov">          0 :                 gucopts = lnext(gucopts);</span>
+<span class="lineNum">    1073 </span>                :            : 
+<span class="lineNum">    1074 </span>                :<span class="lineNoCov">          0 :                 SetConfigOption(name, value, gucctx, PGC_S_CLIENT);</span>
+<span class="lineNum">    1075 </span>                :            :         }
+<span class="lineNum">    1076 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1077 </span>                :            : 
+<span class="lineNum">    1078 </span>                :            : /*
+<span class="lineNum">    1079 </span>                :            :  * Backend-shutdown callback.  Do cleanup that we want to be sure happens
+<span class="lineNum">    1080 </span>                :            :  * before all the supporting modules begin to nail their doors shut via
+<span class="lineNum">    1081 </span>                :            :  * their own callbacks.
+<span class="lineNum">    1082 </span>                :            :  *
+<span class="lineNum">    1083 </span>                :            :  * User-level cleanup, such as temp-relation removal and UNLISTEN, happens
+<span class="lineNum">    1084 </span>                :            :  * via separate callbacks that execute before this one.  We don't combine the
+<span class="lineNum">    1085 </span>                :            :  * callbacks because we still want this one to happen if the user-level
+<span class="lineNum">    1086 </span>                :            :  * cleanup fails.
+<a name="1087"><span class="lineNum">    1087 </span>                :            :  */</a>
+<span class="lineNum">    1088 </span>                :            : static void
+<span class="lineNum">    1089 </span>                :            : ShutdownPostgres(int code, Datum arg)
+<span class="lineNum">    1090 </span>                :            : {
+<span class="lineNum">    1091 </span>                :            :         /* Make sure we've killed any active transaction */
+<span class="lineNum">    1092 </span>                :<span class="lineNoCov">          0 :         AbortOutOfAnyTransaction();</span>
+<span class="lineNum">    1093 </span>                :            : 
+<span class="lineNum">    1094 </span>                :            :         /*
+<span class="lineNum">    1095 </span>                :            :          * If there was a segment OOM for which we haven't already reported
+<span class="lineNum">    1096 </span>                :            :          * our usage, report now.
+<span class="lineNum">    1097 </span>                :            :          */
+<span class="lineNum">    1098 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         ReportOOMConsumption();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">    1099 </span>                :            : 
+<span class="lineNum">    1100 </span>                :            : #ifdef USE_ORCA
+<span class="lineNum">    1101 </span>                :<span class="lineNoCov">          0 :   TerminateGPOPT();</span>
+<span class="lineNum">    1102 </span>                :            : #endif
+<span class="lineNum">    1103 </span>                :            : 
+<span class="lineNum">    1104 </span>                :            :         /* Disable memory protection */
+<span class="lineNum">    1105 </span>                :<span class="lineNoCov">          0 :         GPMemoryProtect_Shutdown();</span>
+<span class="lineNum">    1106 </span>                :            :         /* Release SessionState entry */
+<span class="lineNum">    1107 </span>                :<span class="lineNoCov">          0 :         SessionState_Shutdown();</span>
+<span class="lineNum">    1108 </span>                :            : 
+<span class="lineNum">    1109 </span>                :            :         /*
+<span class="lineNum">    1110 </span>                :            :          * User locks are not released by transaction end, so be sure to release
+<span class="lineNum">    1111 </span>                :            :          * them explicitly.
+<span class="lineNum">    1112 </span>                :            :          */
+<span class="lineNum">    1113 </span>                :<span class="lineNoCov">          0 :         LockReleaseAll(USER_LOCKMETHOD, true);</span>
+<span class="lineNum">    1114 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">    1115 </span>                :            : 
+<span class="lineNum">    1116 </span>                :            : 
+<span class="lineNum">    1117 </span>                :            : /*
+<span class="lineNum">    1118 </span>                :            :  * Returns true if at least one role is defined in this database cluster.
+<a name="1119"><span class="lineNum">    1119 </span>                :            :  */</a>
+<span class="lineNum">    1120 </span>                :            : static bool
+<span class="lineNum">    1121 </span>                :            : ThereIsAtLeastOneRole(void)
+<span class="lineNum">    1122 </span>                :            : {
+<span class="lineNum">    1123 </span>                :            :         Relation        pg_authid_rel;
+<span class="lineNum">    1124 </span>                :            :         HeapScanDesc scan;
+<span class="lineNum">    1125 </span>                :            :         bool            result;
+<span class="lineNum">    1126 </span>                :            : 
+<span class="lineNum">    1127 </span>                :<span class="lineNoCov">          0 :         pg_authid_rel = heap_open(AuthIdRelationId, AccessShareLock);</span>
+<span class="lineNum">    1128 </span>                :            : 
+<span class="lineNum">    1129 </span>                :<span class="lineNoCov">          0 :         scan = heap_beginscan(pg_authid_rel, SnapshotNow, 0, NULL);</span>
+<span class="lineNum">    1130 </span>                :<span class="lineNoCov">          0 :         result = (heap_getnext(scan, ForwardScanDirection) != NULL);</span>
+<span class="lineNum">    1131 </span>                :            : 
+<span class="lineNum">    1132 </span>                :<span class="lineNoCov">          0 :         heap_endscan(scan);</span>
+<span class="lineNum">    1133 </span>                :<span class="lineNoCov">          0 :         heap_close(pg_authid_rel, AccessShareLock);</span>
+<span class="lineNum">    1134 </span>                :            : 
+<span class="lineNum">    1135 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">    1136 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

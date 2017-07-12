@@ -1,0 +1,473 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - commands/aggregatecmds.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">commands</a> - aggregatecmds.c<span style="font-size: 80%;"> (source / <a href="aggregatecmds.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">144</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">98</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * aggregatecmds.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  *        Routines for aggregate-manipulation commands
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/commands/aggregatecmds.c,v 1.45.2.1 2008/06/08 21:09:52 tgl Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  * DESCRIPTION
+<span class="lineNum">      15 </span>                :            :  *        The &quot;DefineFoo&quot; routines take the parse tree and pick out the
+<span class="lineNum">      16 </span>                :            :  *        appropriate arguments/flags, passing the results to the
+<span class="lineNum">      17 </span>                :            :  *        corresponding &quot;FooDefine&quot; routines (in src/catalog) that do
+<span class="lineNum">      18 </span>                :            :  *        the actual catalog-munging.  These routines also verify permission
+<span class="lineNum">      19 </span>                :            :  *        of the user to execute the command.
+<span class="lineNum">      20 </span>                :            :  *
+<span class="lineNum">      21 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      22 </span>                :            :  */
+<span class="lineNum">      23 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;catalog/dependency.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;catalog/indexing.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;catalog/oid_dispatch.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;catalog/pg_aggregate.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;catalog/pg_proc.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;commands/defrem.h&quot;
+<span class="lineNum">      33 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      34 </span>                :            : #include &quot;parser/parse_func.h&quot;
+<span class="lineNum">      35 </span>                :            : #include &quot;parser/parse_type.h&quot;
+<span class="lineNum">      36 </span>                :            : #include &quot;utils/acl.h&quot;
+<span class="lineNum">      37 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      38 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      39 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      40 </span>                :            : 
+<span class="lineNum">      41 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      42 </span>                :            : #include &quot;cdb/cdbdisp_query.h&quot;
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : /*
+<span class="lineNum">      45 </span>                :            :  *      DefineAggregate
+<span class="lineNum">      46 </span>                :            :  *
+<span class="lineNum">      47 </span>                :            :  * &quot;oldstyle&quot; signals the old (pre-8.2) style where the aggregate input type
+<span class="lineNum">      48 </span>                :            :  * is specified by a BASETYPE element in the parameters.  Otherwise,
+<span class="lineNum">      49 </span>                :            :  * &quot;args&quot; defines the input type(s).
+<a name="50"><span class="lineNum">      50 </span>                :            :  */</a>
+<span class="lineNum">      51 </span>                :            : void
+<span class="lineNum">      52 </span>                :            : DefineAggregate(List *name, List *args, bool oldstyle, List *parameters, 
+<span class="lineNum">      53 </span>                :            :                                 bool ordered)
+<span class="lineNum">      54 </span>                :            : {
+<span class="lineNum">      55 </span>                :            :         char       *aggName;
+<span class="lineNum">      56 </span>                :            :         Oid                     aggNamespace;
+<span class="lineNum">      57 </span>                :            :         AclResult       aclresult;
+<span class="lineNum">      58 </span>                :<span class="lineNoCov">          0 :         List       *transfuncName = NIL;</span>
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :         List       *prelimfuncName = NIL; /* MPP */</span>
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :         List       *finalfuncName = NIL;</span>
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 :         List       *sortoperatorName = NIL;</span>
+<span class="lineNum">      62 </span>                :<span class="lineNoCov">          0 :         TypeName   *baseType = NULL;</span>
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :         TypeName   *transType = NULL;</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :         char       *initval = NULL;</span>
+<span class="lineNum">      65 </span>                :            :         Oid                *aggArgTypes;
+<span class="lineNum">      66 </span>                :            :         int                     numArgs;
+<span class="lineNum">      67 </span>                :            :         Oid                     transTypeId;
+<span class="lineNum">      68 </span>                :            :         ListCell   *pl;
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            :         /* Convert list of names to a name and namespace */
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :         aggNamespace = QualifiedNameGetCreationNamespace(name, &amp;aggName);</span>
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            :         /* Check we have creation rights in target namespace */
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :         aclresult = pg_namespace_aclcheck(aggNamespace, GetUserId(), ACL_CREATE);</span>
+<span class="lineNum">      75 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(aclresult, ACL_KIND_NAMESPACE,</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                                            get_namespace_name(aggNamespace));</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(pl, parameters)</span>
+<span class="lineNum">      80 </span>                :            :         {
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :                 DefElem    *defel = (DefElem *) lfirst(pl);</span>
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :            :                 /*
+<span class="lineNum">      84 </span>                :            :                  * sfunc1, stype1, and initcond1 are accepted as obsolete spellings
+<span class="lineNum">      85 </span>                :            :                  * for sfunc, stype, initcond.
+<span class="lineNum">      86 </span>                :            :                  */
+<span class="lineNum">      87 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pg_strcasecmp(defel-&gt;defname, &quot;sfunc&quot;) == 0)</span>
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :                         transfuncName = defGetQualifiedName(defel);</span>
+<span class="lineNum">      89 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;sfunc1&quot;) == 0)</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :                         transfuncName = defGetQualifiedName(defel);</span>
+<span class="lineNum">      91 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;finalfunc&quot;) == 0)</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :                         finalfuncName = defGetQualifiedName(defel);</span>
+<span class="lineNum">      93 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;sortop&quot;) == 0)</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :                         sortoperatorName = defGetQualifiedName(defel);</span>
+<span class="lineNum">      95 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;basetype&quot;) == 0)</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :                         baseType = defGetTypeName(defel);</span>
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;stype&quot;) == 0)</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                         transType = defGetTypeName(defel);</span>
+<span class="lineNum">      99 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;stype1&quot;) == 0)</span>
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :                         transType = defGetTypeName(defel);</span>
+<span class="lineNum">     101 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;initcond&quot;) == 0)</span>
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                         initval = defGetString(defel);</span>
+<span class="lineNum">     103 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;initcond1&quot;) == 0)</span>
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                         initval = defGetString(defel);</span>
+<span class="lineNum">     105 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (pg_strcasecmp(defel-&gt;defname, &quot;prefunc&quot;) == 0) /* MPP */</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :                         prelimfuncName = defGetQualifiedName(defel);</span>
+<span class="lineNum">     107 </span>                :            :                 else
+<span class="lineNum">     108 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(WARNING,</span>
+<span class="lineNum">     109 </span>                :            :                                         (errcode(ERRCODE_SYNTAX_ERROR),
+<span class="lineNum">     110 </span>                :            :                                          errmsg(&quot;aggregate attribute \&quot;%s\&quot; not recognized&quot;,
+<span class="lineNum">     111 </span>                :            :                                                         defel-&gt;defname)));
+<span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :            :         /*
+<span class="lineNum">     115 </span>                :            :          * make sure we have our required definitions
+<span class="lineNum">     116 </span>                :            :          */
+<span class="lineNum">     117 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (transType == NULL)</span>
+<span class="lineNum">     118 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     119 </span>                :            :                                 (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+<span class="lineNum">     120 </span>                :            :                                  errmsg(&quot;aggregate stype must be specified&quot;)));
+<span class="lineNum">     121 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (transfuncName == NIL)</span>
+<span class="lineNum">     122 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     123 </span>                :            :                                 (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+<span class="lineNum">     124 </span>                :            :                                  errmsg(&quot;aggregate sfunc must be specified&quot;)));
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>                :            :         /*
+<span class="lineNum">     127 </span>                :            :          * MPP: Ordered aggregates do not support prefuncs
+<span class="lineNum">     128 </span>                :            :          */
+<span class="lineNum">     129 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ordered &amp;&amp; prelimfuncName != NIL)</span>
+<span class="lineNum">     130 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     131 </span>                :            :                                 (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+<span class="lineNum">     132 </span>                :            :                                  errmsg(&quot;ordered aggregate prefunc is not supported&quot;)));
+<span class="lineNum">     133 </span>                :            : 
+<span class="lineNum">     134 </span>                :            :         /*
+<span class="lineNum">     135 </span>                :            :          * look up the aggregate's input datatype(s).
+<span class="lineNum">     136 </span>                :            :          */
+<span class="lineNum">     137 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (oldstyle)</span>
+<span class="lineNum">     138 </span>                :            :         {
+<span class="lineNum">     139 </span>                :            :                 /*
+<span class="lineNum">     140 </span>                :            :                  * Old style: use basetype parameter.  This supports aggregates of
+<span class="lineNum">     141 </span>                :            :                  * zero or one input, with input type ANY meaning zero inputs.
+<span class="lineNum">     142 </span>                :            :                  *
+<span class="lineNum">     143 </span>                :            :                  * Historically we allowed the command to look like basetype = 'ANY'
+<span class="lineNum">     144 </span>                :            :                  * so we must do a case-insensitive comparison for the name ANY. Ugh.
+<span class="lineNum">     145 </span>                :            :                  */
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (baseType == NULL)</span>
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     148 </span>                :            :                                         (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+<span class="lineNum">     149 </span>                :            :                                          errmsg(&quot;aggregate input type must be specified&quot;)));
+<span class="lineNum">     150 </span>                :            : 
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (pg_strcasecmp(TypeNameToString(baseType), &quot;ANY&quot;) == 0)</span>
+<span class="lineNum">     152 </span>                :            :                 {
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                         numArgs = 0;</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                         aggArgTypes = NULL;</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     156 </span>                :            :                 else
+<span class="lineNum">     157 </span>                :            :                 {
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                         numArgs = 1;</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                         aggArgTypes = (Oid *) palloc(sizeof(Oid));</span>
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                         aggArgTypes[0] = typenameTypeId(NULL, baseType, NULL);</span>
+<span class="lineNum">     161 </span>                :            :                 }
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     163 </span>                :            :         else
+<span class="lineNum">     164 </span>                :            :         {
+<span class="lineNum">     165 </span>                :            :                 /*
+<span class="lineNum">     166 </span>                :            :                  * New style: args is a list of TypeNames (possibly zero of 'em).
+<span class="lineNum">     167 </span>                :            :                  */
+<span class="lineNum">     168 </span>                :            :                 ListCell   *lc;
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                 int                     i = 0;</span>
+<span class="lineNum">     170 </span>                :            : 
+<span class="lineNum">     171 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (baseType != NULL)</span>
+<span class="lineNum">     172 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     173 </span>                :            :                                         (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+<span class="lineNum">     174 </span>                :            :                                          errmsg(&quot;basetype is redundant with aggregate input type specification&quot;)));
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :                 numArgs = list_length(args);</span>
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                 aggArgTypes = (Oid *) palloc(sizeof(Oid) * numArgs);</span>
+<span class="lineNum">     178 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(lc, args)</span>
+<span class="lineNum">     179 </span>                :            :                 {
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :                         TypeName   *curTypeName = (TypeName *) lfirst(lc);</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                         aggArgTypes[i++] = typenameTypeId(NULL, curTypeName, NULL);</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     184 </span>                :            :         }
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :            :         /*
+<span class="lineNum">     187 </span>                :            :          * look up the aggregate's transtype.
+<span class="lineNum">     188 </span>                :            :          *
+<span class="lineNum">     189 </span>                :            :          * transtype can't be a pseudo-type, since we need to be able to store
+<span class="lineNum">     190 </span>                :            :          * values of the transtype.  However, we can allow polymorphic transtype
+<span class="lineNum">     191 </span>                :            :          * in some cases (AggregateCreate will check).  Also, we allow &quot;internal&quot;
+<span class="lineNum">     192 </span>                :            :          * for functions that want to pass pointers to private data structures;
+<span class="lineNum">     193 </span>                :            :          * but allow that only to superusers, since you could crash the system (or
+<span class="lineNum">     194 </span>                :            :          * worse) by connecting up incompatible internal-using functions in an
+<span class="lineNum">     195 </span>                :            :          * aggregate.
+<span class="lineNum">     196 </span>                :            :          */
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :         transTypeId = typenameTypeId(NULL, transType, NULL);</span>
+<span class="lineNum">     198 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (get_typtype(transTypeId) == TYPTYPE_PSEUDO &amp;&amp;</span>
+<span class="lineNum">     199 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 !IsPolymorphicType(transTypeId))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     200 </span>                :            :         {
+<span class="lineNum">     201 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (transTypeId == INTERNALOID &amp;&amp; superuser())</span>
+<span class="lineNum">     202 </span>                :            :                          /* okay */ ;
+<span class="lineNum">     203 </span>                :            :                 else
+<span class="lineNum">     204 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     205 </span>                :            :                                         (errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+<span class="lineNum">     206 </span>                :            :                                          errmsg(&quot;aggregate transition data type cannot be %s&quot;,
+<span class="lineNum">     207 </span>                :            :                                                         format_type_be(transTypeId))));
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :            :         /*
+<span class="lineNum">     211 </span>                :            :          * Most of the argument-checking is done inside of AggregateCreate
+<span class="lineNum">     212 </span>                :            :          */
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         AggregateCreate(aggName,        /* aggregate name */</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                                         aggNamespace,           /* namespace */</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                                         aggArgTypes,    /* input data type(s) */</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                                         numArgs,</span>
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :                                         transfuncName,          /* step function name */</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                                         prelimfuncName,         /* prelim function name */</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :                                         finalfuncName,          /* final function name */</span>
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                                         sortoperatorName,       /* sort operator name */</span>
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                                         transTypeId,    /* transition data type */</span>
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                                         initval,                /* initial condition */</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :                                         ordered);               /* ordered aggregates */</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     226 </span>                :            :         {
+<span class="lineNum">     227 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 DefineStmt * stmt = makeNode(DefineStmt);</span>
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :                 stmt-&gt;kind = OBJECT_AGGREGATE;</span>
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :                 stmt-&gt;oldstyle = oldstyle;  </span>
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                 stmt-&gt;defnames = name;</span>
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :                 stmt-&gt;args = args;</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                 stmt-&gt;definition = parameters;</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :                 stmt-&gt;ordered = ordered;</span>
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchUtilityStatement((Node *) stmt,</span>
+<span class="lineNum">     235 </span>                :            :                                                                         DF_CANCEL_ON_ERROR|
+<span class="lineNum">     236 </span>                :            :                                                                         DF_WITH_SNAPSHOT|
+<span class="lineNum">     237 </span>                :            :                                                                         DF_NEED_TWO_PHASE,
+<span class="lineNum">     238 </span>                :<span class="lineNoCov">          0 :                                                                         GetAssignedOidsForDispatch(),</span>
+<span class="lineNum">     239 </span>                :            :                                                                         NULL);
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :            : /*
+<span class="lineNum">     245 </span>                :            :  * RemoveAggregate
+<span class="lineNum">     246 </span>                :            :  *              Deletes an aggregate.
+<a name="247"><span class="lineNum">     247 </span>                :            :  */</a>
+<span class="lineNum">     248 </span>                :            : void
+<span class="lineNum">     249 </span>                :            : RemoveAggregate(RemoveFuncStmt *stmt)
+<span class="lineNum">     250 </span>                :            : {
+<span class="lineNum">     251 </span>                :<span class="lineNoCov">          0 :         List       *aggName = stmt-&gt;name;</span>
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :         List       *aggArgs = stmt-&gt;args;</span>
+<span class="lineNum">     253 </span>                :            :         Oid                     procOid;
+<span class="lineNum">     254 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     255 </span>                :            :         ObjectAddress object;
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :            :         /* Look up function and make sure it's an aggregate */
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :         procOid = LookupAggNameTypeNames(aggName, aggArgs, stmt-&gt;missing_ok);</span>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(procOid))</span>
+<span class="lineNum">     261 </span>                :            :         {
+<span class="lineNum">     262 </span>                :            :                 /* we only get here if stmt-&gt;missing_ok is true */
+<span class="lineNum">     263 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(NOTICE,</span>
+<span class="lineNum">     264 </span>                :            :                                 (errmsg(&quot;aggregate %s(%s) does not exist, skipping&quot;,
+<span class="lineNum">     265 </span>                :            :                                                 NameListToString(aggName),
+<span class="lineNum">     266 </span>                :            :                                                 TypeNameListToString(aggArgs))));
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     268 </span>                :            :         }
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :         /*
+<span class="lineNum">     271 </span>                :            :          * Find the function tuple, do permissions and validity checks
+<span class="lineNum">     272 </span>                :            :          */
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCache(PROCOID,</span>
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                                                  ObjectIdGetDatum(procOid),</span>
+<span class="lineNum">     275 </span>                :            :                                                  0, 0, 0);
+<span class="lineNum">     276 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup)) /* should not happen */</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for function %u&quot;, procOid);</span>
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>                :            :         /* Permission check: must own agg or its namespace */
+<span class="lineNum">     280 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!pg_proc_ownercheck(procOid, GetUserId()) &amp;&amp;</span>
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :           !pg_namespace_ownercheck(((Form_pg_proc) GETSTRUCT(tup))-&gt;pronamespace,</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                                                            GetUserId()))</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_PROC,</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                                            NameListToString(aggName));</span>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(tup);</span>
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :            :         /*
+<span class="lineNum">     289 </span>                :            :          * Do the deletion
+<span class="lineNum">     290 </span>                :            :          */
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :         object.classId = ProcedureRelationId;</span>
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :         object.objectId = procOid;</span>
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :         object.objectSubId = 0;</span>
+<span class="lineNum">     294 </span>                :            : 
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         performDeletion(&amp;object, stmt-&gt;behavior);</span>
+<span class="lineNum">     296 </span>                :            :         
+<span class="lineNum">     297 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Gp_role == GP_ROLE_DISPATCH)</span>
+<span class="lineNum">     298 </span>                :            :         {
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                 CdbDispatchUtilityStatement((Node *) stmt,</span>
+<span class="lineNum">     300 </span>                :            :                                                                         DF_CANCEL_ON_ERROR|
+<span class="lineNum">     301 </span>                :            :                                                                         DF_WITH_SNAPSHOT|
+<span class="lineNum">     302 </span>                :            :                                                                         DF_NEED_TWO_PHASE,
+<span class="lineNum">     303 </span>                :            :                                                                         NIL,
+<span class="lineNum">     304 </span>                :            :                                                                         NULL);
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     307 </span>                :            : 
+<a name="308"><span class="lineNum">     308 </span>                :            : </a>
+<span class="lineNum">     309 </span>                :            : void
+<span class="lineNum">     310 </span>                :            : RenameAggregate(List *name, List *args, const char *newname)
+<span class="lineNum">     311 </span>                :            : {
+<span class="lineNum">     312 </span>                :            :         Oid                     procOid;
+<span class="lineNum">     313 </span>                :            :         Oid                     namespaceOid;
+<span class="lineNum">     314 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     315 </span>                :            :         Form_pg_proc procForm;
+<span class="lineNum">     316 </span>                :            :         Relation        rel;
+<span class="lineNum">     317 </span>                :            :         AclResult       aclresult;
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ProcedureRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>                :            :         /* Look up function and make sure it's an aggregate */
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :         procOid = LookupAggNameTypeNames(name, args, false);</span>
+<span class="lineNum">     323 </span>                :            : 
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :         tup = SearchSysCacheCopy(PROCOID,</span>
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :                                                          ObjectIdGetDatum(procOid),</span>
+<span class="lineNum">     326 </span>                :            :                                                          0, 0, 0);
+<span class="lineNum">     327 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tup)) /* should not happen */</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;cache lookup failed for function %u&quot;, procOid);</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :         procForm = (Form_pg_proc) GETSTRUCT(tup);</span>
+<span class="lineNum">     330 </span>                :            : 
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         namespaceOid = procForm-&gt;pronamespace;</span>
+<span class="lineNum">     332 </span>                :            : 
+<span class="lineNum">     333 </span>                :            :         /* make sure the new name doesn't exist */
+<span class="lineNum">     334 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (SearchSysCacheExists(PROCNAMEARGSNSP,</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                                                          CStringGetDatum(newname),</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :                                                          PointerGetDatum(&amp;procForm-&gt;proargtypes),</span>
+<span class="lineNum">     337 </span>                :<span class="lineNoCov">          0 :                                                          ObjectIdGetDatum(namespaceOid),</span>
+<span class="lineNum">     338 </span>                :            :                                                          0))
+<span class="lineNum">     339 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     340 </span>                :            :                                 (errcode(ERRCODE_DUPLICATE_FUNCTION),
+<span class="lineNum">     341 </span>                :            :                                  errmsg(&quot;function %s already exists in schema \&quot;%s\&quot;&quot;,
+<span class="lineNum">     342 </span>                :            :                                                 funcname_signature_string(newname,
+<span class="lineNum">     343 </span>                :            :                                                                                                   procForm-&gt;pronargs,
+<span class="lineNum">     344 </span>                :            :                                                                                            procForm-&gt;proargtypes.values),
+<span class="lineNum">     345 </span>                :            :                                                 get_namespace_name(namespaceOid))));
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :            :         /* must be owner */
+<span class="lineNum">     348 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!pg_proc_ownercheck(procOid, GetUserId()))</span>
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(ACLCHECK_NOT_OWNER, ACL_KIND_PROC,</span>
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :                                            NameListToString(name));</span>
+<span class="lineNum">     351 </span>                :            : 
+<span class="lineNum">     352 </span>                :            :         /* must have CREATE privilege on namespace */
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :         aclresult = pg_namespace_aclcheck(namespaceOid, GetUserId(), ACL_CREATE);</span>
+<span class="lineNum">     354 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (aclresult != ACLCHECK_OK)</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                 aclcheck_error(aclresult, ACL_KIND_NAMESPACE,</span>
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :                                            get_namespace_name(namespaceOid));</span>
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>                :            :         /* rename */
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :         namestrcpy(&amp;(((Form_pg_proc) GETSTRUCT(tup))-&gt;proname), newname);</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         simple_heap_update(rel, &amp;tup-&gt;t_self, tup);</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, tup);</span>
+<span class="lineNum">     362 </span>                :            : 
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, NoLock);</span>
+<span class="lineNum">     364 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tup);</span>
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :            : /*
+<span class="lineNum">     368 </span>                :            :  * Change aggregate owner
+<a name="369"><span class="lineNum">     369 </span>                :            :  */</a>
+<span class="lineNum">     370 </span>                :            : void
+<span class="lineNum">     371 </span>                :            : AlterAggregateOwner(List *name, List *args, Oid newOwnerId)
+<span class="lineNum">     372 </span>                :            : {
+<span class="lineNum">     373 </span>                :            :         Oid                     procOid;
+<span class="lineNum">     374 </span>                :            : 
+<span class="lineNum">     375 </span>                :            :         /* Look up function and make sure it's an aggregate */
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         procOid = LookupAggNameTypeNames(name, args, false);</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :            :         /* The rest is just like a function */
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         AlterFunctionOwner_oid(procOid, newOwnerId);</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

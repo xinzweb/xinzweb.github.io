@@ -1,0 +1,302 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - tcop/test/postgres_test.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">tcop/test</a> - postgres_test.c<span style="font-size: 80%;"> (source / <a href="postgres_test.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">79</td>
+            <td class="headerCovTableEntry">80</td>
+            <td class="headerCovTableEntryHi">98.8 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntryLo">66.7 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #include &lt;stdarg.h&gt;</a>
+<span class="lineNum">       2 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">       3 </span>                :            : #include &lt;setjmp.h&gt;
+<span class="lineNum">       4 </span>                :            : #include &quot;cmockery.h&quot;
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">       7 </span>                :            : 
+<span class="lineNum">       8 </span>                :            : /*
+<span class="lineNum">       9 </span>                :            :  * Mock PG_RE_THROW, because we are not using real elog.o.
+<span class="lineNum">      10 </span>                :            :  * The closest mockery is to call siglongjmp().
+<span class="lineNum">      11 </span>                :            :  */
+<span class="lineNum">      12 </span>                :            : #define PG_RE_THROW() siglongjmp(*PG_exception_stack, 1)
+<a name="13"><span class="lineNum">      13 </span>                :            : </a>
+<span class="lineNum">      14 </span>                :            : #define errfinish errfinish_impl
+<span class="lineNum">      15 </span>                :            : int errfinish_impl(int dummy __attribute__((unused)),...)
+<span class="lineNum">      16 </span>                :            : {
+<span class="lineNum">      17 </span>                :<span class="lineCov">          2 :         PG_RE_THROW();</span>
+<span class="lineNum">      18 </span>                :            :         return 0;
+<span class="lineNum">      19 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      20 </span>                :            : 
+<span class="lineNum">      21 </span>                :            : #include &quot;../postgres.c&quot;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : #define EXPECT_EREPORT(LOG_LEVEL)     \
+<span class="lineNum">      24 </span>                :            :         expect_any(errmsg, fmt); \
+<span class="lineNum">      25 </span>                :            :         will_be_called(errmsg); \
+<span class="lineNum">      26 </span>                :            :         expect_any(errcode, sqlerrcode); \
+<span class="lineNum">      27 </span>                :            :         will_be_called(errcode); \
+<span class="lineNum">      28 </span>                :            :         expect_value(errstart, elevel, (LOG_LEVEL)); \
+<span class="lineNum">      29 </span>                :            :         expect_any(errstart, filename); \
+<span class="lineNum">      30 </span>                :            :         expect_any(errstart, lineno); \
+<span class="lineNum">      31 </span>                :            :         expect_any(errstart, funcname); \
+<span class="lineNum">      32 </span>                :            :         expect_any(errstart, domain); \
+<span class="lineNum">      33 </span>                :            :         if (LOG_LEVEL &lt; ERROR) \
+<span class="lineNum">      34 </span>                :            :         { \
+<span class="lineNum">      35 </span>                :            :                 will_return(errstart, false); \
+<span class="lineNum">      36 </span>                :            :         } \
+<span class="lineNum">      37 </span>                :            :     else \
+<span class="lineNum">      38 </span>                :            :     { \
+<span class="lineNum">      39 </span>                :            :                 will_return(errstart, true);\
+<span class="lineNum">      40 </span>                :            :     } \
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : const char *progname = &quot;postgres&quot;;
+<span class="lineNum">      43 </span>                :            : 
+<a name="44"><span class="lineNum">      44 </span>                :            : /* List with multiple elements, return FALSE. */</a>
+<span class="lineNum">      45 </span>                :            : void
+<span class="lineNum">      46 </span>                :            : test__IsTransactionExitStmtList__MultipleElementList(void **state)
+<span class="lineNum">      47 </span>                :            : {
+<span class="lineNum">      48 </span>                :<span class="lineCov">          1 :         List *list = list_make2_int(1,2);</span>
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>                :<span class="lineCov">          1 :         assert_false(IsTransactionExitStmtList(list));</span>
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :<span class="lineCov">          1 :         list_free(list);</span>
+<span class="lineNum">      53 </span>                :<span class="lineCov">          1 : }</span>
+<span class="lineNum">      54 </span>                :            : 
+<a name="55"><span class="lineNum">      55 </span>                :            : /*  Transaction with Exit Statement, return TRUE. */</a>
+<span class="lineNum">      56 </span>                :            : void
+<span class="lineNum">      57 </span>                :            : test__IsTransactionExitStmt__IsTransactionStmt(void **state)
+<span class="lineNum">      58 </span>                :            : {
+<span class="lineNum">      59 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1 time"> + </span>]:<span class="lineCov">          1 :         TransactionStmt *stmt = makeNode(TransactionStmt);</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">          1 :         stmt-&gt;kind = TRANS_STMT_COMMIT;</span>
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :<span class="lineCov">          1 :         List *list = list_make1(stmt);</span>
+<span class="lineNum">      63 </span>                :            : 
+<span class="lineNum">      64 </span>                :<span class="lineCov">          1 :         assert_true(IsTransactionExitStmtList(list));</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :<span class="lineCov">          1 :         list_free(list);</span>
+<span class="lineNum">      67 </span>                :<span class="lineCov">          1 :         pfree(stmt);</span>
+<span class="lineNum">      68 </span>                :<span class="lineCov">          1 : }</span>
+<span class="lineNum">      69 </span>                :            : 
+<a name="70"><span class="lineNum">      70 </span>                :            : /* Query with Transaction with Exit Statement, return TRUE. */</a>
+<span class="lineNum">      71 </span>                :            : void
+<span class="lineNum">      72 </span>                :            : test__IsTransactionExitStmt__IsQuery(void **state)
+<span class="lineNum">      73 </span>                :            : {
+<span class="lineNum">      74 </span>[<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 1 time"> + </span>]:<span class="lineCov">          1 :         TransactionStmt *stmt = makeNode(TransactionStmt);</span>
+<span class="lineNum">      75 </span>                :<span class="lineCov">          1 :         stmt-&gt;kind = TRANS_STMT_COMMIT;</span>
+<span class="lineNum">      76 </span>                :<span class="lineCov">          1 :         Query *query = (Query *)palloc(sizeof(Query));</span>
+<span class="lineNum">      77 </span>                :<span class="lineCov">          1 :         query-&gt;type = T_Query;</span>
+<span class="lineNum">      78 </span>                :<span class="lineCov">          1 :         query-&gt;commandType = CMD_UTILITY;</span>
+<span class="lineNum">      79 </span>                :<span class="lineCov">          1 :         query-&gt;utilityStmt = stmt;</span>
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>                :<span class="lineCov">          1 :         List *list = list_make1(query);</span>
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :<span class="lineCov">          1 :         assert_true(IsTransactionExitStmtList(list));</span>
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :<span class="lineCov">          1 :         list_free(list);</span>
+<span class="lineNum">      86 </span>                :<span class="lineCov">          1 :         pfree(query);</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">          1 :         pfree(stmt);</span>
+<span class="lineNum">      88 </span>                :<span class="lineCov">          1 : }</span>
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            : /*
+<span class="lineNum">      91 </span>                :            :  * Test ProcessInterrupts when ClientConnectionLost flag is set
+<a name="92"><span class="lineNum">      92 </span>                :            :  */</a>
+<span class="lineNum">      93 </span>                :            : void
+<span class="lineNum">      94 </span>                :            : test__ProcessInterrupts__ClientConnectionLost(void **state)
+<span class="lineNum">      95 </span>                :            : {
+<span class="lineNum">      96 </span>                :<span class="lineCov">          1 :         will_be_called(DisableNotifyInterrupt);</span>
+<span class="lineNum">      97 </span>                :<span class="lineCov">          1 :         will_be_called(DisableCatchupInterrupt);</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :            :         /*
+<span class="lineNum">     100 </span>                :            :          * Setting all the flags so that ProcessInterrupts only goes in the if-block
+<span class="lineNum">     101 </span>                :            :          * we're interested to test
+<span class="lineNum">     102 </span>                :            :          */
+<span class="lineNum">     103 </span>                :<span class="lineCov">          1 :         InterruptHoldoffCount = 0;</span>
+<span class="lineNum">     104 </span>                :<span class="lineCov">          1 :         CritSectionCount = 0;</span>
+<span class="lineNum">     105 </span>                :<span class="lineCov">          1 :         ProcDiePending = 0;</span>
+<span class="lineNum">     106 </span>                :<span class="lineCov">          1 :         ClientConnectionLost = 1;</span>
+<span class="lineNum">     107 </span>                :<span class="lineCov">          1 :         whereToSendOutput = DestDebug;</span>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :<span class="lineCov">          1 :         EXPECT_EREPORT(FATAL);</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          2 :         PG_TRY();</span>
+<span class="lineNum">     112 </span>                :            :         {
+<span class="lineNum">     113 </span>                :            :                 /* Run function under test */
+<span class="lineNum">     114 </span>                :<span class="lineCov">          1 :                 ProcessInterrupts(__FILE__, __LINE__);</span>
+<span class="lineNum">     115 </span>                :<span class="lineCov">          1 :                 assert_true(false);</span>
+<span class="lineNum">     116 </span>                :            :         }
+<span class="lineNum">     117 </span>                :<span class="lineCov">          1 :         PG_CATCH();</span>
+<span class="lineNum">     118 </span>                :            :         {
+<span class="lineNum">     119 </span>                :            :         }
+<span class="lineNum">     120 </span>                :<span class="lineCov">          1 :         PG_END_TRY();</span>
+<span class="lineNum">     121 </span>                :            : 
+<span class="lineNum">     122 </span>                :<span class="lineCov">          1 :         assert_true(whereToSendOutput == DestNone);</span>
+<span class="lineNum">     123 </span>                :<span class="lineCov">          1 :         assert_false(QueryCancelPending);</span>
+<span class="lineNum">     124 </span>                :<span class="lineCov">          1 :         assert_false(ImmediateInterruptOK);</span>
+<span class="lineNum">     125 </span>                :<span class="lineCov">          1 : }</span>
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>                :            : /*
+<span class="lineNum">     128 </span>                :            :  * Test ProcessInterrupts when DoingCommandRead is set
+<a name="129"><span class="lineNum">     129 </span>                :            :  */</a>
+<span class="lineNum">     130 </span>                :            : void
+<span class="lineNum">     131 </span>                :            : test__ProcessInterrupts__DoingCommandRead(void **state)
+<span class="lineNum">     132 </span>                :            : {
+<span class="lineNum">     133 </span>                :<span class="lineCov">          1 :         InterruptHoldoffCount = 0;</span>
+<span class="lineNum">     134 </span>                :<span class="lineCov">          1 :         CritSectionCount = 0;</span>
+<span class="lineNum">     135 </span>                :<span class="lineCov">          1 :         ProcDiePending = false;</span>
+<span class="lineNum">     136 </span>                :<span class="lineCov">          1 :         ClientConnectionLost = false;</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :            :         /*
+<span class="lineNum">     139 </span>                :            :          * QueryCancelPending = true, DoingCommandRead = true; we should NOT
+<span class="lineNum">     140 </span>                :            :          * error out.
+<span class="lineNum">     141 </span>                :            :          */
+<span class="lineNum">     142 </span>                :<span class="lineCov">          1 :         QueryCancelPending = true;</span>
+<span class="lineNum">     143 </span>                :<span class="lineCov">          1 :         DoingCommandRead = true;</span>
+<span class="lineNum">     144 </span>                :            : 
+<span class="lineNum">     145 </span>                :            :         /* Mock up elog_start and elog_finish */
+<span class="lineNum">     146 </span>                :<span class="lineCov">          1 :         expect_any(elog_start, filename);</span>
+<span class="lineNum">     147 </span>                :<span class="lineCov">          1 :         expect_any(elog_start, lineno);</span>
+<span class="lineNum">     148 </span>                :<span class="lineCov">          1 :         expect_any(elog_start, funcname);</span>
+<span class="lineNum">     149 </span>                :<span class="lineCov">          1 :         will_be_called(elog_start);</span>
+<span class="lineNum">     150 </span>                :<span class="lineCov">          1 :         expect_value(elog_finish, elevel, LOG);</span>
+<span class="lineNum">     151 </span>                :<span class="lineCov">          1 :         expect_any(elog_finish, fmt);</span>
+<span class="lineNum">     152 </span>                :<span class="lineCov">          1 :         will_be_called(elog_finish);</span>
+<span class="lineNum">     153 </span>                :            : 
+<span class="lineNum">     154 </span>                :<span class="lineCov">          1 :         ProcessInterrupts(__FILE__, __LINE__);</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineCov">          1 :         assert_false(QueryCancelPending);</span>
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :            :         /*
+<span class="lineNum">     159 </span>                :            :          * QueryCancelPending = true, DoingCommandRead = false; we should
+<span class="lineNum">     160 </span>                :            :          * error out.
+<span class="lineNum">     161 </span>                :            :          */
+<span class="lineNum">     162 </span>                :<span class="lineCov">          1 :         QueryCancelPending = true;</span>
+<span class="lineNum">     163 </span>                :<span class="lineCov">          1 :         DoingCommandRead = false;</span>
+<span class="lineNum">     164 </span>                :            : 
+<span class="lineNum">     165 </span>                :            :         /* Mock up elog_start and elog_finish */
+<span class="lineNum">     166 </span>                :<span class="lineCov">          1 :         expect_any(elog_start, filename);</span>
+<span class="lineNum">     167 </span>                :<span class="lineCov">          1 :         expect_any(elog_start, lineno);</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">          1 :         expect_any(elog_start, funcname);</span>
+<span class="lineNum">     169 </span>                :<span class="lineCov">          1 :         will_be_called(elog_start);</span>
+<span class="lineNum">     170 </span>                :<span class="lineCov">          1 :         expect_value(elog_finish, elevel, LOG);</span>
+<span class="lineNum">     171 </span>                :<span class="lineCov">          1 :         expect_any(elog_finish, fmt);</span>
+<span class="lineNum">     172 </span>                :<span class="lineCov">          1 :         will_be_called(elog_finish);</span>
+<span class="lineNum">     173 </span>                :            : 
+<span class="lineNum">     174 </span>                :<span class="lineCov">          1 :         will_be_called(DisableNotifyInterrupt);</span>
+<span class="lineNum">     175 </span>                :<span class="lineCov">          1 :         will_be_called(DisableCatchupInterrupt);</span>
+<span class="lineNum">     176 </span>                :            : 
+<span class="lineNum">     177 </span>                :<span class="lineCov">          1 :         EXPECT_EREPORT(ERROR);</span>
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>        [<span class="branchCov" title="Branch 0 was taken 1 time"> + </span><span class="branchCov" title="Branch 1 was taken 1 time"> + </span>]:<span class="lineCov">          2 :         PG_TRY();</span>
+<span class="lineNum">     180 </span>                :            :         {
+<span class="lineNum">     181 </span>                :            :                 /* Run function under test */
+<span class="lineNum">     182 </span>                :<span class="lineCov">          1 :                 ProcessInterrupts(__FILE__, __LINE__);</span>
+<span class="lineNum">     183 </span>                :<span class="lineCov">          1 :                 assert_true(false);</span>
+<span class="lineNum">     184 </span>                :            :         }
+<span class="lineNum">     185 </span>                :<span class="lineCov">          1 :         PG_CATCH();</span>
+<span class="lineNum">     186 </span>                :            :         {
+<span class="lineNum">     187 </span>                :            :         }
+<span class="lineNum">     188 </span>                :<span class="lineCov">          1 :         PG_END_TRY();</span>
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>                :<span class="lineCov">          1 :         assert_false(QueryCancelPending);</span>
+<span class="lineNum">     191 </span>                :<span class="lineCov">          1 :         assert_false(ImmediateInterruptOK);</span>
+<span class="lineNum">     192 </span>                :<span class="lineCov">          1 : }</span>
+<a name="193"><span class="lineNum">     193 </span>                :            : </a>
+<span class="lineNum">     194 </span>                :            : int
+<span class="lineNum">     195 </span>                :            : main(int argc, char* argv[])
+<span class="lineNum">     196 </span>                :            : {
+<span class="lineNum">     197 </span>                :<span class="lineCov">          1 :         cmockery_parse_arguments(argc, argv);</span>
+<span class="lineNum">     198 </span>                :            : 
+<span class="lineNum">     199 </span>                :            :         const UnitTest tests[] = {
+<span class="lineNum">     200 </span>                :            :                 unit_test(test__IsTransactionExitStmtList__MultipleElementList),
+<span class="lineNum">     201 </span>                :            :                 unit_test(test__IsTransactionExitStmt__IsTransactionStmt),
+<span class="lineNum">     202 </span>                :            :                 unit_test(test__IsTransactionExitStmt__IsQuery),
+<span class="lineNum">     203 </span>                :            :                 unit_test(test__ProcessInterrupts__ClientConnectionLost),
+<span class="lineNum">     204 </span>                :            :                 unit_test(test__ProcessInterrupts__DoingCommandRead)
+<span class="lineNum">     205 </span>                :            :         };
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>                :<span class="lineCov">          1 :         MemoryContextInit();</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :<span class="lineCov">          1 :         return run_tests(tests);</span>
+<span class="lineNum">     210 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

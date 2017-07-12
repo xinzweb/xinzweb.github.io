@@ -1,0 +1,988 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mmgr/test/aset_test.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">utils/mmgr/test</a> - aset_test.c<span style="font-size: 80%;"> (source / <a href="aset_test.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">302</td>
+            <td class="headerCovTableEntry">303</td>
+            <td class="headerCovTableEntryHi">99.7 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">24</td>
+            <td class="headerCovTableEntry">24</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">25</td>
+            <td class="headerCovTableEntry">46</td>
+            <td class="headerCovTableEntryLo">54.3 %</td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #include &lt;stdarg.h&gt;</a>
+<span class="lineNum">       2 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">       3 </span>                :            : #include &lt;setjmp.h&gt;
+<span class="lineNum">       4 </span>                :            : #include &quot;cmockery.h&quot;
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : #include &quot;../aset.c&quot;
+<span class="lineNum">       7 </span>                :            : 
+<span class="lineNum">       8 </span>                :            : #define NEW_ALLOC_SIZE 1024
+<span class="lineNum">       9 </span>                :            : 
+<span class="lineNum">      10 </span>                :            : extern MemoryAccount* MemoryAccountMemoryAccount;
+<span class="lineNum">      11 </span>                :            : extern MemoryAccount* RolloverMemoryAccount;
+<span class="lineNum">      12 </span>                :            : extern MemoryAccount* AlienExecutorMemoryAccount;
+<span class="lineNum">      13 </span>                :            : 
+<span class="lineNum">      14 </span>                :            : extern MemoryAccountIdType liveAccountStartId;
+<span class="lineNum">      15 </span>                :            : extern MemoryAccountIdType nextAccountId;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #define PG_RE_THROW() siglongjmp(*PG_exception_stack, 1)
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : /*
+<span class="lineNum">      20 </span>                :            :  * This method will emulate the real ExceptionalCondition
+<span class="lineNum">      21 </span>                :            :  * function by re-throwing the exception, essentially falling
+<span class="lineNum">      22 </span>                :            :  * back to the next available PG_CATCH();
+<a name="23"><span class="lineNum">      23 </span>                :            :  */</a>
+<span class="lineNum">      24 </span>                :            : void
+<span class="lineNum">      25 </span>                :            : _ExceptionalCondition()
+<span class="lineNum">      26 </span>                :            : {
+<span class="lineNum">      27 </span>                :<span class="lineCov">          2 :      PG_RE_THROW();</span>
+<span class="lineNum">      28 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : /*
+<span class="lineNum">      31 </span>                :            :  * This method sets up MemoryContext tree as well as
+<a name="32"><span class="lineNum">      32 </span>                :            :  * the basic MemoryAccount data structures.</a>
+<span class="lineNum">      33 </span>                :            :  */
+<span class="lineNum">      34 </span>                :            : void SetupMemoryDataStructures(void **state)
+<span class="lineNum">      35 </span>                :            : {
+<span class="lineNum">      36 </span>                :<span class="lineCov">         42 :         MemoryContextInit();</span>
+<span class="lineNum">      37 </span>                :<span class="lineCov">         42 : }</span>
+<span class="lineNum">      38 </span>                :            : 
+<span class="lineNum">      39 </span>                :            : /*
+<span class="lineNum">      40 </span>                :            :  * This method cleans up MemoryContext tree and
+<span class="lineNum">      41 </span>                :            :  * the MemoryAccount data structures.
+<a name="42"><span class="lineNum">      42 </span>                :            :  */</a>
+<span class="lineNum">      43 </span>                :            : void
+<span class="lineNum">      44 </span>                :            : TeardownMemoryDataStructures(void **state)
+<span class="lineNum">      45 </span>                :            : {
+<span class="lineNum">      46 </span>                :            :         /*
+<span class="lineNum">      47 </span>                :            :          * Ensure that no existing allocation refers to any short-living accounts. All
+<span class="lineNum">      48 </span>                :            :          * short living accounts live in MemoryAccountMemoryAccount which is soon going
+<span class="lineNum">      49 </span>                :            :          * to be reset via TopMemoryContext reset.
+<span class="lineNum">      50 </span>                :            :          */
+<span class="lineNum">      51 </span>                :<span class="lineCov">         42 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">      52 </span>                :<span class="lineCov">         42 :         MemoryAccounting_SwitchAccount(MEMORY_OWNER_TYPE_Rollover);</span>
+<span class="lineNum">      53 </span>                :            : 
+<span class="lineNum">      54 </span>                :<span class="lineCov">         42 :         MemoryContextReset(TopMemoryContext); /* TopMemoryContext deletion is not supported */</span>
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :            :         /* These are needed to be NULL for calling MemoryContextInit() */
+<span class="lineNum">      57 </span>                :<span class="lineCov">         42 :         TopMemoryContext = NULL;</span>
+<span class="lineNum">      58 </span>                :<span class="lineCov">         42 :         CurrentMemoryContext = NULL;</span>
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :            :         /*
+<span class="lineNum">      61 </span>                :            :          * Memory accounts related variables need to be NULL before we
+<span class="lineNum">      62 </span>                :            :          * try to setup memory account data structure again during the
+<span class="lineNum">      63 </span>                :            :          * execution of the next test.
+<span class="lineNum">      64 </span>                :            :          */
+<span class="lineNum">      65 </span>                :<span class="lineCov">         42 :         MemoryAccountMemoryAccount = NULL;</span>
+<span class="lineNum">      66 </span>                :<span class="lineCov">         42 :         RolloverMemoryAccount = NULL;</span>
+<span class="lineNum">      67 </span>                :<span class="lineCov">         42 :         SharedChunkHeadersMemoryAccount = NULL;</span>
+<span class="lineNum">      68 </span>                :<span class="lineCov">         42 :         AlienExecutorMemoryAccount = NULL;</span>
+<span class="lineNum">      69 </span>                :<span class="lineCov">         42 :         MemoryAccountMemoryContext = NULL;</span>
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>                :<span class="lineCov">         42 :         ActiveMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;</span>
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>        [<span class="branchCov" title="Branch 0 was taken 210 times"> + </span><span class="branchCov" title="Branch 1 was taken 42 times"> + </span>]:<span class="lineCov">        252 :         for (int longLivingIdx = MEMORY_OWNER_TYPE_LogicalRoot; longLivingIdx &lt;= MEMORY_OWNER_TYPE_END_LONG_LIVING; longLivingIdx++)</span>
+<span class="lineNum">      74 </span>                :            :         {
+<span class="lineNum">      75 </span>                :<span class="lineCov">        210 :                 longLivingMemoryAccountArray[longLivingIdx] = NULL;</span>
+<span class="lineNum">      76 </span>                :<span class="lineCov">        210 :         }</span>
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :<span class="lineCov">         42 :         shortLivingMemoryAccountArray = NULL;</span>
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :<span class="lineCov">         42 :         liveAccountStartId = MEMORY_OWNER_TYPE_START_SHORT_LIVING;</span>
+<span class="lineNum">      81 </span>                :<span class="lineCov">         42 :         nextAccountId = MEMORY_OWNER_TYPE_START_SHORT_LIVING;</span>
+<span class="lineNum">      82 </span>                :<span class="lineCov">         42 : }</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :            : /*
+<span class="lineNum">      86 </span>                :            :  * Any change of global outstanding allocation balance should come
+<span class="lineNum">      87 </span>                :            :  * from the combination of active memory account balance increase
+<span class="lineNum">      88 </span>                :            :  * and any shared header allocation (SharedChunkHeadersMemoryAccount
+<span class="lineNum">      89 </span>                :            :  * balance increase)
+<a name="90"><span class="lineNum">      90 </span>                :            :  */</a>
+<span class="lineNum">      91 </span>                :            : void
+<span class="lineNum">      92 </span>                :            : test__MemoryAccounting_Allocate__ChargesOnlyActiveAccount(void **state)
+<span class="lineNum">      93 </span>                :            : {
+<span class="lineNum">      94 </span>                :<span class="lineCov">          4 :         MemoryAccountIdType newActiveAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>                :            :         /* Make sure we have a new active account other than Rollover */
+<span class="lineNum">      97 </span>                :<span class="lineCov">          4 :         MemoryAccountIdType oldActiveAccount = MemoryAccounting_SwitchAccount(newActiveAccountId);</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :<span class="lineCov">          4 :         assert_true(ActiveMemoryAccountId == newActiveAccountId);</span>
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :<span class="lineCov">          4 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     102 </span>                :            : 
+<span class="lineNum">     103 </span>                :<span class="lineCov">          4 :         uint64 prevSharedHeaderAlloc = SharedChunkHeadersMemoryAccount-&gt;allocated;</span>
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>                :<span class="lineCov">          4 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     106 </span>                :            : 
+<span class="lineNum">     107 </span>                :<span class="lineCov">          4 :         MemoryAccount* newActiveAccount = MemoryAccounting_ConvertIdToAccount(newActiveAccountId);</span>
+<span class="lineNum">     108 </span>                :            :         /*
+<span class="lineNum">     109 </span>                :            :          * Any change of outstanding balance is coming from new allocation
+<span class="lineNum">     110 </span>                :            :          * and the associated shared header allocation
+<span class="lineNum">     111 </span>                :            :          */
+<span class="lineNum">     112 </span>                :<span class="lineCov">          4 :         assert_true(MemoryAccountingOutstandingBalance - prevOutstanding &gt; 0);</span>
+<span class="lineNum">     113 </span>                :<span class="lineCov">          4 :         assert_true((newActiveAccount-&gt;allocated - newActiveAccount-&gt;freed) +</span>
+<span class="lineNum">     114 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated - prevSharedHeaderAlloc) ==
+<span class="lineNum">     115 </span>                :            :                                         (MemoryAccountingOutstandingBalance - prevOutstanding));
+<span class="lineNum">     116 </span>                :            : 
+<span class="lineNum">     117 </span>                :            :         /*
+<span class="lineNum">     118 </span>                :            :          * We need to pfree as we have allocated this memory
+<span class="lineNum">     119 </span>                :            :          * in the TopMemoryContext with a short-living memory account
+<span class="lineNum">     120 </span>                :            :          */
+<span class="lineNum">     121 </span>                :<span class="lineCov">          4 :         pfree(testAlloc);</span>
+<span class="lineNum">     122 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :            : /*
+<span class="lineNum">     125 </span>                :            :  * Tests whether we adjust the outstanding balance during new
+<span class="lineNum">     126 </span>                :            :  * allocation
+<a name="127"><span class="lineNum">     127 </span>                :            :  */</a>
+<span class="lineNum">     128 </span>                :            : void
+<span class="lineNum">     129 </span>                :            : test__MemoryAccounting_Allocate__AdjustsOutstanding(void **state)
+<span class="lineNum">     130 </span>                :            : {
+<span class="lineNum">     131 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     132 </span>                :            : 
+<span class="lineNum">     133 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>                :            :         /* Outstanding balance should at least increase by NEW_ALLOC_SIZE */
+<span class="lineNum">     136 </span>                :<span class="lineCov">          2 :         assert_true((MemoryAccountingOutstandingBalance - prevOutstanding) &gt;= NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :            :         /*
+<span class="lineNum">     139 </span>                :            :          * We need to pfree as we have allocated this memory
+<span class="lineNum">     140 </span>                :            :          * in the TopMemoryContext with a short-living memory account
+<span class="lineNum">     141 </span>                :            :          */
+<span class="lineNum">     142 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     143 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     144 </span>                :            : 
+<a name="145"><span class="lineNum">     145 </span>                :            : /* Tests whether we adjust the peak balance during new allocation */</a>
+<span class="lineNum">     146 </span>                :            : void
+<span class="lineNum">     147 </span>                :            : test__MemoryAccounting_Allocate__AdjustsPeak(void **state)
+<span class="lineNum">     148 </span>                :            : {
+<span class="lineNum">     149 </span>                :<span class="lineCov">          2 :         uint64 prevPeak = MemoryAccountingPeakBalance;</span>
+<span class="lineNum">     150 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :            :         /* We need at least newAllocSize to get a new peak */
+<span class="lineNum">     153 </span>                :<span class="lineCov">          2 :         uint64 newAllocSize = prevPeak - prevOutstanding + 1;</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(newAllocSize);</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :            :         /* We should have a new peak */
+<span class="lineNum">     158 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingPeakBalance &gt; prevPeak);</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            :         /*
+<span class="lineNum">     161 </span>                :            :          * We need to pfree as we have allocated this memory
+<span class="lineNum">     162 </span>                :            :          * in the TopMemoryContext with a short-living memory account
+<span class="lineNum">     163 </span>                :            :          */
+<span class="lineNum">     164 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     165 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>                :            : /*
+<span class="lineNum">     168 </span>                :            :  * Tests whether we free old generation memory from rollover account,
+<span class="lineNum">     169 </span>                :            :  * irrespective of their owner account
+<a name="170"><span class="lineNum">     170 </span>                :            :  */</a>
+<span class="lineNum">     171 </span>                :            : void
+<span class="lineNum">     172 </span>                :            : test__MemoryAccounting_Free__FreesOldGenFromRollover(void **state)
+<span class="lineNum">     173 </span>                :            : {
+<span class="lineNum">     174 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId == MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :<span class="lineCov">          2 :         MemoryAccount* activeAccount = MemoryAccounting_ConvertIdToAccount(ActiveMemoryAccountId);</span>
+<span class="lineNum">     177 </span>                :<span class="lineCov">          2 :         uint64 activeBalance = activeAccount-&gt;allocated - activeAccount-&gt;freed;</span>
+<span class="lineNum">     178 </span>                :<span class="lineCov">          2 :         uint64 oldRolloverBalance = RolloverMemoryAccount-&gt;allocated - RolloverMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineCov">          2 :         assert_true(activeBalance &lt; (activeAccount-&gt;allocated - activeAccount-&gt;freed));</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :<span class="lineCov">          2 :         uint64 rolloverBalance = RolloverMemoryAccount-&gt;allocated - RolloverMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :            :         /* Rollover should assume the ownership of prev-generation allocations */
+<span class="lineNum">     189 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(rolloverBalance &gt; 0 &amp;&amp; rolloverBalance &gt; oldRolloverBalance);</span>
+<span class="lineNum">     190 </span>                :            : 
+<span class="lineNum">     191 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     192 </span>                :            : 
+<span class="lineNum">     193 </span>                :            :         /*
+<span class="lineNum">     194 </span>                :            :          * After we freed our previous allocation, the rollover balance
+<span class="lineNum">     195 </span>                :            :          * should be reduced by at least NEW_ALLOC_SIZE amount
+<span class="lineNum">     196 </span>                :            :          */
+<span class="lineNum">     197 </span>                :<span class="lineCov">          2 :         assert_true(RolloverMemoryAccount-&gt;allocated - RolloverMemoryAccount-&gt;freed &lt;=</span>
+<span class="lineNum">     198 </span>                :            :                         (rolloverBalance - NEW_ALLOC_SIZE));
+<span class="lineNum">     199 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     200 </span>                :            : 
+<a name="201"><span class="lineNum">     201 </span>                :            : /* Tests whether we adjust outstanding balance during freeing of memory */</a>
+<span class="lineNum">     202 </span>                :            : void
+<span class="lineNum">     203 </span>                :            : test__MemoryAccounting_Free__AdjustsOutstanding(void **state)
+<span class="lineNum">     204 </span>                :            : {
+<span class="lineNum">     205 </span>                :<span class="lineCov">          2 :         uint64 oldOutstandingBalance = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :            :         /* Outstanding balance should be increased by at least the allocation size */
+<span class="lineNum">     210 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingOutstandingBalance &gt;= (oldOutstandingBalance + NEW_ALLOC_SIZE));</span>
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>                :            :         /* Outstanding balance should be back to original */
+<span class="lineNum">     215 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingOutstandingBalance ==</span>
+<span class="lineNum">     216 </span>                :            :                         oldOutstandingBalance);
+<span class="lineNum">     217 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     218 </span>                :            : 
+<a name="219"><span class="lineNum">     219 </span>                :            : /* Tests whether the peak balance is unchanged during free operation */</a>
+<span class="lineNum">     220 </span>                :            : void
+<span class="lineNum">     221 </span>                :            : test__MemoryAccounting_Free__KeepsPeakUnchanged(void **state)
+<span class="lineNum">     222 </span>                :            : {
+<span class="lineNum">     223 </span>                :<span class="lineCov">          2 :         uint64 prevPeak = MemoryAccountingPeakBalance;</span>
+<span class="lineNum">     224 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :            :         /*
+<span class="lineNum">     227 </span>                :            :          * We want a new peak, which requires an allocation of at
+<span class="lineNum">     228 </span>                :            :          * least newAllocSize
+<span class="lineNum">     229 </span>                :            :          */
+<span class="lineNum">     230 </span>                :<span class="lineCov">          2 :         uint64 newAllocSize = prevPeak - prevOutstanding + 1;</span>
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(newAllocSize);</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingPeakBalance &gt; prevPeak);</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineCov">          2 :         uint64 newPeak = MemoryAccountingPeakBalance;</span>
+<span class="lineNum">     237 </span>                :            : 
+<span class="lineNum">     238 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>                :            :         /* Peak should not be altered by MemoryAccounting_Free() */
+<span class="lineNum">     241 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingPeakBalance == newPeak);</span>
+<span class="lineNum">     242 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     243 </span>                :            : 
+<a name="244"><span class="lineNum">     244 </span>                :            : /* Tests whether the header sharing is working */</a>
+<span class="lineNum">     245 </span>                :            : void
+<span class="lineNum">     246 </span>                :            : test__AllocAllocInfo__SharesHeader(void **state)
+<span class="lineNum">     247 </span>                :            : {
+<span class="lineNum">     248 </span>                :<span class="lineCov">          2 :         void *testAlloc1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :<span class="lineCov">          2 :         void *testAlloc2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     251 </span>                :            : 
+<span class="lineNum">     252 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header1 = (StandardChunkHeader *)</span>
+<span class="lineNum">     253 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc1 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header2 = (StandardChunkHeader *)</span>
+<span class="lineNum">     256 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc2 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     257 </span>                :            : 
+<span class="lineNum">     258 </span>                :            :         /* Both should share the same sharedHeader */
+<span class="lineNum">     259 </span>                :<span class="lineCov">          2 :         assert_true(header1-&gt;sharedHeader == header2-&gt;sharedHeader);</span>
+<span class="lineNum">     260 </span>                :            : 
+<span class="lineNum">     261 </span>                :<span class="lineCov">          2 :         pfree(testAlloc1);</span>
+<span class="lineNum">     262 </span>                :<span class="lineCov">          2 :         pfree(testAlloc2);</span>
+<span class="lineNum">     263 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>                :            : /*
+<span class="lineNum">     266 </span>                :            :  * Tests whether we charge shared chunk header account during an allocation
+<span class="lineNum">     267 </span>                :            :  * when header sharing is not possible
+<a name="268"><span class="lineNum">     268 </span>                :            :  */</a>
+<span class="lineNum">     269 </span>                :            : void
+<span class="lineNum">     270 </span>                :            : test__AllocAllocInfo__ChargesSharedChunkHeadersMemoryAccount(void **state)
+<span class="lineNum">     271 </span>                :            : {
+<span class="lineNum">     272 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :            :         /* Make sure we have a new active account to force a new shared header allocation */
+<span class="lineNum">     275 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActiveAccountId = MemoryAccounting_SwitchAccount(newActiveAccountId);</span>
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :<span class="lineCov">          2 :         uint64 prevSharedBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>                :<span class="lineCov">          2 :         uint64 newSharedBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>                :            :         /*
+<span class="lineNum">     284 </span>                :            :          * A new sharedHeader should record the associated memory overhead
+<span class="lineNum">     285 </span>                :            :          * in the SharedChunkHeadersMemoryAccount
+<span class="lineNum">     286 </span>                :            :          */
+<span class="lineNum">     287 </span>                :<span class="lineCov">          2 :         assert_true(prevSharedBalance &lt; newSharedBalance);</span>
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     290 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     291 </span>                :            : 
+<a name="292"><span class="lineNum">     292 </span>                :            : /* Tests whether we use null account header if there is ActiveMemoryAccountId is invalid */</a>
+<span class="lineNum">     293 </span>                :            : void
+<span class="lineNum">     294 </span>                :            : test__AllocAllocInfo__UsesNullAccountHeader(void **state)
+<span class="lineNum">     295 </span>                :            : {
+<span class="lineNum">     296 </span>                :<span class="lineCov">          2 :         MemoryContext *newContext = AllocSetContextCreate(ErrorContext,</span>
+<span class="lineNum">     297 </span>                :            :                            &quot;TestContext&quot;,
+<span class="lineNum">     298 </span>                :            :                            ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     299 </span>                :            :                            ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     300 </span>                :            :                            ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>                :<span class="lineCov">          2 :         AllocSet newSet = (AllocSet)newContext;</span>
+<span class="lineNum">     303 </span>                :<span class="lineCov">          2 :         assert_true(newSet-&gt;sharedHeaderList == NULL);</span>
+<span class="lineNum">     304 </span>                :<span class="lineCov">          2 :         assert_true(newSet-&gt;nullAccountHeader == NULL);</span>
+<span class="lineNum">     305 </span>                :            : 
+<span class="lineNum">     306 </span>                :            :         /* Turning off memory monitoring */
+<span class="lineNum">     307 </span>                :<span class="lineCov">          2 :         ActiveMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;</span>
+<span class="lineNum">     308 </span>                :            : 
+<span class="lineNum">     309 </span>                :            :         /* Also make SharedChunkHeadersMemoryAccount undefined to avoid assert failure */
+<span class="lineNum">     310 </span>                :<span class="lineCov">          2 :         SharedChunkHeadersMemoryAccount = NULL;</span>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>                :            :         /* Allocate from the new context which should trigger a nullAccountHeader creation*/
+<span class="lineNum">     313 </span>                :<span class="lineCov">          2 :         void *testAlloc = MemoryContextAlloc(newContext, NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header = (StandardChunkHeader *)</span>
+<span class="lineNum">     316 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :            :         /* The new chunk should use the nullAccountHeader of the Aset */
+<span class="lineNum">     319 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(header-&gt;sharedHeader != NULL &amp;&amp; header-&gt;sharedHeader == newSet-&gt;nullAccountHeader);</span>
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :<span class="lineCov">          2 :         MemoryContextDelete(newContext);</span>
+<span class="lineNum">     324 </span>                :            : 
+<span class="lineNum">     325 </span>                :<span class="lineCov">          2 :         SharedChunkHeadersMemoryAccount = MemoryAccounting_ConvertIdToAccount(MEMORY_OWNER_TYPE_SharedChunkHeader);</span>
+<span class="lineNum">     326 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     327 </span>                :            : 
+<span class="lineNum">     328 </span>                :            : /*
+<span class="lineNum">     329 </span>                :            :  * Tests whether header sharing works even if the desired header
+<span class="lineNum">     330 </span>                :            :  * is not at the head of sharedHeaderList
+<a name="331"><span class="lineNum">     331 </span>                :            :  */</a>
+<span class="lineNum">     332 </span>                :            : void
+<span class="lineNum">     333 </span>                :            : test__AllocAllocInfo__LooksAheadInSharedHeaderList(void **state)
+<span class="lineNum">     334 </span>                :            : {
+<span class="lineNum">     335 </span>                :<span class="lineCov">          2 :         AllocSet set = (AllocSet)CurrentMemoryContext;</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>                :            :         /*
+<span class="lineNum">     338 </span>                :            :          * This should create or reuse one of the sharedHeader
+<span class="lineNum">     339 </span>                :            :          * in the current context's sharedHeaderList
+<span class="lineNum">     340 </span>                :            :          */
+<span class="lineNum">     341 </span>                :<span class="lineCov">          2 :         void *testAlloc1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccount1 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     344 </span>                :            :         /* Make sure we have a new active account to force a new shared header allocation */
+<span class="lineNum">     345 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActiveAccount = MemoryAccounting_SwitchAccount(newActiveAccount1);</span>
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :            :         /* This will trigger a new sharedHeader creation because of the new ActiveMemoryAccountId */
+<span class="lineNum">     348 </span>                :<span class="lineCov">          2 :         void *testAlloc2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header1 = (StandardChunkHeader *)</span>
+<span class="lineNum">     351 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc1 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     352 </span>                :            : 
+<span class="lineNum">     353 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header2 = (StandardChunkHeader *)</span>
+<span class="lineNum">     354 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc2 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     355 </span>                :            : 
+<span class="lineNum">     356 </span>                :            :         /* The old shared header should not be at the head of sharedHeaderList */
+<span class="lineNum">     357 </span>                :<span class="lineCov">          2 :         assert_true(set-&gt;sharedHeaderList != header1-&gt;sharedHeader);</span>
+<span class="lineNum">     358 </span>                :<span class="lineCov">          2 :         assert_true(header1-&gt;sharedHeader != header2-&gt;sharedHeader);</span>
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            :         /*
+<span class="lineNum">     361 </span>                :            :          * This should restore old active account, so any further allocation
+<span class="lineNum">     362 </span>                :            :          * should reuse header1, which is now *not* at the head of sharedHeaderList
+<span class="lineNum">     363 </span>                :            :          */
+<span class="lineNum">     364 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldActiveAccount);</span>
+<span class="lineNum">     365 </span>                :            : 
+<span class="lineNum">     366 </span>                :<span class="lineCov">          2 :         void *testAlloc3 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     367 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header3 = (StandardChunkHeader *)</span>
+<span class="lineNum">     368 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc3 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     369 </span>                :            : 
+<span class="lineNum">     370 </span>                :            :         /* As we switched to previous account, we should be able to share the header */
+<span class="lineNum">     371 </span>                :<span class="lineCov">          2 :         assert_true(header3-&gt;sharedHeader == header1-&gt;sharedHeader);</span>
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :            :         /* Now we are triggering a third sharedHeader creation */
+<span class="lineNum">     374 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccount2 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     375 </span>                :            :         /* Make sure we have a new active account to force a new shared header allocation */
+<span class="lineNum">     376 </span>                :<span class="lineCov">          2 :         oldActiveAccount = MemoryAccounting_SwitchAccount(newActiveAccount2);</span>
+<span class="lineNum">     377 </span>                :            : 
+<span class="lineNum">     378 </span>                :<span class="lineCov">          2 :         void *testAlloc4 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     379 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header4 = (StandardChunkHeader *)</span>
+<span class="lineNum">     380 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc4 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     381 </span>                :            : 
+<span class="lineNum">     382 </span>                :            :         /* Make sure header4 got a new sharedHeader as we switched to a *new* memory account */
+<span class="lineNum">     383 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(header4-&gt;sharedHeader != header1-&gt;sharedHeader &amp;&amp;</span>
+<span class="lineNum">     384 </span>                :            :                         header4-&gt;sharedHeader != header2-&gt;sharedHeader &amp;&amp; header4-&gt;sharedHeader != header1-&gt;sharedHeader);
+<span class="lineNum">     385 </span>                :            : 
+<span class="lineNum">     386 </span>                :            :         /* And the latest sharedHeader should be at the head of sharedHeaderList */
+<span class="lineNum">     387 </span>                :<span class="lineCov">          2 :         assert_true(header4-&gt;sharedHeader == set-&gt;sharedHeaderList);</span>
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>                :            :         /*
+<span class="lineNum">     390 </span>                :            :          * Now restore the original account, making the very original
+<span class="lineNum">     391 </span>                :            :          * sharedHeader eligible to be reused (a 3 level reuse lookahead)
+<span class="lineNum">     392 </span>                :            :          */
+<span class="lineNum">     393 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldActiveAccount);</span>
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :<span class="lineCov">          2 :         void *testAlloc5 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     396 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header5 = (StandardChunkHeader *)</span>
+<span class="lineNum">     397 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc5 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :            :         /*
+<span class="lineNum">     400 </span>                :            :          * Make sure we were able to dig up the original sharedHeader
+<span class="lineNum">     401 </span>                :            :          * by digging through the sharedHeaderList
+<span class="lineNum">     402 </span>                :            :          */
+<span class="lineNum">     403 </span>                :<span class="lineCov">          2 :         assert_true(header5-&gt;sharedHeader == header1-&gt;sharedHeader);</span>
+<span class="lineNum">     404 </span>                :            : 
+<span class="lineNum">     405 </span>                :<span class="lineCov">          2 :         pfree(testAlloc1);</span>
+<span class="lineNum">     406 </span>                :<span class="lineCov">          2 :         pfree(testAlloc2);</span>
+<span class="lineNum">     407 </span>                :<span class="lineCov">          2 :         pfree(testAlloc3);</span>
+<span class="lineNum">     408 </span>                :<span class="lineCov">          2 :         pfree(testAlloc4);</span>
+<span class="lineNum">     409 </span>                :<span class="lineCov">          2 :         pfree(testAlloc5);</span>
+<span class="lineNum">     410 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     411 </span>                :            : 
+<a name="412"><span class="lineNum">     412 </span>                :            : /* Tests whether we ignore sharedHeader if it is not from the current generation */</a>
+<span class="lineNum">     413 </span>                :            : void
+<span class="lineNum">     414 </span>                :            : test__AllocAllocInfo__IgnoresOldGenSharedHeaders(void **state)
+<span class="lineNum">     415 </span>                :            : {
+<span class="lineNum">     416 </span>                :<span class="lineCov">          2 :         void *testAlloc1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     417 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header1 = (StandardChunkHeader *)</span>
+<span class="lineNum">     418 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc1 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :            :         /* Should not reuse sharedHeader as the generation has changed */
+<span class="lineNum">     423 </span>                :<span class="lineCov">          2 :         void *testAlloc2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     424 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header2 = (StandardChunkHeader *)</span>
+<span class="lineNum">     425 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc2 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     426 </span>                :            : 
+<span class="lineNum">     427 </span>                :            :         /*
+<span class="lineNum">     428 </span>                :            :          * No header sharing as the generation has changed during
+<span class="lineNum">     429 </span>                :            :          * the call of MemoryAccounting_Reset()
+<span class="lineNum">     430 </span>                :            :          */
+<span class="lineNum">     431 </span>                :<span class="lineCov">          2 :         assert_true(header1-&gt;sharedHeader != header2-&gt;sharedHeader);</span>
+<span class="lineNum">     432 </span>                :            : 
+<span class="lineNum">     433 </span>                :<span class="lineCov">          2 :         pfree(testAlloc1);</span>
+<span class="lineNum">     434 </span>                :<span class="lineCov">          2 :         pfree(testAlloc2);</span>
+<span class="lineNum">     435 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :            : /*
+<span class="lineNum">     438 </span>                :            :  * Tests whether we correctly allocate a new shared header and insert it
+<span class="lineNum">     439 </span>                :            :  * into the sharedHeaderList
+<a name="440"><span class="lineNum">     440 </span>                :            :  */</a>
+<span class="lineNum">     441 </span>                :            : void
+<span class="lineNum">     442 </span>                :            : test__AllocAllocInfo__InsertsIntoSharedHeaderList(void **state)
+<span class="lineNum">     443 </span>                :            : {
+<span class="lineNum">     444 </span>                :<span class="lineCov">          2 :         AllocSet set = (AllocSet)CurrentMemoryContext;</span>
+<span class="lineNum">     445 </span>                :            : 
+<span class="lineNum">     446 </span>                :            :         /*
+<span class="lineNum">     447 </span>                :            :          * This should create or reuse one of the sharedHeader
+<span class="lineNum">     448 </span>                :            :          * in the current context's sharedHeaderList
+<span class="lineNum">     449 </span>                :            :          */
+<span class="lineNum">     450 </span>                :<span class="lineCov">          2 :         void *testAlloc1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     451 </span>                :            : 
+<span class="lineNum">     452 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccount1 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     453 </span>                :            :         /* Make sure we have a new active account to force a new shared header allocation */
+<span class="lineNum">     454 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(newActiveAccount1);</span>
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            :         /* This will trigger a new sharedHeader creation because of the new ActiveMemoryAccountId */
+<span class="lineNum">     457 </span>                :<span class="lineCov">          2 :         void *testAlloc2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     458 </span>                :            : 
+<span class="lineNum">     459 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header1 = (StandardChunkHeader *)</span>
+<span class="lineNum">     460 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc1 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     461 </span>                :            : 
+<span class="lineNum">     462 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header2 = (StandardChunkHeader *)</span>
+<span class="lineNum">     463 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc2 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     464 </span>                :            : 
+<span class="lineNum">     465 </span>                :            :         /* Now we are triggering a third sharedHeader creation */
+<span class="lineNum">     466 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccount2 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     467 </span>                :            :         /* Make sure we have a new active account to force a new shared header allocation */
+<span class="lineNum">     468 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(newActiveAccount2);</span>
+<span class="lineNum">     469 </span>                :            : 
+<span class="lineNum">     470 </span>                :<span class="lineCov">          2 :         void *testAlloc3 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     471 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header3 = (StandardChunkHeader *)</span>
+<span class="lineNum">     472 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc3 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     473 </span>                :            : 
+<span class="lineNum">     474 </span>                :            :         /* Verify that the sharedHeaderList linked list looks good */
+<span class="lineNum">     475 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(set-&gt;sharedHeaderList == header3-&gt;sharedHeader &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>]
+<span class="lineNum">     476 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next == header2-&gt;sharedHeader &amp;&amp;
+<span class="lineNum">     477 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next-&gt;next == header1-&gt;sharedHeader &amp;&amp;
+<span class="lineNum">     478 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next-&gt;next-&gt;next == NULL);
+<span class="lineNum">     479 </span>                :            : 
+<span class="lineNum">     480 </span>                :            :         /*
+<span class="lineNum">     481 </span>                :            :          * Create one more account to force creation of another sharedHeader, which
+<span class="lineNum">     482 </span>                :            :          * should replace the earliest sharedHeader in the sharedHeaderList. We only
+<span class="lineNum">     483 </span>                :            :          * look ahead up to depth 3, but we maintain all the sharedHeaders in the
+<span class="lineNum">     484 </span>                :            :          * sharedHeaderList
+<span class="lineNum">     485 </span>                :            :          */
+<span class="lineNum">     486 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccount3 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     487 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(newActiveAccount3);</span>
+<span class="lineNum">     488 </span>                :            : 
+<span class="lineNum">     489 </span>                :<span class="lineCov">          2 :         void *testAlloc4 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     490 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header4 = (StandardChunkHeader *)</span>
+<span class="lineNum">     491 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc4 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>                :            :         /*
+<span class="lineNum">     494 </span>                :            :          * Verify that the sharedHeaderList linked list can go beyond
+<span class="lineNum">     495 </span>                :            :          * 3 levels of lookahead by testing linked list up to depth 4
+<span class="lineNum">     496 </span>                :            :          */
+<span class="lineNum">     497 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(set-&gt;sharedHeaderList == header4-&gt;sharedHeader &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchCov" title="Branch 4 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>][<span class="branchCov" title="Branch 6 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 7 was not taken"> - </span>]
+<span class="lineNum">     498 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next == header3-&gt;sharedHeader &amp;&amp;
+<span class="lineNum">     499 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next-&gt;next == header2-&gt;sharedHeader &amp;&amp;
+<span class="lineNum">     500 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next-&gt;next-&gt;next == header1-&gt;sharedHeader &amp;&amp;
+<span class="lineNum">     501 </span>                :            :                         set-&gt;sharedHeaderList-&gt;next-&gt;next-&gt;next-&gt;next == NULL);
+<span class="lineNum">     502 </span>                :            : 
+<span class="lineNum">     503 </span>                :<span class="lineCov">          2 :         pfree(testAlloc1);</span>
+<span class="lineNum">     504 </span>                :<span class="lineCov">          2 :         pfree(testAlloc2);</span>
+<span class="lineNum">     505 </span>                :<span class="lineCov">          2 :         pfree(testAlloc3);</span>
+<span class="lineNum">     506 </span>                :<span class="lineCov">          2 :         pfree(testAlloc4);</span>
+<span class="lineNum">     507 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     508 </span>                :            : 
+<a name="509"><span class="lineNum">     509 </span>                :            : /* Tests whether SharedChunkHeadersMemoryAccount ignores the overhead of null Account header */</a>
+<span class="lineNum">     510 </span>                :            : void
+<span class="lineNum">     511 </span>                :            : test__AllocFreeInfo__SharedChunkHeadersMemoryAccountIgnoresNullHeader(void **state)
+<span class="lineNum">     512 </span>                :            : {
+<span class="lineNum">     513 </span>                :            :         /* This has two parts:
+<span class="lineNum">     514 </span>                :            :          * 1. Check the assertion that nullAccountHeader creation requires
+<span class="lineNum">     515 </span>                :            :          * SharedChunkHeadersMemoryAccount to be NULL
+<span class="lineNum">     516 </span>                :            :          *
+<span class="lineNum">     517 </span>                :            :          * 2. Reset the context that hosts the nullAccountHeader, and make sure
+<span class="lineNum">     518 </span>                :            :          * that SharedChunkHeadersMemoryAccount balance does not get changed
+<span class="lineNum">     519 </span>                :            :          */
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>                :<span class="lineCov">          2 :         MemoryContext *newContext = AllocSetContextCreate(ErrorContext,</span>
+<span class="lineNum">     522 </span>                :            :                            &quot;TestContext&quot;,
+<span class="lineNum">     523 </span>                :            :                            ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     524 </span>                :            :                            ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     525 </span>                :            :                            ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     526 </span>                :            : 
+<span class="lineNum">     527 </span>                :<span class="lineCov">          2 :         AllocSet newSet = (AllocSet)newContext;</span>
+<span class="lineNum">     528 </span>                :<span class="lineCov">          2 :         assert_true(newSet-&gt;sharedHeaderList == NULL);</span>
+<span class="lineNum">     529 </span>                :<span class="lineCov">          2 :         assert_true(newSet-&gt;nullAccountHeader == NULL);</span>
+<span class="lineNum">     530 </span>                :            : 
+<span class="lineNum">     531 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActive = ActiveMemoryAccountId;</span>
+<span class="lineNum">     532 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldShared = SharedChunkHeadersMemoryAccount;</span>
+<span class="lineNum">     533 </span>                :            : 
+<span class="lineNum">     534 </span>                :            :         /* Turning off memory monitoring */
+<span class="lineNum">     535 </span>                :<span class="lineCov">          2 :         ActiveMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;</span>
+<span class="lineNum">     536 </span>                :            : 
+<span class="lineNum">     537 </span>                :            :         #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     538 </span>                :<span class="lineCov">          2 :             expect_any(ExceptionalCondition,conditionName);</span>
+<span class="lineNum">     539 </span>                :<span class="lineCov">          2 :             expect_any(ExceptionalCondition,errorType);</span>
+<span class="lineNum">     540 </span>                :<span class="lineCov">          2 :             expect_any(ExceptionalCondition,fileName);</span>
+<span class="lineNum">     541 </span>                :<span class="lineCov">          2 :             expect_any(ExceptionalCondition,lineNumber);</span>
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :<span class="lineCov">          2 :             will_be_called_with_sideeffect(ExceptionalCondition, &amp;_ExceptionalCondition, NULL);</span>
+<span class="lineNum">     544 </span>                :            : 
+<span class="lineNum">     545 </span>                :            :             /* Test if within memory-limit strings cause assertion failure */
+<span class="lineNum">     546 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          4 :                 PG_TRY();</span>
+<span class="lineNum">     547 </span>                :            :                 {
+<span class="lineNum">     548 </span>                :            :                         /*
+<span class="lineNum">     549 </span>                :            :                          * ActiveMemoryAccountId is invalid, but SharedChunkHeadersMemoryAccount is
+<span class="lineNum">     550 </span>                :            :                          * *not* null. This should trigger an assertion
+<span class="lineNum">     551 </span>                :            :                          */
+<span class="lineNum">     552 </span>                :<span class="lineCov">          2 :                         void *testAlloc = MemoryContextAlloc(newContext, NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :<span class="lineCov">          2 :                         assert_true(false);</span>
+<span class="lineNum">     555 </span>                :            :                 }
+<span class="lineNum">     556 </span>                :<span class="lineCov">          2 :                 PG_CATCH();</span>
+<span class="lineNum">     557 </span>                :            :                 {
+<span class="lineNum">     558 </span>                :            :                 }
+<span class="lineNum">     559 </span>                :<span class="lineCov">          2 :                 PG_END_TRY();</span>
+<span class="lineNum">     560 </span>                :            :         #endif
+<span class="lineNum">     561 </span>                :            : 
+<span class="lineNum">     562 </span>                :            :         /*
+<span class="lineNum">     563 </span>                :            :          * Now make SharedChunkHeadersMemoryAccount NULL to avoid assert failure
+<span class="lineNum">     564 </span>                :            :          * and allow creation of a nullAccountHeader
+<span class="lineNum">     565 </span>                :            :          */
+<span class="lineNum">     566 </span>                :<span class="lineCov">          2 :         SharedChunkHeadersMemoryAccount = NULL;</span>
+<span class="lineNum">     567 </span>                :            : 
+<span class="lineNum">     568 </span>                :            :         /* Allocate from the new context which should trigger a nullAccountHeader creation*/
+<span class="lineNum">     569 </span>                :<span class="lineCov">          2 :         void *testAlloc = MemoryContextAlloc(newContext, NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header = (StandardChunkHeader *)</span>
+<span class="lineNum">     572 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     573 </span>                :            : 
+<span class="lineNum">     574 </span>                :            :         /*
+<span class="lineNum">     575 </span>                :            :          * Assert if we are using nullAccountHeader, as we have simulated absence
+<span class="lineNum">     576 </span>                :            :          * of memory monitoring
+<span class="lineNum">     577 </span>                :            :          */
+<span class="lineNum">     578 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(header-&gt;sharedHeader != NULL &amp;&amp; header-&gt;sharedHeader == newSet-&gt;nullAccountHeader);</span>
+<span class="lineNum">     579 </span>                :            : 
+<span class="lineNum">     580 </span>                :            :         /*
+<span class="lineNum">     581 </span>                :            :          * Restore the SharedChunkHeadersMemoryAccount so that we can turn on
+<span class="lineNum">     582 </span>                :            :          * sharedHeader balance releasing if a sharedHeader is deleted (except
+<span class="lineNum">     583 </span>                :            :          * nullAccountHeader of course)
+<span class="lineNum">     584 </span>                :            :          */
+<span class="lineNum">     585 </span>                :<span class="lineCov">          2 :         SharedChunkHeadersMemoryAccount = oldShared;</span>
+<span class="lineNum">     586 </span>                :            :         /* Activate the memory accounting */
+<span class="lineNum">     587 </span>                :<span class="lineCov">          2 :         ActiveMemoryAccountId = oldActive;</span>
+<span class="lineNum">     588 </span>                :            : 
+<span class="lineNum">     589 </span>                :<span class="lineCov">          2 :         uint64 sharedBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     592 </span>                :            : 
+<span class="lineNum">     593 </span>                :            :         /*
+<span class="lineNum">     594 </span>                :            :          * As testAlloc is holding a pointer to nullAccountHeader, releasing that allocation
+<span class="lineNum">     595 </span>                :            :          * should not change SharedChunkHeadersMemoryAccount balance
+<span class="lineNum">     596 </span>                :            :          */
+<span class="lineNum">     597 </span>                :<span class="lineCov">          2 :         assert_true(sharedBalance == SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed);</span>
+<span class="lineNum">     598 </span>                :            : 
+<span class="lineNum">     599 </span>                :<span class="lineCov">          2 :         MemoryContextDelete(newContext);</span>
+<span class="lineNum">     600 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     601 </span>                :            : 
+<a name="602"><span class="lineNum">     602 </span>                :            : /* Tests whether null Account header never gets freed */</a>
+<span class="lineNum">     603 </span>                :            : void
+<span class="lineNum">     604 </span>                :            : test__AllocFreeInfo__ReusesNullHeader(void **state)
+<span class="lineNum">     605 </span>                :            : {
+<span class="lineNum">     606 </span>                :<span class="lineCov">          2 :         MemoryContext *newContext = AllocSetContextCreate(ErrorContext,</span>
+<span class="lineNum">     607 </span>                :            :                            &quot;TestContext&quot;,
+<span class="lineNum">     608 </span>                :            :                            ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     609 </span>                :            :                            ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     610 </span>                :            :                            ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>                :<span class="lineCov">          2 :         AllocSet newSet = (AllocSet)newContext;</span>
+<span class="lineNum">     613 </span>                :<span class="lineCov">          2 :         assert_true(newSet-&gt;sharedHeaderList == NULL);</span>
+<span class="lineNum">     614 </span>                :<span class="lineCov">          2 :         assert_true(newSet-&gt;nullAccountHeader == NULL);</span>
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActive = ActiveMemoryAccountId;</span>
+<span class="lineNum">     617 </span>                :<span class="lineCov">          2 :         MemoryAccount* oldShared = SharedChunkHeadersMemoryAccount;</span>
+<span class="lineNum">     618 </span>                :            : 
+<span class="lineNum">     619 </span>                :            :         /* Turning off memory monitoring */
+<span class="lineNum">     620 </span>                :<span class="lineCov">          2 :         ActiveMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;</span>
+<span class="lineNum">     621 </span>                :            :         /* Also make SharedChunkHeadersMemoryAccount NULL to avoid assert failure */
+<span class="lineNum">     622 </span>                :<span class="lineCov">          2 :         SharedChunkHeadersMemoryAccount = NULL;</span>
+<span class="lineNum">     623 </span>                :            : 
+<span class="lineNum">     624 </span>                :            :         /* Allocate from the new context which should trigger a nullAccountHeader creation*/
+<span class="lineNum">     625 </span>                :<span class="lineCov">          2 :         void *testAlloc1 = MemoryContextAlloc(newContext, NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     626 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header1 = (StandardChunkHeader *)</span>
+<span class="lineNum">     627 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc1 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     628 </span>                :            : 
+<span class="lineNum">     629 </span>                :            :         /* Allocate another, and check if the nullAccountHeader is reused */
+<span class="lineNum">     630 </span>                :<span class="lineCov">          2 :         void *testAlloc2 = MemoryContextAlloc(newContext, NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     631 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header2 = (StandardChunkHeader *)</span>
+<span class="lineNum">     632 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc2 - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     633 </span>                :            : 
+<span class="lineNum">     634 </span>                :            :         /*
+<span class="lineNum">     635 </span>                :            :          * Make sure that the nullAccountHeader doesn't get reallocated
+<span class="lineNum">     636 </span>                :            :          * every time and a singleton nullAccountHeader is shared between
+<span class="lineNum">     637 </span>                :            :          * any chunks that are allocated before memory accounting is enabled
+<span class="lineNum">     638 </span>                :            :          */
+<span class="lineNum">     639 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(header1-&gt;sharedHeader != NULL &amp;&amp; header1-&gt;sharedHeader == newSet-&gt;nullAccountHeader &amp;&amp;</span>
+<span class="lineNum">     640 </span>                :            :                         header1-&gt;sharedHeader == header2-&gt;sharedHeader);
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>                :<span class="lineCov">          2 :         ActiveMemoryAccountId = oldActive;</span>
+<span class="lineNum">     643 </span>                :<span class="lineCov">          2 :         SharedChunkHeadersMemoryAccount = oldShared;</span>
+<span class="lineNum">     644 </span>                :            : 
+<span class="lineNum">     645 </span>                :<span class="lineCov">          2 :         pfree(testAlloc1);</span>
+<span class="lineNum">     646 </span>                :<span class="lineCov">          2 :         pfree(testAlloc2);</span>
+<span class="lineNum">     647 </span>                :            : 
+<span class="lineNum">     648 </span>                :<span class="lineCov">          2 :         MemoryContextDelete(newContext);</span>
+<span class="lineNum">     649 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     650 </span>                :            : 
+<a name="651"><span class="lineNum">     651 </span>                :            : /* Tests whether we are promptly freeing shared header that is no longer shared */</a>
+<span class="lineNum">     652 </span>                :            : void
+<span class="lineNum">     653 </span>                :            : test__AllocFreeInfo__FreesObsoleteHeader(void **state)
+<span class="lineNum">     654 </span>                :            : {
+<span class="lineNum">     655 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccount = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     656 </span>                :            : 
+<span class="lineNum">     657 </span>                :            :         /* Make sure we have a new active account to force a new shared header allocation */
+<span class="lineNum">     658 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActiveAccount = MemoryAccounting_SwitchAccount(newActiveAccount);</span>
+<span class="lineNum">     659 </span>                :            : 
+<span class="lineNum">     660 </span>                :<span class="lineCov">          2 :         uint64 prevSharedBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     661 </span>                :            : 
+<span class="lineNum">     662 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     663 </span>                :            : 
+<span class="lineNum">     664 </span>                :<span class="lineCov">          2 :         uint64 newSharedBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     665 </span>                :            : 
+<span class="lineNum">     666 </span>                :<span class="lineCov">          2 :         assert_true(prevSharedBalance &lt; newSharedBalance);</span>
+<span class="lineNum">     667 </span>                :            : 
+<span class="lineNum">     668 </span>                :<span class="lineCov">          2 :         StandardChunkHeader *header = (StandardChunkHeader *)</span>
+<span class="lineNum">     669 </span>                :<span class="lineCov">          2 :                 ((char *) testAlloc - STANDARDCHUNKHEADERSIZE);</span>
+<span class="lineNum">     670 </span>                :            : 
+<span class="lineNum">     671 </span>                :<span class="lineCov">          2 :         AllocSet set = (AllocSet)CurrentMemoryContext;</span>
+<span class="lineNum">     672 </span>                :            : 
+<span class="lineNum">     673 </span>                :<span class="lineCov">          2 :         SharedChunkHeader *headerPointer = header-&gt;sharedHeader;</span>
+<span class="lineNum">     674 </span>                :<span class="lineCov">          2 :         assert_true(set-&gt;sharedHeaderList == headerPointer);</span>
+<span class="lineNum">     675 </span>                :            : 
+<span class="lineNum">     676 </span>                :            :         /*
+<span class="lineNum">     677 </span>                :            :          * As no one else is using the sharedHeader of testAlloc,
+<span class="lineNum">     678 </span>                :            :          * we should release upon pfree of testAlloc
+<span class="lineNum">     679 </span>                :            :          */
+<span class="lineNum">     680 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     681 </span>                :            : 
+<span class="lineNum">     682 </span>                :            :         /*
+<span class="lineNum">     683 </span>                :            :          * The sharedHeaderList should no longer store the sharedHeader
+<span class="lineNum">     684 </span>                :            :          * that we have just released. Note: the headerPointer is now
+<span class="lineNum">     685 </span>                :            :          * and invalid pointer as we have already freed the shared header
+<span class="lineNum">     686 </span>                :            :          * memory
+<span class="lineNum">     687 </span>                :            :          */
+<span class="lineNum">     688 </span>                :<span class="lineCov">          2 :         assert_true(set-&gt;sharedHeaderList != headerPointer);</span>
+<span class="lineNum">     689 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     690 </span>                :            : 
+<a name="691"><span class="lineNum">     691 </span>                :            : /* Tests whether a free operation decreases balance of only the owning account */</a>
+<span class="lineNum">     692 </span>                :            : void
+<span class="lineNum">     693 </span>                :            : test__AllocFreeInfo__FreesOnlyOwnerAccount(void **state)
+<span class="lineNum">     694 </span>                :            : {
+<span class="lineNum">     695 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     696 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActiveAccountId = MemoryAccounting_SwitchAccount(newAccountId);</span>
+<span class="lineNum">     697 </span>                :            : 
+<span class="lineNum">     698 </span>                :            :         /* This chunk should record newAccount as the owner */
+<span class="lineNum">     699 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     700 </span>                :            : 
+<span class="lineNum">     701 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldActiveAccountId);</span>
+<span class="lineNum">     702 </span>                :            : 
+<span class="lineNum">     703 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId != newAccountId);</span>
+<span class="lineNum">     704 </span>                :            : 
+<span class="lineNum">     705 </span>                :<span class="lineCov">          2 :         MemoryAccount* activeAccount = MemoryAccounting_ConvertIdToAccount(ActiveMemoryAccountId);</span>
+<span class="lineNum">     706 </span>                :<span class="lineCov">          2 :         MemoryAccount* newAccount = MemoryAccounting_ConvertIdToAccount(newAccountId);</span>
+<span class="lineNum">     707 </span>                :<span class="lineCov">          2 :         uint64 originalActiveBalance = activeAccount-&gt;allocated - activeAccount-&gt;freed;</span>
+<span class="lineNum">     708 </span>                :<span class="lineCov">          2 :         uint64 newAccountBalance = newAccount-&gt;allocated - newAccount-&gt;freed;</span>
+<span class="lineNum">     709 </span>                :<span class="lineCov">          2 :         uint64 newAccountFreed = newAccount-&gt;freed;</span>
+<span class="lineNum">     710 </span>                :<span class="lineCov">          2 :         uint64 sharedFreed = SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     711 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     712 </span>                :            : 
+<span class="lineNum">     713 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     714 </span>                :            : 
+<span class="lineNum">     715 </span>                :            :         /*
+<span class="lineNum">     716 </span>                :            :          * Make sure that the active account is unchanged while the owner account
+<span class="lineNum">     717 </span>                :            :          * balance was reduced
+<span class="lineNum">     718 </span>                :            :          */
+<span class="lineNum">     719 </span>                :<span class="lineCov">          2 :         assert_true(activeAccount-&gt;allocated - activeAccount-&gt;freed == originalActiveBalance);</span>
+<span class="lineNum">     720 </span>                :            :         /* Balance was released from newAccount */
+<span class="lineNum">     721 </span>                :<span class="lineCov">          2 :         assert_true(newAccount-&gt;allocated - newAccount-&gt;freed &lt;= newAccountBalance - NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     722 </span>                :            : 
+<span class="lineNum">     723 </span>                :            :         /* The shared header should be released */
+<span class="lineNum">     724 </span>                :<span class="lineCov">          2 :         assert_true(SharedChunkHeadersMemoryAccount-&gt;freed - sharedFreed &gt; 0);</span>
+<span class="lineNum">     725 </span>                :            : 
+<span class="lineNum">     726 </span>                :            :         /* All the difference in outstanding balance should come from newAccount
+<span class="lineNum">     727 </span>                :            :          * (which was the owner of the chunk) balance change and the resulting
+<span class="lineNum">     728 </span>                :            :          * shared header release
+<span class="lineNum">     729 </span>                :            :          */
+<span class="lineNum">     730 </span>                :<span class="lineCov">          2 :         assert_true(prevOutstanding - MemoryAccountingOutstandingBalance ==</span>
+<span class="lineNum">     731 </span>                :            :                         newAccount-&gt;freed - newAccountFreed + SharedChunkHeadersMemoryAccount-&gt;freed - sharedFreed);
+<span class="lineNum">     732 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     733 </span>                :            : 
+<a name="734"><span class="lineNum">     734 </span>                :            : /* Tests whether a large allocation allocates dedicated block */</a>
+<span class="lineNum">     735 </span>                :            : void
+<span class="lineNum">     736 </span>                :            : test__AllocSetAllocImpl__LargeAllocInNewBlock(void **state)
+<span class="lineNum">     737 </span>                :            : {
+<span class="lineNum">     738 </span>                :<span class="lineCov">          2 :         int chunkSize = ALLOC_CHUNK_LIMIT + 1;</span>
+<span class="lineNum">     739 </span>                :            :         /* This chunk should record newAccount as the owner */
+<span class="lineNum">     740 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(chunkSize);</span>
+<span class="lineNum">     741 </span>                :            : 
+<span class="lineNum">     742 </span>                :<span class="lineCov">          2 :         AllocChunk      chunk = AllocPointerGetChunk(testAlloc);</span>
+<span class="lineNum">     743 </span>                :            : 
+<span class="lineNum">     744 </span>                :<span class="lineCov">          2 :         AllocBlock block = (AllocBlock)(((char*)chunk) - ALLOC_BLOCKHDRSZ);</span>
+<span class="lineNum">     745 </span>                :<span class="lineCov">          2 :         AllocSet set = (AllocSet)CurrentMemoryContext;</span>
+<span class="lineNum">     746 </span>                :            : 
+<span class="lineNum">     747 </span>                :            :         /*
+<span class="lineNum">     748 </span>                :            :          * Make sure that the block pointer is the same as the *second* block in the blocks
+<span class="lineNum">     749 </span>                :            :          * list (we insert the new block after the head, to keep the head available for
+<span class="lineNum">     750 </span>                :            :          * more chunk allocation, if it is not entirely used yet). Also, ensure that block's
+<span class="lineNum">     751 </span>                :            :          * freeptr is set to endptr (i.e., block is exclusively owned by this chunk).
+<span class="lineNum">     752 </span>                :            :          */
+<span class="lineNum">     753 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(set-&gt;blocks != NULL &amp;&amp; set-&gt;blocks-&gt;next != NULL &amp;&amp; set-&gt;blocks-&gt;next == block &amp;&amp; UserPtr_GetEndPtr(set-&gt;blocks-&gt;next) == set-&gt;blocks-&gt;next-&gt;freeptr);</span>
+<span class="lineNum">         </span>        [<span class="branchCov" title="Branch 4 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 5 was not taken"> - </span>]
+<span class="lineNum">     754 </span>                :            : 
+<span class="lineNum">     755 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     756 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     757 </span>                :            : 
+<a name="758"><span class="lineNum">     758 </span>                :            : /* Tests whether a large allocation updates memory accounting outstanding balance */</a>
+<span class="lineNum">     759 </span>                :            : void
+<span class="lineNum">     760 </span>                :            : test__AllocSetAllocImpl__LargeAllocInOutstandingBalance(void **state)
+<span class="lineNum">     761 </span>                :            : {
+<span class="lineNum">     762 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     763 </span>                :            : 
+<span class="lineNum">     764 </span>                :<span class="lineCov">          2 :         int chunkSize = ALLOC_CHUNK_LIMIT + 1;</span>
+<span class="lineNum">     765 </span>                :            :         /* This chunk should record newAccount as the owner */
+<span class="lineNum">     766 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(chunkSize);</span>
+<span class="lineNum">     767 </span>                :            : 
+<span class="lineNum">     768 </span>                :            :         /*
+<span class="lineNum">     769 </span>                :            :          * Outstanding balance should increase by at least the chunkSize
+<span class="lineNum">     770 </span>                :            :          */
+<span class="lineNum">     771 </span>                :<span class="lineCov">          2 :         assert_true(prevOutstanding + chunkSize &lt;= MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     772 </span>                :            : 
+<span class="lineNum">     773 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     774 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     775 </span>                :            : 
+<a name="776"><span class="lineNum">     776 </span>                :            : /* Tests whether a large allocation updates balance of the active memory account */</a>
+<span class="lineNum">     777 </span>                :            : void
+<span class="lineNum">     778 </span>                :            : test__AllocSetAllocImpl__LargeAllocInActiveMemoryAccount(void **state)
+<span class="lineNum">     779 </span>                :            : {
+<span class="lineNum">     780 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     781 </span>                :            : 
+<span class="lineNum">     782 </span>                :            :         /* Make sure we have a new active account other than Rollover */
+<span class="lineNum">     783 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActiveAccount = MemoryAccounting_SwitchAccount(newActiveAccountId);</span>
+<span class="lineNum">     784 </span>                :            : 
+<span class="lineNum">     785 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     786 </span>                :            : 
+<span class="lineNum">     787 </span>                :<span class="lineCov">          2 :         uint64 prevSharedHeaderAlloc = SharedChunkHeadersMemoryAccount-&gt;allocated;</span>
+<span class="lineNum">     788 </span>                :            : 
+<span class="lineNum">     789 </span>                :<span class="lineCov">          2 :         uint64 prevActiveAlloc = MemoryAccounting_GetAccountCurrentBalance(ActiveMemoryAccountId);</span>
+<span class="lineNum">     790 </span>                :            : 
+<span class="lineNum">     791 </span>                :<span class="lineCov">          2 :         int chunkSize = ALLOC_CHUNK_LIMIT + 1;</span>
+<span class="lineNum">     792 </span>                :            :         /* This chunk should record newAccount as the owner */
+<span class="lineNum">     793 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(chunkSize);</span>
+<span class="lineNum">     794 </span>                :            : 
+<span class="lineNum">     795 </span>                :<span class="lineCov">          2 :         MemoryAccount *newActiveAccount = MemoryAccounting_ConvertIdToAccount(newActiveAccountId);</span>
+<span class="lineNum">     796 </span>                :            :         /*
+<span class="lineNum">     797 </span>                :            :          * All the new allocation should go to active memory account, and the
+<span class="lineNum">     798 </span>                :            :          * SharedChunkHeadersMemoryAccount should contribute to add up to
+<span class="lineNum">     799 </span>                :            :          * the outstanding balance change
+<span class="lineNum">     800 </span>                :            :          */
+<span class="lineNum">     801 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true((newActiveAccount-&gt;allocated &gt;= prevActiveAlloc + chunkSize) &amp;&amp;</span>
+<span class="lineNum">     802 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated &gt; prevSharedHeaderAlloc) &amp;&amp;
+<span class="lineNum">     803 </span>                :            :                         (newActiveAccount-&gt;allocated - newActiveAccount-&gt;freed) +
+<span class="lineNum">     804 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated - prevSharedHeaderAlloc) ==
+<span class="lineNum">     805 </span>                :            :                                         (MemoryAccountingOutstandingBalance - prevOutstanding));
+<span class="lineNum">     806 </span>                :            : 
+<span class="lineNum">     807 </span>                :            :         /*
+<span class="lineNum">     808 </span>                :            :          * We need to pfree as we have allocated this memory
+<span class="lineNum">     809 </span>                :            :          * in the TopMemoryContext with a short-living memory account
+<span class="lineNum">     810 </span>                :            :          */
+<span class="lineNum">     811 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     812 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     813 </span>                :            : 
+<span class="lineNum">     814 </span>                :            : /*
+<span class="lineNum">     815 </span>                :            :  * Tests whether reallocating a small chunk into a large allocation
+<span class="lineNum">     816 </span>                :            :  * updates memory accounting outstanding balance
+<a name="817"><span class="lineNum">     817 </span>                :            :  */</a>
+<span class="lineNum">     818 </span>                :            : void
+<span class="lineNum">     819 </span>                :            : test__AllocSetRealloc__AdjustsOutstandingBalance(void **state)
+<span class="lineNum">     820 </span>                :            : {
+<span class="lineNum">     821 </span>                :            :         /* This chunk should record newAccount as the owner */
+<span class="lineNum">     822 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     823 </span>                :            : 
+<span class="lineNum">     824 </span>                :<span class="lineCov">          2 :         AllocChunk chunk = AllocPointerGetChunk(testAlloc);</span>
+<span class="lineNum">     825 </span>                :<span class="lineCov">          2 :         int prevSize = chunk-&gt;size;</span>
+<span class="lineNum">     826 </span>                :            : 
+<span class="lineNum">     827 </span>                :<span class="lineCov">          2 :         uint64 prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     828 </span>                :            : 
+<span class="lineNum">     829 </span>                :            :         /* Just double the allocation, which should still be under the ALLOC_CHUNK_LIMIT */
+<span class="lineNum">     830 </span>                :<span class="lineCov">          2 :         testAlloc = repalloc(testAlloc, NEW_ALLOC_SIZE * 2);</span>
+<span class="lineNum">     831 </span>                :            : 
+<span class="lineNum">     832 </span>                :<span class="lineCov">          2 :         chunk = AllocPointerGetChunk(testAlloc);</span>
+<span class="lineNum">     833 </span>                :<span class="lineCov">          2 :         int newSize = chunk-&gt;size;</span>
+<span class="lineNum">     834 </span>                :            : 
+<span class="lineNum">     835 </span>                :<span class="lineCov">          2 :         uint64 balanceChange = newSize - prevSize;</span>
+<span class="lineNum">     836 </span>                :            : 
+<span class="lineNum">     837 </span>                :            :         /*
+<span class="lineNum">     838 </span>                :            :          * Outstanding balance should increase by the &quot;balanceChange&quot;
+<span class="lineNum">     839 </span>                :            :          */
+<span class="lineNum">     840 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(balanceChange &gt; 0 &amp;&amp; prevOutstanding + balanceChange == MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     841 </span>                :            : 
+<span class="lineNum">     842 </span>                :<span class="lineCov">          2 :         prevOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     843 </span>                :            : 
+<span class="lineNum">     844 </span>                :<span class="lineCov">          2 :         prevSize = newSize;</span>
+<span class="lineNum">     845 </span>                :            : 
+<span class="lineNum">     846 </span>                :<span class="lineCov">          2 :         int bigChunkSize = ALLOC_CHUNK_LIMIT + 1;</span>
+<span class="lineNum">     847 </span>                :<span class="lineCov">          2 :         testAlloc = repalloc(testAlloc, bigChunkSize);</span>
+<span class="lineNum">     848 </span>                :            : 
+<span class="lineNum">     849 </span>                :<span class="lineCov">          2 :         chunk = AllocPointerGetChunk(testAlloc);</span>
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>                :<span class="lineCov">          2 :         newSize = chunk-&gt;size;</span>
+<span class="lineNum">     852 </span>                :            : 
+<span class="lineNum">     853 </span>                :<span class="lineCov">          2 :         balanceChange = newSize - prevSize;</span>
+<span class="lineNum">     854 </span>                :            : 
+<span class="lineNum">     855 </span>                :            :         /*
+<span class="lineNum">     856 </span>                :            :          * Outstanding balance should increase by the &quot;balanceChange&quot;
+<span class="lineNum">     857 </span>                :            :          */
+<span class="lineNum">     858 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(balanceChange &gt; 0 &amp;&amp; prevOutstanding + balanceChange == MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     859 </span>                :            : 
+<span class="lineNum">     860 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     861 </span>                :<span class="lineCov">          2 : }</span>
+<a name="862"><span class="lineNum">     862 </span>                :            : </a>
+<span class="lineNum">     863 </span>                :            : int
+<span class="lineNum">     864 </span>                :            : main(int argc, char* argv[])
+<span class="lineNum">     865 </span>                :            : {
+<span class="lineNum">     866 </span>                :<span class="lineCov">          2 :         cmockery_parse_arguments(argc, argv);</span>
+<span class="lineNum">     867 </span>                :            : 
+<span class="lineNum">     868 </span>                :            :         const UnitTest tests[] = {
+<span class="lineNum">     869 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Allocate__ChargesOnlyActiveAccount, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     870 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Allocate__AdjustsOutstanding, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     871 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Allocate__AdjustsPeak, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     872 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Free__FreesOldGenFromRollover, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     873 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Free__AdjustsOutstanding, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     874 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Free__KeepsPeakUnchanged, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     875 </span>                :            :                 unit_test_setup_teardown(test__AllocAllocInfo__SharesHeader, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     876 </span>                :            :                 unit_test_setup_teardown(test__AllocAllocInfo__ChargesSharedChunkHeadersMemoryAccount, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     877 </span>                :            :                 unit_test_setup_teardown(test__AllocAllocInfo__UsesNullAccountHeader, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     878 </span>                :            :                 unit_test_setup_teardown(test__AllocAllocInfo__LooksAheadInSharedHeaderList, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     879 </span>                :            :                 unit_test_setup_teardown(test__AllocAllocInfo__IgnoresOldGenSharedHeaders, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     880 </span>                :            :                 unit_test_setup_teardown(test__AllocAllocInfo__InsertsIntoSharedHeaderList, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     881 </span>                :            :                 unit_test_setup_teardown(test__AllocFreeInfo__SharedChunkHeadersMemoryAccountIgnoresNullHeader, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     882 </span>                :            :                 unit_test_setup_teardown(test__AllocFreeInfo__ReusesNullHeader, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     883 </span>                :            :                 unit_test_setup_teardown(test__AllocFreeInfo__FreesObsoleteHeader, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     884 </span>                :            :                 unit_test_setup_teardown(test__AllocFreeInfo__FreesOnlyOwnerAccount, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     885 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Allocate__ChargesOnlyActiveAccount, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     886 </span>                :            :                 unit_test_setup_teardown(test__AllocSetAllocImpl__LargeAllocInNewBlock, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     887 </span>                :            :                 unit_test_setup_teardown(test__AllocSetAllocImpl__LargeAllocInOutstandingBalance, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     888 </span>                :            :                 unit_test_setup_teardown(test__AllocSetAllocImpl__LargeAllocInActiveMemoryAccount, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     889 </span>                :            :                 unit_test_setup_teardown(test__AllocSetRealloc__AdjustsOutstandingBalance, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">     890 </span>                :            :         };
+<span class="lineNum">     891 </span>                :            : 
+<span class="lineNum">     892 </span>                :<span class="lineCov">          2 :         return run_tests(tests);</span>
+<span class="lineNum">     893 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

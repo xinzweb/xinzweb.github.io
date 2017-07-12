@@ -1,0 +1,947 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - access/appendonly/appendonly_visimap.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">access/appendonly</a> - appendonly_visimap.c<span style="font-size: 80%;"> (source / <a href="appendonly_visimap.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">28</td>
+            <td class="headerCovTableEntry">295</td>
+            <td class="headerCovTableEntryLo">9.5 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">21</td>
+            <td class="headerCovTableEntryLo">14.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntry">278</td>
+            <td class="headerCovTableEntryLo">4.3 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*------------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * AppendOnlyVisimap
+<span class="lineNum">       4 </span>                :            :  *   maintain a visibility bitmap.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Copyright (c) 2013, Pivotal.
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  *------------------------------------------------------------------------------
+<span class="lineNum">       9 </span>                :            : */
+<span class="lineNum">      10 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      11 </span>                :            : #include &quot;access/appendonly_visimap.h&quot;
+<span class="lineNum">      12 </span>                :            : #include &quot;access/appendonly_visimap_entry.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;access/appendonly_visimap_store.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;access/appendonlytid.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;cdb/cdbappendonlyblockdirectory.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;access/hash.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : /*
+<span class="lineNum">      21 </span>                :            :  * Key structure for the visimap deletion hash table.
+<span class="lineNum">      22 </span>                :            :  */
+<span class="lineNum">      23 </span>                :            : typedef struct AppendOnlyVisiMapDeleteKey
+<span class="lineNum">      24 </span>                :            : {
+<span class="lineNum">      25 </span>                :            :         /*
+<span class="lineNum">      26 </span>                :            :          * Segno of the dirty visimap entry.
+<span class="lineNum">      27 </span>                :            :          *
+<span class="lineNum">      28 </span>                :            :          * MPP-23546: Changed the type of segno from int to uint64.  With
+<span class="lineNum">      29 </span>                :            :          * uint (4-bytes), additional 4-bytes were being used for padding.
+<span class="lineNum">      30 </span>                :            :          * The padding bits may differ for two keys causing two otherwise
+<span class="lineNum">      31 </span>                :            :          * equal objects to be treated as unequal by hash functions.
+<span class="lineNum">      32 </span>                :            :          * Keeping type to uint64 does not change the value of
+<span class="lineNum">      33 </span>                :            :          * sizeof(AppendOnlyVisiMapDeleteKey) but eliminates padding.
+<span class="lineNum">      34 </span>                :            :          */
+<span class="lineNum">      35 </span>                :            :         uint64 segno;
+<span class="lineNum">      36 </span>                :            : 
+<span class="lineNum">      37 </span>                :            :         /*
+<span class="lineNum">      38 </span>                :            :          * First row num of the dirty visimap entry.
+<span class="lineNum">      39 </span>                :            :          */
+<span class="lineNum">      40 </span>                :            :         uint64 firstRowNum;
+<span class="lineNum">      41 </span>                :            : } AppendOnlyVisiMapDeleteKey;
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>                :            : /*
+<span class="lineNum">      44 </span>                :            :  * Key/Value structure for the visimap deletion hash table.
+<span class="lineNum">      45 </span>                :            :  */
+<span class="lineNum">      46 </span>                :            : typedef struct AppendOnlyVisiMapDeleteData
+<span class="lineNum">      47 </span>                :            : {
+<span class="lineNum">      48 </span>                :            :         /*
+<span class="lineNum">      49 </span>                :            :          * Key of the visimap entry
+<span class="lineNum">      50 </span>                :            :          */
+<span class="lineNum">      51 </span>                :            :         AppendOnlyVisiMapDeleteKey key;
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>                :            :         /*
+<span class="lineNum">      54 </span>                :            :          * Offset of the latest dirty version of the visimap bitmap in
+<span class="lineNum">      55 </span>                :            :          * the spill file.
+<span class="lineNum">      56 </span>                :            :          */
+<span class="lineNum">      57 </span>                :            :         uint64 workFileOffset;
+<span class="lineNum">      58 </span>                :            : 
+<span class="lineNum">      59 </span>                :            :         /*
+<span class="lineNum">      60 </span>                :            :          * Tuple id of the visimap entry if the visimap entry existed before.
+<span class="lineNum">      61 </span>                :            :          */
+<span class="lineNum">      62 </span>                :            :         ItemPointerData tupleTid;
+<span class="lineNum">      63 </span>                :            : } AppendOnlyVisiMapDeleteData;
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : static void AppendOnlyVisimap_Store(
+<span class="lineNum">      68 </span>                :            :                 AppendOnlyVisimap *visiMap);
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            : static void AppendOnlyVisimap_Find(
+<span class="lineNum">      71 </span>                :            :                 AppendOnlyVisimap *visiMap,
+<span class="lineNum">      72 </span>                :            :                 AOTupleId *tupleId);
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            : /*
+<span class="lineNum">      75 </span>                :            :  * Finishes the visimap operations.
+<span class="lineNum">      76 </span>                :            :  * No other function should be called with the given
+<span class="lineNum">      77 </span>                :            :  * visibility map after this function has been called.
+<a name="78"><span class="lineNum">      78 </span>                :            :  */ </a>
+<span class="lineNum">      79 </span>                :            : void
+<span class="lineNum">      80 </span>                :            : AppendOnlyVisimap_Finish(
+<span class="lineNum">      81 </span>                :            :                 AppendOnlyVisimap *visiMap,
+<span class="lineNum">      82 </span>                :            :                 LOCKMODE lockmode)
+<span class="lineNum">      83 </span>                :            : {
+<span class="lineNum">      84 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (AppendOnlyVisimapEntry_HasChanged(&amp;visiMap-&gt;visimapEntry))</span>
+<span class="lineNum">      85 </span>                :            :         {
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                 AppendOnlyVisimap_Store(visiMap);</span>
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapStore_Finish(&amp;visiMap-&gt;visimapStore, lockmode);</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapEntry_Finish(&amp;visiMap-&gt;visimapEntry);</span>
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         MemoryContextDelete(visiMap-&gt;memoryContext);</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :         visiMap-&gt;memoryContext = NULL;</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>                :            : /*
+<span class="lineNum">      97 </span>                :            :  * Initializes the visimap data structure.
+<span class="lineNum">      98 </span>                :            :  *
+<span class="lineNum">      99 </span>                :            :  * It assumes a zero-allocated visibility map.
+<span class="lineNum">     100 </span>                :            :  * Should not be called twice.
+<a name="101"><span class="lineNum">     101 </span>                :            :  */ </a>
+<span class="lineNum">     102 </span>                :            : void
+<span class="lineNum">     103 </span>                :            : AppendOnlyVisimap_Init(
+<span class="lineNum">     104 </span>                :            :                 AppendOnlyVisimap *visiMap,
+<span class="lineNum">     105 </span>                :            :                 Oid visimapRelid,
+<span class="lineNum">     106 </span>                :            :                 Oid visimapIdxid,
+<span class="lineNum">     107 </span>                :            :                 LOCKMODE lockmode,
+<span class="lineNum">     108 </span>                :            :                 Snapshot appendOnlyMetaDataSnapshot)
+<span class="lineNum">     109 </span>                :            : {
+<span class="lineNum">     110 </span>                :            :         MemoryContext oldContext;
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     113 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(visimapRelid));</span>
+<span class="lineNum">     114 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(visimapIdxid));</span>
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :         visiMap-&gt;memoryContext = AllocSetContextCreate(</span>
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                         CurrentMemoryContext,</span>
+<span class="lineNum">     118 </span>                :            :                         &quot;VisiMapContext&quot;,
+<span class="lineNum">     119 </span>                :            :                         ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     120 </span>                :            :                         ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     121 </span>                :            :                         ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :         oldContext = MemoryContextSwitchTo(</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                         visiMap-&gt;memoryContext);</span>
+<span class="lineNum">     125 </span>                :            :         
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapEntry_Init(&amp;visiMap-&gt;visimapEntry,</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :                         visiMap-&gt;memoryContext);</span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapStore_Init(&amp;visiMap-&gt;visimapStore,</span>
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                         visimapRelid,</span>
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                         visimapIdxid,</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                         lockmode,</span>
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                         appendOnlyMetaDataSnapshot,</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                         visiMap-&gt;memoryContext);</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldContext);</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     138 </span>                :            : 
+<span class="lineNum">     139 </span>                :            : /*
+<span class="lineNum">     140 </span>                :            :  * Moves the visibility map entry so that the given
+<span class="lineNum">     141 </span>                :            :  * AO tuple id is covered by it.
+<span class="lineNum">     142 </span>                :            :  * If necessary a new map entry is initialized.
+<span class="lineNum">     143 </span>                :            :  *
+<span class="lineNum">     144 </span>                :            :  * Assumes that all previous changed information have been
+<span class="lineNum">     145 </span>                :            :  * stored.
+<span class="lineNum">     146 </span>                :            :  * Should not be called when the append-only table has no relation
+<span class="lineNum">     147 </span>                :            :  * Assumes that the visibility has been initialized and not finished.
+<a name="148"><span class="lineNum">     148 </span>                :            :  */ </a>
+<span class="lineNum">     149 </span>                :            : static void
+<span class="lineNum">     150 </span>                :            : AppendOnlyVisimap_Find(
+<span class="lineNum">     151 </span>                :            :                 AppendOnlyVisimap *visiMap,
+<span class="lineNum">     152 </span>                :            :                 AOTupleId *aoTupleId)
+<span class="lineNum">     153 </span>                :            : {
+<span class="lineNum">     154 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     155 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(aoTupleId);</span>
+<span class="lineNum">     156 </span>                :            :         
+<span class="lineNum">     157 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     158 </span>                :            :                         &quot;Append-only visi map: Find entry for &quot;
+<span class="lineNum">     159 </span>                :            :                         &quot;(tupleId) = %s&quot;, 
+<span class="lineNum">     160 </span>                :            :                         AOTupleIdToString(aoTupleId)); 
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!AppendOnlyVisimapStore_Find(&amp;visiMap-&gt;visimapStore,</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                                 AOTupleIdGet_segmentFileNum(aoTupleId),</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                                 AppendOnlyVisimapEntry_GetFirstRowNum(</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                                         &amp;visiMap-&gt;visimapEntry, aoTupleId),</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                                 &amp;visiMap-&gt;visimapEntry))</span>
+<span class="lineNum">     167 </span>                :            :         {
+<span class="lineNum">     168 </span>                :            :                 /*
+<span class="lineNum">     169 </span>                :            :                  * There is no entry that covers the given tuple id.
+<span class="lineNum">     170 </span>                :            :                  */ 
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                 AppendOnlyVisimapEntry_New(&amp;visiMap-&gt;visimapEntry, aoTupleId);</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :            : /*
+<span class="lineNum">     176 </span>                :            :  * Checks if a tuple is visible according to the visibility map.
+<span class="lineNum">     177 </span>                :            :  * A positive result is a necessary but not sufficient condition for
+<span class="lineNum">     178 </span>                :            :  * a tuple to be visible to the user.
+<span class="lineNum">     179 </span>                :            :  *
+<span class="lineNum">     180 </span>                :            :  * Assumes that the visibility has been initialized and not finished.
+<a name="181"><span class="lineNum">     181 </span>                :            :  */ </a>
+<span class="lineNum">     182 </span>                :            : bool
+<span class="lineNum">     183 </span>                :            : AppendOnlyVisimap_IsVisible(
+<span class="lineNum">     184 </span>                :            :                 AppendOnlyVisimap *visiMap,
+<span class="lineNum">     185 </span>                :            :                 AOTupleId *aoTupleId)
+<span class="lineNum">     186 </span>                :            : {
+<span class="lineNum">     187 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     188 </span>                :            :         
+<span class="lineNum">     189 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     190 </span>                :            :                         &quot;Append-only visi map: Visibility check: &quot;
+<span class="lineNum">     191 </span>                :            :                         &quot;(tupleId) = %s&quot;, 
+<span class="lineNum">     192 </span>                :            :                         AOTupleIdToString(aoTupleId)); 
+<span class="lineNum">     193 </span>                :            : 
+<span class="lineNum">     194 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!AppendOnlyVisimapEntry_CoversTuple(&amp;visiMap-&gt;visimapEntry,</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                         aoTupleId))</span>
+<span class="lineNum">     196 </span>                :            :         {
+<span class="lineNum">     197 </span>                :            :                 /* if necessary persist the current entry before moving. */
+<span class="lineNum">     198 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (AppendOnlyVisimapEntry_HasChanged(&amp;visiMap-&gt;visimapEntry))</span>
+<span class="lineNum">     199 </span>                :            :                 {
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                         AppendOnlyVisimap_Store(visiMap);</span>
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                 AppendOnlyVisimap_Find(visiMap, aoTupleId);</span>
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     205 </span>                :            :         
+<span class="lineNum">     206 </span>                :            :         /* visimap entry is now positioned to cover the aoTupleId */
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         return AppendOnlyVisimapEntry_IsVisible(&amp;visiMap-&gt;visimapEntry,</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                 aoTupleId);</span>
+<span class="lineNum">     209 </span>                :            : }
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>                :            : /*
+<span class="lineNum">     212 </span>                :            :  * Stores the current visibility map entry information
+<span class="lineNum">     213 </span>                :            :  * in the relation either as update or delete.
+<span class="lineNum">     214 </span>                :            :  *
+<span class="lineNum">     215 </span>                :            :  * Should not be called if AppendOnlyVisimap_Find has not been
+<span class="lineNum">     216 </span>                :            :  * called earlier.
+<span class="lineNum">     217 </span>                :            :  * It may be called when the visibility map entry has not changed. However
+<span class="lineNum">     218 </span>                :            :  * that is usually wasteful.
+<span class="lineNum">     219 </span>                :            :  *
+<span class="lineNum">     220 </span>                :            :  * Assumes that the visibility has been initialized and not finished.
+<a name="221"><span class="lineNum">     221 </span>                :            :  */ </a>
+<span class="lineNum">     222 </span>                :            : void
+<span class="lineNum">     223 </span>                :            : AppendOnlyVisimap_Store(
+<span class="lineNum">     224 </span>                :            :                 AppendOnlyVisimap *visiMap)
+<span class="lineNum">     225 </span>                :            : {
+<span class="lineNum">     226 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          2 :         Assert(visiMap);</span>
+<span class="lineNum">     227 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          2 :         Assert(AppendOnlyVisimapEntry_IsValid(&amp;visiMap-&gt;visimapEntry));</span>
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :<span class="lineCov">          2 :         AppendOnlyVisimapStore_Store(&amp;visiMap-&gt;visimapStore, &amp;visiMap-&gt;visimapEntry);</span>
+<span class="lineNum">     230 </span>                :            :         
+<span class="lineNum">     231 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     232 </span>                :            : 
+<span class="lineNum">     233 </span>                :            : /*
+<span class="lineNum">     234 </span>                :            :  * Deletes all visibility information for the given segment file.
+<a name="235"><span class="lineNum">     235 </span>                :            :  */ </a>
+<span class="lineNum">     236 </span>                :            : void
+<span class="lineNum">     237 </span>                :            : AppendOnlyVisimap_DeleteSegmentFile(
+<span class="lineNum">     238 </span>                :            :         AppendOnlyVisimap *visiMap,
+<span class="lineNum">     239 </span>                :            :         int segno)
+<span class="lineNum">     240 </span>                :            : {
+<span class="lineNum">     241 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif(Debug_appendonly_print_visimap, LOG,</span>
+<span class="lineNum">     244 </span>                :            :                         &quot;Delete visimap for segment file %d&quot;, segno);
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapStore_DeleteSegmentFile(&amp;visiMap-&gt;visimapStore,</span>
+<span class="lineNum">     247 </span>                :<span class="lineNoCov">          0 :                         segno);</span>
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :            : /*
+<span class="lineNum">     251 </span>                :            :  * Returns the number of hidden tuples in the relation.
+<a name="252"><span class="lineNum">     252 </span>                :            :  */</a>
+<span class="lineNum">     253 </span>                :            : int64
+<span class="lineNum">     254 </span>                :            : AppendOnlyVisimap_GetRelationHiddenTupleCount(
+<span class="lineNum">     255 </span>                :            :         AppendOnlyVisimap *visiMap)
+<span class="lineNum">     256 </span>                :            : {
+<span class="lineNum">     257 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :         return AppendOnlyVisimapStore_GetRelationHiddenTupleCount(</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                         &amp;visiMap-&gt;visimapStore, &amp;visiMap-&gt;visimapEntry);</span>
+<span class="lineNum">     260 </span>                :            : }
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            : /*
+<span class="lineNum">     263 </span>                :            :  * Returns the number of hidden tuples in a given segment file.
+<a name="264"><span class="lineNum">     264 </span>                :            :  */</a>
+<span class="lineNum">     265 </span>                :            : int64
+<span class="lineNum">     266 </span>                :            : AppendOnlyVisimap_GetSegmentFileHiddenTupleCount(
+<span class="lineNum">     267 </span>                :            :         AppendOnlyVisimap *visiMap,
+<span class="lineNum">     268 </span>                :            :         int segno)
+<span class="lineNum">     269 </span>                :            : {
+<span class="lineNum">     270 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :         return AppendOnlyVisimapStore_GetSegmentFileHiddenTupleCount(</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                         &amp;visiMap-&gt;visimapStore, &amp;visiMap-&gt;visimapEntry, segno);</span>
+<span class="lineNum">     273 </span>                :            : }
+<span class="lineNum">     274 </span>                :            : 
+<span class="lineNum">     275 </span>                :            : /*
+<span class="lineNum">     276 </span>                :            :  * Starts a new scan for invisible tuple ids.
+<a name="277"><span class="lineNum">     277 </span>                :            :  */ </a>
+<span class="lineNum">     278 </span>                :            : void
+<span class="lineNum">     279 </span>                :            : AppendOnlyVisimapScan_Init(
+<span class="lineNum">     280 </span>                :            :                 AppendOnlyVisimapScan* visiMapScan,
+<span class="lineNum">     281 </span>                :            :                 Oid visimapRelid,
+<span class="lineNum">     282 </span>                :            :                 Oid visimapIdxid,
+<span class="lineNum">     283 </span>                :            :                 LOCKMODE lockmode,
+<span class="lineNum">     284 </span>                :            :                 Snapshot appendonlyMetadataSnapshot)
+<span class="lineNum">     285 </span>                :            : {
+<span class="lineNum">     286 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapScan);</span>
+<span class="lineNum">     287 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(visimapRelid));</span>
+<span class="lineNum">     288 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(visimapIdxid));</span>
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimap_Init(&amp;visiMapScan-&gt;visimap, visimapRelid, visimapIdxid,</span>
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :                         lockmode,</span>
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :                         appendonlyMetadataSnapshot);</span>
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :         visiMapScan-&gt;indexScan = AppendOnlyVisimapStore_BeginScan(</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                         &amp;visiMapScan-&gt;visimap.visimapStore,</span>
+<span class="lineNum">     295 </span>                :            :                         0,
+<span class="lineNum">     296 </span>                :            :                         NULL);
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :         visiMapScan-&gt;isFinished = false;</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     299 </span>                :            : 
+<span class="lineNum">     300 </span>                :            : /*
+<span class="lineNum">     301 </span>                :            :  * Returns the next tuple id in the visimap scan that is invisible.
+<span class="lineNum">     302 </span>                :            :  *
+<span class="lineNum">     303 </span>                :            :  * If there was a previous successful call to this function during this can,
+<span class="lineNum">     304 </span>                :            :  * the tupleId parameter should contain the value of the last call.
+<span class="lineNum">     305 </span>                :            :  * The contents of tupleId is undefined if false is returned.
+<a name="306"><span class="lineNum">     306 </span>                :            :  */ </a>
+<span class="lineNum">     307 </span>                :            : bool
+<span class="lineNum">     308 </span>                :            : AppendOnlyVisimapScan_GetNextInvisible(
+<span class="lineNum">     309 </span>                :            :                 AppendOnlyVisimapScan *visiMapScan,
+<span class="lineNum">     310 </span>                :            :                 AOTupleId *tupleId)
+<span class="lineNum">     311 </span>                :            : {
+<span class="lineNum">     312 </span>                :            :         bool found;
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapScan);</span>
+<span class="lineNum">     315 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(tupleId);</span>
+<span class="lineNum">     316 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!visiMapScan-&gt;isFinished);</span>
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :         found=false;</span>
+<span class="lineNum">     319 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (!found &amp;&amp; !visiMapScan-&gt;isFinished)</span>
+<span class="lineNum">     320 </span>                :            :         {
+<span class="lineNum">     321 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!AppendOnlyVisimapEntry_IsValid(</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :                                         &amp;visiMapScan-&gt;visimap.visimapEntry))</span>
+<span class="lineNum">     323 </span>                :            :                 {
+<span class="lineNum">     324 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!AppendOnlyVisimapStore_GetNext(</span>
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :                                 &amp;visiMapScan-&gt;visimap.visimapStore,</span>
+<span class="lineNum">     326 </span>                :<span class="lineNoCov">          0 :                                 visiMapScan-&gt;indexScan,</span>
+<span class="lineNum">     327 </span>                :            :                                 ForwardScanDirection,
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                                 &amp;visiMapScan-&gt;visimap.visimapEntry,</span>
+<span class="lineNum">     329 </span>                :            :                                 NULL))
+<span class="lineNum">     330 </span>                :            :                         {
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :                                 visiMapScan-&gt;isFinished=true;</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :                                 return false;</span>
+<span class="lineNum">     333 </span>                :            :                         }
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :                         AOTupleIdInit_Init(tupleId);</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!AppendOnlyVisimapEntry_GetNextInvisible(</span>
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :                                         &amp;visiMapScan-&gt;visimap.visimapEntry,</span>
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :                                         tupleId))</span>
+<span class="lineNum">     340 </span>                :            :                 {
+<span class="lineNum">     341 </span>                :            :                         /*
+<span class="lineNum">     342 </span>                :            :                          * no more invisible tuples in this visimap entry.
+<span class="lineNum">     343 </span>                :            :                          * Try next one
+<span class="lineNum">     344 </span>                :            :                          */
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                         AppendOnlyVisimapEntry_Reset(&amp;visiMapScan-&gt;visimap.visimapEntry);</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                 } </span>
+<span class="lineNum">     347 </span>                :            :                 else
+<span class="lineNum">     348 </span>                :            :                 {
+<span class="lineNum">     349 </span>                :            :                         /* Found a tuple. The tuple is is already in the out parameter. */
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :                         found = true;</span>
+<span class="lineNum">     351 </span>                :            :                 }
+<span class="lineNum">     352 </span>                :            :                 
+<span class="lineNum">     353 </span>                :            :         }
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>                :            : /*
+<span class="lineNum">     359 </span>                :            :  * Finishes a visimap scan.
+<a name="360"><span class="lineNum">     360 </span>                :            :  */ </a>
+<span class="lineNum">     361 </span>                :            : void
+<span class="lineNum">     362 </span>                :            : AppendOnlyVisimapScan_Finish(
+<span class="lineNum">     363 </span>                :            :                 AppendOnlyVisimapScan *visiMapScan,
+<span class="lineNum">     364 </span>                :            :                 LOCKMODE lockmode)
+<span class="lineNum">     365 </span>                :            : {
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapStore_EndScan(</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                         &amp;visiMapScan-&gt;visimap.visimapStore,</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                         visiMapScan-&gt;indexScan);</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimap_Finish(&amp;visiMapScan-&gt;visimap, lockmode);</span>
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     371 </span>                :            : 
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :            : /*
+<span class="lineNum">     374 </span>                :            :  * Hash function for the visimap deletion hash table.
+<a name="375"><span class="lineNum">     375 </span>                :            :  */</a>
+<span class="lineNum">     376 </span>                :            : static uint32
+<span class="lineNum">     377 </span>                :            : hash_delete_key(const void *key, Size keysize)
+<span class="lineNum">     378 </span>                :            : {
+<span class="lineNum">     379 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(keysize == sizeof(AppendOnlyVisiMapDeleteKey));</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :         return DatumGetUInt32(hash_any((const unsigned char *) key,</span>
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :                                                                    keysize));</span>
+<span class="lineNum">     382 </span>                :            : }
+<span class="lineNum">     383 </span>                :            : 
+<span class="lineNum">     384 </span>                :            : /*
+<span class="lineNum">     385 </span>                :            :  * Hash function for comparing two keys of type
+<span class="lineNum">     386 </span>                :            :  * AppendOnlyVisiMapDeleteKey.  Equality of keys is of interest and
+<span class="lineNum">     387 </span>                :            :  * not ordering between them (greater/less).
+<a name="388"><span class="lineNum">     388 </span>                :            :  */</a>
+<span class="lineNum">     389 </span>                :            : static int
+<span class="lineNum">     390 </span>                :            : hash_compare_keys(const void *key1, const void *key2, Size keysize)
+<span class="lineNum">     391 </span>                :            : {
+<span class="lineNum">     392 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(keysize == sizeof(AppendOnlyVisiMapDeleteKey));</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisiMapDeleteKey *k1 = (AppendOnlyVisiMapDeleteKey *) key1;</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisiMapDeleteKey *k2 = (AppendOnlyVisiMapDeleteKey *) key2;</span>
+<span class="lineNum">     395 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((k1-&gt;segno == k2-&gt;segno) &amp;&amp; (k1-&gt;firstRowNum == k2-&gt;firstRowNum))</span>
+<span class="lineNum">     396 </span>                :            :         {
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     398 </span>                :            :         }
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :         return 1;</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     401 </span>                :            : 
+<span class="lineNum">     402 </span>                :            : /*
+<span class="lineNum">     403 </span>                :            :  * Inits the visimap delete helper structure.
+<span class="lineNum">     404 </span>                :            :  * 
+<span class="lineNum">     405 </span>                :            :  * This prepares the hash table and opens the temporary file.
+<a name="406"><span class="lineNum">     406 </span>                :            :  */</a>
+<span class="lineNum">     407 </span>                :            : void
+<span class="lineNum">     408 </span>                :            : AppendOnlyVisimapDelete_Init(
+<span class="lineNum">     409 </span>                :            :                 AppendOnlyVisimapDelete *visiMapDelete,
+<span class="lineNum">     410 </span>                :            :                 AppendOnlyVisimap *visiMap)
+<span class="lineNum">     411 </span>                :            : {
+<span class="lineNum">     412 </span>                :            :         HASHCTL         hash_ctl;
+<span class="lineNum">     413 </span>                :            :         char fileName[MAXPGPATH];
+<span class="lineNum">     414 </span>                :            :         int len;
+<span class="lineNum">     415 </span>                :            : 
+<span class="lineNum">     416 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapDelete);</span>
+<span class="lineNum">     417 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     418 </span>                :            : 
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :         visiMapDelete-&gt;visiMap = visiMap;</span>
+<span class="lineNum">     420 </span>                :            : 
+<span class="lineNum">     421 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(&amp;hash_ctl, 0, sizeof(hash_ctl));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         hash_ctl.keysize = sizeof(AppendOnlyVisiMapDeleteKey);</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :         hash_ctl.entrysize = sizeof(AppendOnlyVisiMapDeleteData);</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :         hash_ctl.hash = hash_delete_key;</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :         hash_ctl.match = hash_compare_keys;</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :         hash_ctl.hcxt = visiMap-&gt;memoryContext;</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :         visiMapDelete-&gt;dirtyEntryCache = hash_create(&quot;VisimapEntryCache&quot;,</span>
+<span class="lineNum">     428 </span>                :            :                 4, /* start small and extend */
+<span class="lineNum">     429 </span>                :            :                 &amp;hash_ctl,
+<span class="lineNum">     430 </span>                :            :                 HASH_ELEM | HASH_FUNCTION | HASH_COMPARE);
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :         len = snprintf(fileName, sizeof(fileName), &quot;%s/visimap_delete&quot;, PG_TEMP_FILES_DIR);</span>
+<span class="lineNum">     433 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &gt; MAXPGPATH - 1)</span>
+<span class="lineNum">     434 </span>                :            :         {
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;could not generate temporary file name&quot;);</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         visiMapDelete-&gt;workfile = ExecWorkFile_CreateUnique(fileName, BUFFILE, true, 0);</span>
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     439 </span>                :            : 
+<span class="lineNum">     440 </span>                :            : /*
+<span class="lineNum">     441 </span>                :            :  * Rebuild the visimap entry based on the data contents and
+<span class="lineNum">     442 </span>                :            :  * a few other pieces of information.
+<a name="443"><span class="lineNum">     443 </span>                :            :  */</a>
+<span class="lineNum">     444 </span>                :            : static void
+<span class="lineNum">     445 </span>                :            : AppendOnlyVisimapDelete_RebuildEntry(AppendOnlyVisimapEntry *visimapEntry, int segno, int64 firstRowNum, ItemPointer tid)
+<span class="lineNum">     446 </span>                :            : {
+<span class="lineNum">     447 </span>                :            :         MemoryContext oldContext;
+<span class="lineNum">     448 </span>                :            :         size_t dataSize;
+<span class="lineNum">     449 </span>                :            : 
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 :         visimapEntry-&gt;segmentFileNum =segno;</span>
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :         visimapEntry-&gt;firstRowNum = firstRowNum;</span>
+<span class="lineNum">     452 </span>                :            : 
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         dataSize = VARSIZE(visimapEntry-&gt;data) - </span>
+<span class="lineNum">     454 </span>                :            :                         offsetof(AppendOnlyVisimapData, data);
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :         oldContext = MemoryContextSwitchTo(visimapEntry-&gt;memoryContext);</span>
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisiMapEnty_ReadData(visimapEntry, dataSize);</span>
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldContext);</span>
+<span class="lineNum">     459 </span>                :            : 
+<span class="lineNum">     460 </span>                :            :         /* 
+<span class="lineNum">     461 </span>                :            :          * We only stash away a visimap entry when it is dirty. Thus, we mark 
+<span class="lineNum">     462 </span>                :            :          * the visimap entry again as dirty during unstash
+<span class="lineNum">     463 </span>                :            :          */
+<span class="lineNum">     464 </span>                :<span class="lineNoCov">          0 :         visimapEntry-&gt;dirty = true;</span>
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 :         memcpy(&amp;visimapEntry-&gt;tupleTid, tid, sizeof(ItemPointerData));</span>
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     467 </span>                :            : 
+<span class="lineNum">     468 </span>                :            : /*
+<span class="lineNum">     469 </span>                :            :  * Unstashes a dirty visimap from the spill file.
+<a name="470"><span class="lineNum">     470 </span>                :            :  */</a>
+<span class="lineNum">     471 </span>                :            : static void
+<span class="lineNum">     472 </span>                :            : AppendOnlyVisimapDelete_Unstash(
+<span class="lineNum">     473 </span>                :            :         AppendOnlyVisimapDelete *visiMapDelete, int segno, int64 firstRowNum, AppendOnlyVisiMapDeleteData *deleteData)
+<span class="lineNum">     474 </span>                :            : {
+<span class="lineNum">     475 </span>                :            :         AppendOnlyVisimap *visiMap;
+<span class="lineNum">     476 </span>                :            :         uint64 len, dataLen;
+<span class="lineNum">     477 </span>                :            :         AppendOnlyVisiMapDeleteKey key;
+<span class="lineNum">     478 </span>                :            : 
+<span class="lineNum">     479 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapDelete);</span>
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :         visiMap = visiMapDelete-&gt;visiMap;</span>
+<span class="lineNum">     482 </span>                :            : 
+<span class="lineNum">     483 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     484 </span>                :            :                         &quot;Append-only visi map delete: Unstash dirty visimap entry %d/&quot; INT64_FORMAT
+<span class="lineNum">     485 </span>                :            :                         &quot;, offset &quot; INT64_FORMAT,
+<span class="lineNum">     486 </span>                :            :                         segno, firstRowNum, deleteData-&gt;workFileOffset);
+<span class="lineNum">     487 </span>                :            : 
+<span class="lineNum">     488 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ExecWorkFile_Seek(visiMapDelete-&gt;workfile, deleteData-&gt;workFileOffset, SEEK_SET) != 0)</span>
+<span class="lineNum">     489 </span>                :            :         {
+<span class="lineNum">     490 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to seek to visimap delete spill location: %d/&quot; INT64_FORMAT</span>
+<span class="lineNum">     491 </span>                :            :                         &quot;, offset &quot; INT64_FORMAT,
+<span class="lineNum">     492 </span>                :            :                         segno, firstRowNum, deleteData-&gt;workFileOffset);
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     494 </span>                :            : 
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :         len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, &amp;key, sizeof(key));</span>
+<span class="lineNum">     496 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len != sizeof(key))</span>
+<span class="lineNum">     497 </span>                :            :         {
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to read visimap delete spill data: %d/&quot; INT64_FORMAT</span>
+<span class="lineNum">     499 </span>                :            :                         &quot;, offset &quot; INT64_FORMAT,
+<span class="lineNum">     500 </span>                :            :                         segno, firstRowNum, deleteData-&gt;workFileOffset);
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     502 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(key.segno == segno);</span>
+<span class="lineNum">     503 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(key.firstRowNum == firstRowNum);</span>
+<span class="lineNum">     504 </span>                :            : 
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :         len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, visiMap-&gt;visimapEntry.data, 4);</span>
+<span class="lineNum">     506 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len != 4)</span>
+<span class="lineNum">     507 </span>                :            :         {
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to read visimap delete spill data&quot;);</span>
+<span class="lineNum">     509 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 :         dataLen = VARSIZE(visiMap-&gt;visimapEntry.data);</span>
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :            :         /* Now read the remaining part of the entry */
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, </span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                         ((char *)visiMap-&gt;visimapEntry.data) + 4, dataLen - 4);</span>
+<span class="lineNum">     515 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len != dataLen - 4)</span>
+<span class="lineNum">     516 </span>                :            :         {
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to read visimap delete spill data: %d/&quot; INT64_FORMAT</span>
+<span class="lineNum">     518 </span>                :            :                         &quot;, offset &quot; INT64_FORMAT &quot;, len &quot; INT64_FORMAT,
+<span class="lineNum">     519 </span>                :            :                         segno, firstRowNum, deleteData-&gt;workFileOffset, dataLen);
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     521 </span>                :            : 
+<span class="lineNum">     522 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapDelete_RebuildEntry(&amp;visiMap-&gt;visimapEntry,</span>
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :                 segno,</span>
+<span class="lineNum">     524 </span>                :<span class="lineNoCov">          0 :                 firstRowNum, </span>
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :                 &amp;deleteData-&gt;tupleTid);</span>
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :            : /*
+<span class="lineNum">     529 </span>                :            :  * Moves the visibility map entry so that the given
+<span class="lineNum">     530 </span>                :            :  * AO tuple id is covered by it.
+<span class="lineNum">     531 </span>                :            :  * If necessary a new map entry is initialized.
+<span class="lineNum">     532 </span>                :            :  * Uses the visimap dirty cache.
+<span class="lineNum">     533 </span>                :            :  *
+<span class="lineNum">     534 </span>                :            :  * Assumes that all previous changed information have been
+<span class="lineNum">     535 </span>                :            :  * stored.
+<span class="lineNum">     536 </span>                :            :  * Should not be called when the append-only table has no relation
+<span class="lineNum">     537 </span>                :            :  * Assumes that the visibility has been initialized and not finished.
+<a name="538"><span class="lineNum">     538 </span>                :            :  */ </a>
+<span class="lineNum">     539 </span>                :            : static void
+<span class="lineNum">     540 </span>                :            : AppendOnlyVisimapDelete_Find(
+<span class="lineNum">     541 </span>                :            :         AppendOnlyVisimapDelete *visiMapDelete,
+<span class="lineNum">     542 </span>                :            :                 AOTupleId *aoTupleId)
+<span class="lineNum">     543 </span>                :            : {
+<span class="lineNum">     544 </span>                :            :         AppendOnlyVisimap *visiMap;
+<span class="lineNum">     545 </span>                :            :         uint64 firstRowNum;
+<span class="lineNum">     546 </span>                :            :         AppendOnlyVisiMapDeleteData *r;
+<span class="lineNum">     547 </span>                :            :         AppendOnlyVisiMapDeleteKey key;
+<span class="lineNum">     548 </span>                :            : 
+<span class="lineNum">     549 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapDelete);</span>
+<span class="lineNum">     550 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(aoTupleId);</span>
+<span class="lineNum">     551 </span>                :            : 
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :         visiMap = visiMapDelete-&gt;visiMap;</span>
+<span class="lineNum">     553 </span>                :            : 
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :         firstRowNum = AppendOnlyVisimapEntry_GetFirstRowNum(</span>
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                                         &amp;visiMap-&gt;visimapEntry, aoTupleId);</span>
+<span class="lineNum">     556 </span>                :            : 
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :         key.segno = AOTupleIdGet_segmentFileNum(aoTupleId);</span>
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :         key.firstRowNum = firstRowNum;</span>
+<span class="lineNum">     559 </span>                :            : 
+<span class="lineNum">     560 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     561 </span>                :            :                         &quot;Append-only visi map delete: Search dirty visimap entry &quot;
+<span class="lineNum">     562 </span>                :            :                         INT64_FORMAT &quot;/&quot; INT64_FORMAT, key.segno, key.firstRowNum);
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :<span class="lineNoCov">          0 :         bool found = false;</span>
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :         r = hash_search(visiMapDelete-&gt;dirtyEntryCache, &amp;key,</span>
+<span class="lineNum">     566 </span>                :            :                         HASH_FIND, &amp;found);
+<span class="lineNum">     567 </span>                :            : 
+<span class="lineNum">     568 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (found)</span>
+<span class="lineNum">     569 </span>                :            :         {
+<span class="lineNum">     570 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(r);</span>
+<span class="lineNum">     571 </span>                :            : 
+<span class="lineNum">     572 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     573 </span>                :            :                                 &quot;Append-only visi map delete: Found dirty visimap entry &quot;
+<span class="lineNum">     574 </span>                :            :                                 INT64_FORMAT &quot;/&quot; INT64_FORMAT,
+<span class="lineNum">     575 </span>                :            :                                 r-&gt;key.segno, r-&gt;key.firstRowNum);
+<span class="lineNum">     576 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(r-&gt;key.firstRowNum == key.firstRowNum);</span>
+<span class="lineNum">     577 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(r-&gt;key.segno == key.segno);</span>
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :                 AppendOnlyVisimapDelete_Unstash(visiMapDelete, key.segno, key.firstRowNum, r);</span>
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     580 </span>                :            :         else
+<span class="lineNum">     581 </span>                :            :         {
+<span class="lineNum">     582 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!AppendOnlyVisimapStore_Find(&amp;visiMap-&gt;visimapStore,</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                                         AOTupleIdGet_segmentFileNum(aoTupleId),</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                                         AppendOnlyVisimapEntry_GetFirstRowNum(</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                                                 &amp;visiMap-&gt;visimapEntry, aoTupleId),</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                                         &amp;visiMap-&gt;visimapEntry))</span>
+<span class="lineNum">     587 </span>                :            :                 {
+<span class="lineNum">     588 </span>                :            :                         /*
+<span class="lineNum">     589 </span>                :            :                          * There is no entry that covers the given tuple id.
+<span class="lineNum">     590 </span>                :            :                          */ 
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                         AppendOnlyVisimapEntry_New(&amp;visiMap-&gt;visimapEntry, aoTupleId);</span>
+<span class="lineNum">     592 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     593 </span>                :            :         }
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     595 </span>                :            : 
+<span class="lineNum">     596 </span>                :            : /*
+<span class="lineNum">     597 </span>                :            :  * This function stashes away a dirty visimap entry.
+<span class="lineNum">     598 </span>                :            :  * It stores the compression bitmap in the spill file and
+<span class="lineNum">     599 </span>                :            :  * sets the meta information in the hash table.
+<a name="600"><span class="lineNum">     600 </span>                :            :  */ </a>
+<span class="lineNum">     601 </span>                :            : static void
+<span class="lineNum">     602 </span>                :            : AppendOnlyVisimapDelete_Stash(
+<span class="lineNum">     603 </span>                :            :         AppendOnlyVisimapDelete *visiMapDelete)
+<span class="lineNum">     604 </span>                :            : {
+<span class="lineNum">     605 </span>                :            :         AppendOnlyVisimap *visiMap;
+<span class="lineNum">     606 </span>                :            :         AppendOnlyVisiMapDeleteData *r;
+<span class="lineNum">     607 </span>                :            :         AppendOnlyVisiMapDeleteKey key;
+<span class="lineNum">     608 </span>                :            :         MemoryContext oldContext;
+<span class="lineNum">     609 </span>                :            :         bool found;
+<span class="lineNum">     610 </span>                :            :         int64 offset;
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapDelete);</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :         visiMap = visiMapDelete-&gt;visiMap;</span>
+<span class="lineNum">     614 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :<span class="lineNoCov">          0 :         key.segno = visiMap-&gt;visimapEntry.segmentFileNum;</span>
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :         key.firstRowNum = visiMap-&gt;visimapEntry.firstRowNum;</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :         found = false;</span>
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :         r = hash_search(visiMapDelete-&gt;dirtyEntryCache, &amp;key,</span>
+<span class="lineNum">     620 </span>                :            :                         HASH_ENTER, &amp;found);
+<span class="lineNum">     621 </span>                :            : 
+<span class="lineNum">     622 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!found)</span>
+<span class="lineNum">     623 </span>                :            :         {
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :                 r-&gt;workFileOffset = 0;</span>
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :                 memset(&amp;r-&gt;tupleTid, 0, sizeof(ItemPointerData));</span>
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     627 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(r-&gt;key.firstRowNum == key.firstRowNum);</span>
+<span class="lineNum">     628 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(r-&gt;key.segno == key.segno);</span>
+<span class="lineNum">     629 </span>                :            : 
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :         oldContext = MemoryContextSwitchTo(visiMap-&gt;memoryContext);</span>
+<span class="lineNum">     631 </span>                :<span class="lineNoCov">          0 :         AppendOnlyVisimapEntry_WriteData(&amp;visiMap-&gt;visimapEntry);</span>
+<span class="lineNum">     632 </span>                :            : 
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :         offset = ExecWorkFile_GetSize(visiMapDelete-&gt;workfile);</span>
+<span class="lineNum">     634 </span>                :            : 
+<span class="lineNum">     635 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     636 </span>                :            :                         &quot;Append-only visi map delete: Stash dirty visimap entry %d/&quot; INT64_FORMAT,
+<span class="lineNum">     637 </span>                :            :                         visiMap-&gt;visimapEntry.segmentFileNum, visiMap-&gt;visimapEntry.firstRowNum);
+<span class="lineNum">     638 </span>                :            : 
+<span class="lineNum">     639 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ExecWorkFile_Seek(visiMapDelete-&gt;workfile, offset, SEEK_SET) != 0)</span>
+<span class="lineNum">     640 </span>                :            :         {
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to seek to visimap delete spill location: offset &quot; INT64_FORMAT, offset);</span>
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     643 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!ExecWorkFile_Write(visiMapDelete-&gt;workfile, &amp;key,</span>
+<span class="lineNum">     644 </span>                :            :                 sizeof(key)))
+<span class="lineNum">     645 </span>                :            :         {
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to write visimap delete spill key information: &quot;</span>
+<span class="lineNum">     647 </span>                :            :                          &quot;segno &quot; INT64_FORMAT &quot;, first row &quot; INT64_FORMAT &quot;, offset &quot;
+<span class="lineNum">     648 </span>                :            :                          INT64_FORMAT &quot;, length %lu&quot;,
+<span class="lineNum">     649 </span>                :            :                          key.segno, key.firstRowNum, offset, sizeof(key));
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     651 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!ExecWorkFile_Write(visiMapDelete-&gt;workfile, visiMap-&gt;visimapEntry.data,</span>
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :                 VARSIZE(visiMap-&gt;visimapEntry.data)))</span>
+<span class="lineNum">     653 </span>                :            :         {
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to write visimap delete spill key information: &quot;</span>
+<span class="lineNum">     655 </span>                :            :                          &quot;segno &quot; INT64_FORMAT &quot;, first row &quot; INT64_FORMAT &quot;, offset &quot;
+<span class="lineNum">     656 </span>                :            :                          INT64_FORMAT &quot;, length %d&quot;, key.segno, key.firstRowNum,
+<span class="lineNum">     657 </span>                :            :                          offset + sizeof(key), VARSIZE(visiMap-&gt;visimapEntry.data));
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :         memcpy(&amp;r-&gt;tupleTid, &amp;visiMap-&gt;visimapEntry.tupleTid, sizeof(ItemPointerData));</span>
+<span class="lineNum">     660 </span>                :<span class="lineNoCov">          0 :         r-&gt;workFileOffset = offset;</span>
+<span class="lineNum">     661 </span>                :            : 
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :         MemoryContextSwitchTo(oldContext);</span>
+<span class="lineNum">     663 </span>                :            : 
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :         visiMap-&gt;visimapEntry.dirty = false;</span>
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     666 </span>                :            : 
+<span class="lineNum">     667 </span>                :            : /*
+<span class="lineNum">     668 </span>                :            :  * Hides a given tuple id.
+<span class="lineNum">     669 </span>                :            :  * If the tuple is not in the current visimap range, the current
+<span class="lineNum">     670 </span>                :            :  * visimap entry is stashed away and the correct one is loaded or 
+<span class="lineNum">     671 </span>                :            :  * read from the spill file.
+<span class="lineNum">     672 </span>                :            :  *
+<span class="lineNum">     673 </span>                :            :  * Then, the bit of the tuple is set.
+<span class="lineNum">     674 </span>                :            :  *
+<span class="lineNum">     675 </span>                :            :  * Should only be called when in-order delete of tuples can
+<span class="lineNum">     676 </span>                :            :  * be guranteed. This means that the tuples are deleted in increasing order.
+<span class="lineNum">     677 </span>                :            :  * A special case there this function can be used is when only
+<span class="lineNum">     678 </span>                :            :  * a single tuple is deleted.
+<span class="lineNum">     679 </span>                :            :  * In all other cases, AppendOnlyVisimapDelete_Hide needs to be used.
+<a name="680"><span class="lineNum">     680 </span>                :            :  */</a>
+<span class="lineNum">     681 </span>                :            : HTSU_Result
+<span class="lineNum">     682 </span>                :            : AppendOnlyVisimapDelete_Hide(
+<span class="lineNum">     683 </span>                :            :         AppendOnlyVisimapDelete *visiMapDelete, AOTupleId *aoTupleId)
+<span class="lineNum">     684 </span>                :            : {
+<span class="lineNum">     685 </span>                :            :         AppendOnlyVisimap *visiMap;
+<span class="lineNum">     686 </span>                :            : 
+<span class="lineNum">     687 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMapDelete);</span>
+<span class="lineNum">     688 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(aoTupleId);</span>
+<span class="lineNum">     689 </span>                :            : 
+<span class="lineNum">     690 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         elogif (Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     691 </span>                :            :                         &quot;Append-only visi map delete: Hide tuple &quot;
+<span class="lineNum">     692 </span>                :            :                         &quot;(tupleId) = %s&quot;, 
+<span class="lineNum">     693 </span>                :            :                         AOTupleIdToString(aoTupleId)); 
+<span class="lineNum">     694 </span>                :            : 
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :         visiMap = visiMapDelete-&gt;visiMap;</span>
+<span class="lineNum">     696 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(visiMap);</span>
+<span class="lineNum">     697 </span>                :            : 
+<span class="lineNum">     698 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!AppendOnlyVisimapEntry_CoversTuple(&amp;visiMap-&gt;visimapEntry,</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                         aoTupleId))</span>
+<span class="lineNum">     700 </span>                :            :         {
+<span class="lineNum">     701 </span>                :            :                 /* if necessary persist the current entry before moving. */
+<span class="lineNum">     702 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (AppendOnlyVisimapEntry_HasChanged(&amp;visiMap-&gt;visimapEntry))</span>
+<span class="lineNum">     703 </span>                :            :                 {
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                         AppendOnlyVisimapDelete_Stash(visiMapDelete);</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     706 </span>                :            : 
+<span class="lineNum">     707 </span>                :<span class="lineNoCov">          0 :                 AppendOnlyVisimapDelete_Find(visiMapDelete, aoTupleId);</span>
+<span class="lineNum">     708 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     709 </span>                :            : 
+<span class="lineNum">     710 </span>                :<span class="lineNoCov">          0 :         return AppendOnlyVisimapEntry_HideTuple(&amp;visiMap-&gt;visimapEntry, aoTupleId);</span>
+<span class="lineNum">     711 </span>                :            : }
+<a name="712"><span class="lineNum">     712 </span>                :            : </a>
+<span class="lineNum">     713 </span>                :            : static void
+<span class="lineNum">     714 </span>                :            : AppendOnlyVisimapDelete_WriteBackStashedEntries(AppendOnlyVisimapDelete *visiMapDelete)
+<span class="lineNum">     715 </span>                :            : {
+<span class="lineNum">     716 </span>                :            :         AppendOnlyVisiMapDeleteData *deleteData;
+<span class="lineNum">     717 </span>                :<span class="lineCov">          2 :         int64 len, dataLen, currentOffset = 0;</span>
+<span class="lineNum">     718 </span>                :            :         AppendOnlyVisimap *visiMap;
+<span class="lineNum">     719 </span>                :            :         bool found;
+<span class="lineNum">     720 </span>                :            :         AppendOnlyVisiMapDeleteKey key;
+<span class="lineNum">     721 </span>                :            : 
+<span class="lineNum">     722 </span>                :<span class="lineCov">          2 :         visiMap = visiMapDelete-&gt;visiMap;</span>
+<span class="lineNum">     723 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          2 :         Assert(visiMap);</span>
+<span class="lineNum">     724 </span>                :            : 
+<span class="lineNum">     725 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         if (hash_get_num_entries(visiMapDelete-&gt;dirtyEntryCache) == 0)</span>
+<span class="lineNum">     726 </span>                :            :         {
+<span class="lineNum">     727 </span>                :<span class="lineCov">          2 :                 return;</span>
+<span class="lineNum">     728 </span>                :            :         }
+<span class="lineNum">     729 </span>                :            : 
+<span class="lineNum">     730 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ExecWorkFile_Seek(visiMapDelete-&gt;workfile, 0, SEEK_SET) != 0)</span>
+<span class="lineNum">     731 </span>                :            :         {
+<span class="lineNum">     732 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to seek to visimap delete spill beginning&quot;);</span>
+<span class="lineNum">     733 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     734 </span>                :            : 
+<span class="lineNum">     735 </span>                :            :         /* Get next entry */
+<span class="lineNum">     736 </span>                :<span class="lineNoCov">          0 :         currentOffset = 0;</span>
+<span class="lineNum">     737 </span>                :<span class="lineNoCov">          0 :         len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, &amp;key, sizeof(key));</span>
+<span class="lineNum">     738 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (len == sizeof(key))</span>
+<span class="lineNum">     739 </span>                :            :         {
+<span class="lineNum">     740 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 elogif(Debug_appendonly_print_visimap, LOG, </span>
+<span class="lineNum">     741 </span>                :            :                            &quot;Append-only visi map delete: Got next dirty visimap: &quot;
+<span class="lineNum">     742 </span>                :            :                            INT64_FORMAT &quot;/&quot; INT64_FORMAT &quot;, offset &quot; INT64_FORMAT,
+<span class="lineNum">     743 </span>                :            :                            key.segno, key.firstRowNum, currentOffset);
+<span class="lineNum">     744 </span>                :            : 
+<span class="lineNum">     745 </span>                :            :                 /* VARSIZE is only using the first four byte */
+<span class="lineNum">     746 </span>                :<span class="lineNoCov">          0 :                 len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, visiMap-&gt;visimapEntry.data, 4);</span>
+<span class="lineNum">     747 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (len != 4)</span>
+<span class="lineNum">     748 </span>                :            :                 {
+<span class="lineNum">     749 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;Failed to read visimap delete spill data&quot;);</span>
+<span class="lineNum">     750 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     751 </span>                :<span class="lineNoCov">          0 :                 dataLen = VARSIZE(visiMap-&gt;visimapEntry.data);</span>
+<span class="lineNum">     752 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(dataLen &lt;= APPENDONLY_VISIMAP_DATA_BUFFER_SIZE);</span>
+<span class="lineNum">     753 </span>                :            : 
+<span class="lineNum">     754 </span>                :            :                 /* Now read the remaining part of the entry */
+<span class="lineNum">     755 </span>                :<span class="lineNoCov">          0 :                 len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, </span>
+<span class="lineNum">     756 </span>                :<span class="lineNoCov">          0 :                                 ((char *)visiMap-&gt;visimapEntry.data) + 4, dataLen - 4);</span>
+<span class="lineNum">     757 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (len != (dataLen - 4))</span>
+<span class="lineNum">     758 </span>                :            :                 {
+<span class="lineNum">     759 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;Failed to read visimap delete spill data&quot;);</span>
+<span class="lineNum">     760 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     761 </span>                :            : 
+<span class="lineNum">     762 </span>                :            :                 /* Now we search the hash entry and check if we here have the most recent
+<span class="lineNum">     763 </span>                :            :                  * version of the visimap entry */
+<span class="lineNum">     764 </span>                :<span class="lineNoCov">          0 :                 found = false;</span>
+<span class="lineNum">     765 </span>                :<span class="lineNoCov">          0 :                 deleteData = hash_search(visiMapDelete-&gt;dirtyEntryCache, &amp;key,</span>
+<span class="lineNum">     766 </span>                :            :                         HASH_FIND, &amp;found);
+<span class="lineNum">     767 </span>                :            : 
+<span class="lineNum">     768 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!found)</span>
+<span class="lineNum">     769 </span>                :            :                 {
+<span class="lineNum">     770 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;Found a stashed visimap entry without corresponding meta data: &quot;</span>
+<span class="lineNum">     771 </span>                :            :                                         &quot;offset &quot; INT64_FORMAT, currentOffset);
+<span class="lineNum">     772 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     773 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(deleteData);</span>
+<span class="lineNum">     774 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(deleteData-&gt;key.firstRowNum == key.firstRowNum);</span>
+<span class="lineNum">     775 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(deleteData-&gt;key.segno == key.segno);</span>
+<span class="lineNum">     776 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (currentOffset != deleteData-&gt;workFileOffset)</span>
+<span class="lineNum">     777 </span>                :            :                 {
+<span class="lineNum">     778 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         elogif(Debug_appendonly_print_visimap, LOG,</span>
+<span class="lineNum">     779 </span>                :            :                                 &quot;Append-only visi map delete: Found out-dated stashed dirty visimap: &quot;
+<span class="lineNum">     780 </span>                :            :                                 &quot;current offset &quot; INT64_FORMAT &quot;, expected offset &quot; INT64_FORMAT, 
+<span class="lineNum">     781 </span>                :            :                                 currentOffset, deleteData-&gt;workFileOffset);
+<span class="lineNum">     782 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     783 </span>                :            :                 else
+<span class="lineNum">     784 </span>                :            :                 {
+<span class="lineNum">     785 </span>                :            :                         /* Until this point on the data field of the visimap entry has valid
+<span class="lineNum">     786 </span>                :            :                          * information. After this the visimap entry is fully rebuild.
+<span class="lineNum">     787 </span>                :            :                          */
+<span class="lineNum">     788 </span>                :<span class="lineNoCov">          0 :                         AppendOnlyVisimapDelete_RebuildEntry(&amp;visiMap-&gt;visimapEntry,</span>
+<span class="lineNum">     789 </span>                :<span class="lineNoCov">          0 :                                 deleteData-&gt;key.segno,</span>
+<span class="lineNum">     790 </span>                :<span class="lineNoCov">          0 :                                 deleteData-&gt;key.firstRowNum,</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                                 &amp;deleteData-&gt;tupleTid);</span>
+<span class="lineNum">     792 </span>                :<span class="lineNoCov">          0 :                         AppendOnlyVisimap_Store(visiMapDelete-&gt;visiMap);</span>
+<span class="lineNum">     793 </span>                :            :                 }
+<span class="lineNum">     794 </span>                :            : 
+<span class="lineNum">     795 </span>                :<span class="lineNoCov">          0 :                 currentOffset += dataLen + sizeof(key);</span>
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :                 len = ExecWorkFile_Read(visiMapDelete-&gt;workfile, &amp;key, sizeof(key));</span>
+<span class="lineNum">     797 </span>                :            :         }
+<span class="lineNum">     798 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len != 0)</span>
+<span class="lineNum">     799 </span>                :            :         {
+<span class="lineNum">     800 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Failed to read visimap delete spill data&quot;);</span>
+<span class="lineNum">     801 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     802 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>                :            : 
+<span class="lineNum">     805 </span>                :            : /*
+<span class="lineNum">     806 </span>                :            :  * Finishes the delete operation.
+<span class="lineNum">     807 </span>                :            :  * All the dirty visimap entries are read from the spill file and 
+<span class="lineNum">     808 </span>                :            :  * stored in the visimap heap table.
+<a name="809"><span class="lineNum">     809 </span>                :            :  */</a>
+<span class="lineNum">     810 </span>                :            : void
+<span class="lineNum">     811 </span>                :            : AppendOnlyVisimapDelete_Finish(
+<span class="lineNum">     812 </span>                :            :                 AppendOnlyVisimapDelete *visiMapDelete)
+<span class="lineNum">     813 </span>                :            : {
+<span class="lineNum">     814 </span>                :            :         AppendOnlyVisiMapDeleteData *deleteData;
+<span class="lineNum">     815 </span>                :            :         AppendOnlyVisimap *visiMap;
+<span class="lineNum">     816 </span>                :            :         bool found;
+<span class="lineNum">     817 </span>                :            :         AppendOnlyVisiMapDeleteKey key;
+<span class="lineNum">     818 </span>                :            : 
+<span class="lineNum">     819 </span>                :<span class="lineCov">          2 :         visiMap = visiMapDelete-&gt;visiMap;</span>
+<span class="lineNum">     820 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">          2 :         Assert(visiMap);</span>
+<span class="lineNum">     821 </span>                :            : 
+<span class="lineNum">     822 </span>        [<span class="branchNoCov" title="Branch 0 was not taken"> - </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          2 :         elogif(Debug_appendonly_print_visimap, LOG, &quot;Write-back all dirty visimap entries&quot;);</span>
+<span class="lineNum">     823 </span>                :            : 
+<span class="lineNum">     824 </span>                :            :         /* 
+<span class="lineNum">     825 </span>                :            :          * Write back the current change because it is be definition the 
+<span class="lineNum">     826 </span>                :            :          * newest.
+<span class="lineNum">     827 </span>                :            :          */
+<span class="lineNum">     828 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         if (AppendOnlyVisimapEntry_HasChanged(&amp;visiMap-&gt;visimapEntry))</span>
+<span class="lineNum">     829 </span>                :            :         {
+<span class="lineNum">     830 </span>                :<span class="lineCov">          2 :                 AppendOnlyVisimap_Store(visiMapDelete-&gt;visiMap);</span>
+<span class="lineNum">     831 </span>                :            : 
+<span class="lineNum">     832 </span>                :            :                 /* 
+<span class="lineNum">     833 </span>                :            :                  * Make the hash map entry invalid so that we do not overwrite the entry
+<span class="lineNum">     834 </span>                :            :                  * later
+<span class="lineNum">     835 </span>                :            :                  */
+<span class="lineNum">     836 </span>                :<span class="lineCov">          2 :                 key.segno = visiMap-&gt;visimapEntry.segmentFileNum;</span>
+<span class="lineNum">     837 </span>                :<span class="lineCov">          2 :                 key.firstRowNum = visiMap-&gt;visimapEntry.firstRowNum;</span>
+<span class="lineNum">     838 </span>                :<span class="lineCov">          2 :                 found = false;</span>
+<span class="lineNum">     839 </span>                :<span class="lineCov">          2 :                 deleteData = hash_search(visiMapDelete-&gt;dirtyEntryCache, &amp;key,</span>
+<span class="lineNum">     840 </span>                :            :                         HASH_FIND, &amp;found);
+<span class="lineNum">     841 </span>                :            : 
+<span class="lineNum">     842 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :                 if (found)</span>
+<span class="lineNum">     843 </span>                :            :                 {
+<span class="lineNum">     844 </span>                :<span class="lineCov">          2 :                         deleteData-&gt;workFileOffset = INT64_MAX;</span>
+<span class="lineNum">     845 </span>                :<span class="lineCov">          2 :                         memset(&amp;deleteData-&gt;tupleTid, 0, sizeof(ItemPointerData));</span>
+<span class="lineNum">     846 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">     847 </span>                :<span class="lineCov">          2 :         }</span>
+<span class="lineNum">     848 </span>                :            : 
+<span class="lineNum">     849 </span>                :<span class="lineCov">          2 :         AppendOnlyVisimapDelete_WriteBackStashedEntries(visiMapDelete);</span>
+<span class="lineNum">     850 </span>                :            : 
+<span class="lineNum">     851 </span>                :<span class="lineCov">          2 :         hash_destroy(visiMapDelete-&gt;dirtyEntryCache);</span>
+<span class="lineNum">     852 </span>                :<span class="lineCov">          2 :         ExecWorkFile_Close(visiMapDelete-&gt;workfile);</span>
+<span class="lineNum">     853 </span>                :<span class="lineCov">          2 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

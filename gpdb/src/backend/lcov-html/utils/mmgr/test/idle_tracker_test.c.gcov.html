@@ -1,0 +1,515 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mmgr/test/idle_tracker_test.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">utils/mmgr/test</a> - idle_tracker_test.c<span style="font-size: 80%;"> (source / <a href="idle_tracker_test.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">137</td>
+            <td class="headerCovTableEntry">138</td>
+            <td class="headerCovTableEntryHi">99.3 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryMed">80.0 %</td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #include &lt;stdarg.h&gt;</a>
+<span class="lineNum">       2 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">       3 </span>                :            : #include &lt;setjmp.h&gt;
+<span class="lineNum">       4 </span>                :            : #include &quot;cmockery.h&quot;
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : #include &quot;../idle_tracker.c&quot;
+<span class="lineNum">       7 </span>                :            : 
+<span class="lineNum">       8 </span>                :            : /*
+<span class="lineNum">       9 </span>                :            :  * This sets up an expected exception that will be rethrown for
+<span class="lineNum">      10 </span>                :            :  * verification using PG_TRY(), PG_CATCH() and PG_END_TRY() macros
+<span class="lineNum">      11 </span>                :            :  */
+<span class="lineNum">      12 </span>                :            : #define EXPECT_EXCEPTION()     \
+<span class="lineNum">      13 </span>                :            :         expect_any(ExceptionalCondition,conditionName); \
+<span class="lineNum">      14 </span>                :            :         expect_any(ExceptionalCondition,errorType); \
+<span class="lineNum">      15 </span>                :            :         expect_any(ExceptionalCondition,fileName); \
+<span class="lineNum">      16 </span>                :            :         expect_any(ExceptionalCondition,lineNumber); \
+<span class="lineNum">      17 </span>                :            :     will_be_called_with_sideeffect(ExceptionalCondition, &amp;_ExceptionalCondition, NULL);\
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : /* MySessionState will use the address of this global variable */
+<span class="lineNum">      20 </span>                :            : static SessionState fakeSessionState;
+<span class="lineNum">      21 </span>                :            : 
+<a name="22"><span class="lineNum">      22 </span>                :            : /* Prepares a fake MySessionState pointer for use in the vmem tracker */</a>
+<span class="lineNum">      23 </span>                :            : static void
+<span class="lineNum">      24 </span>                :            : InitFakeSessionState(int activeProcessCount, int cleanupCountdown, RunawayStatus runawayStatus, int pinCount, int vmem)
+<span class="lineNum">      25 </span>                :            : {
+<span class="lineNum">      26 </span>                :<span class="lineCov">         16 :         MySessionState = &amp;fakeSessionState;</span>
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;activeProcessCount = activeProcessCount;</span>
+<span class="lineNum">      29 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;cleanupCountdown = cleanupCountdown;</span>
+<span class="lineNum">      30 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;runawayStatus = runawayStatus;</span>
+<span class="lineNum">      31 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;next = NULL;</span>
+<span class="lineNum">      32 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;pinCount = pinCount;</span>
+<span class="lineNum">      33 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;sessionId = 1234;</span>
+<span class="lineNum">      34 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;sessionVmem = vmem;</span>
+<span class="lineNum">      35 </span>                :<span class="lineCov">         16 :         MySessionState-&gt;spinLock = 0;</span>
+<span class="lineNum">      36 </span>                :<span class="lineCov">         16 : }</span>
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : #define PG_RE_THROW() siglongjmp(*PG_exception_stack, 1)
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :            : /*
+<span class="lineNum">      41 </span>                :            :  * This method will emulate the real ExceptionalCondition
+<span class="lineNum">      42 </span>                :            :  * function by re-throwing the exception, essentially falling
+<span class="lineNum">      43 </span>                :            :  * back to the next available PG_CATCH();
+<a name="44"><span class="lineNum">      44 </span>                :            :  */</a>
+<span class="lineNum">      45 </span>                :            : void
+<span class="lineNum">      46 </span>                :            : _ExceptionalCondition()
+<span class="lineNum">      47 </span>                :            : {
+<span class="lineNum">      48 </span>                :<span class="lineCov">         12 :      PG_RE_THROW();</span>
+<span class="lineNum">      49 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : /*
+<span class="lineNum">      52 </span>                :            :  * A shared method to test proper activation during IdleTracker_Init()
+<span class="lineNum">      53 </span>                :            :  * or a direct call to IdleTracker_ActivateProcess() during regular
+<span class="lineNum">      54 </span>                :            :  * activation of an idle process.
+<a name="55"><span class="lineNum">      55 </span>                :            :  */</a>
+<span class="lineNum">      56 </span>                :            : static void
+<span class="lineNum">      57 </span>                :            : CheckForActivation(void (*testFunc)(void))
+<span class="lineNum">      58 </span>                :            : {
+<span class="lineNum">      59 </span>                :            :         static EventVersion fakeCurrentVersion = 10;
+<span class="lineNum">      60 </span>                :<span class="lineCov">          4 :         CurrentVersion = &amp;fakeCurrentVersion;</span>
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :<span class="lineCov">          4 :         InitFakeSessionState(0 /* activeProcessCount */, CLEANUP_COUNTDOWN_BEFORE_RUNAWAY /* cleanupCountdown */,</span>
+<span class="lineNum">      63 </span>                :            :                         RunawayStatus_NotRunaway /* runawayStatus */, 1 /* pinCount */, 0 /* vmem */);
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :<span class="lineCov">          4 :         EventVersion oldVersion = *CurrentVersion;</span>
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :<span class="lineCov">          4 :         activationVersion = 0;</span>
+<span class="lineNum">      68 </span>                :<span class="lineCov">          4 :         deactivationVersion = 0;</span>
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != activationVersion);</span>
+<span class="lineNum">      71 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != deactivationVersion);</span>
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            :         /*
+<span class="lineNum">      74 </span>                :            :          * Set to false as we want to verify that it gets set to true
+<span class="lineNum">      75 </span>                :            :          * once the testFunc() call returns
+<span class="lineNum">      76 </span>                :            :          */
+<span class="lineNum">      77 </span>                :<span class="lineCov">          4 :         isProcessActive = false;</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 0);</span>
+<span class="lineNum">      80 </span>                :            : 
+<span class="lineNum">      81 </span>                :<span class="lineCov">          4 :         testFunc();</span>
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :<span class="lineCov">          4 :         assert_true(activationVersion == *CurrentVersion);</span>
+<span class="lineNum">      84 </span>                :<span class="lineCov">          4 :         assert_true(deactivationVersion == 0);</span>
+<span class="lineNum">      85 </span>                :<span class="lineCov">          4 :         assert_true(isProcessActive == true);</span>
+<span class="lineNum">      86 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 1);</span>
+<span class="lineNum">      87 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            : /*
+<span class="lineNum">      90 </span>                :            :  * A shared method to test proper deactivation during IdleTracker_Shutdown()
+<span class="lineNum">      91 </span>                :            :  * or a direct call to IdleTracker_DeactivateProcess() during regular
+<span class="lineNum">      92 </span>                :            :  * deactivation of an active process when a proper cleanup was not possible
+<span class="lineNum">      93 </span>                :            :  * (e.g., a transaction is in progress).
+<a name="94"><span class="lineNum">      94 </span>                :            :  */</a>
+<span class="lineNum">      95 </span>                :            : static void
+<span class="lineNum">      96 </span>                :            : CheckForDeactivationWithoutCleanup(void (*testFunc)(void))
+<span class="lineNum">      97 </span>                :            : {
+<span class="lineNum">      98 </span>                :            :         static EventVersion fakeCurrentVersion = 10;
+<span class="lineNum">      99 </span>                :<span class="lineCov">          4 :         CurrentVersion = &amp;fakeCurrentVersion;</span>
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :<span class="lineCov">          4 :         InitFakeSessionState(1 /* activeProcessCount */, CLEANUP_COUNTDOWN_BEFORE_RUNAWAY /* cleanupCountdown */,</span>
+<span class="lineNum">     102 </span>                :            :                         RunawayStatus_NotRunaway /* runawayStatus */, 1 /* pinCount */, 0 /* vmem */);
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :<span class="lineCov">          4 :         EventVersion oldVersion = *CurrentVersion;</span>
+<span class="lineNum">     105 </span>                :            :         /* Ensure we have a pending runaway event */
+<span class="lineNum">     106 </span>                :<span class="lineCov">          4 :         EventVersion fakeLatestRunawayVersion = *CurrentVersion - 1;</span>
+<span class="lineNum">     107 </span>                :<span class="lineCov">          4 :         latestRunawayVersion = &amp;fakeLatestRunawayVersion;</span>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :<span class="lineCov">          4 :         activationVersion = 0;</span>
+<span class="lineNum">     110 </span>                :<span class="lineCov">          4 :         deactivationVersion = 0;</span>
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != activationVersion);</span>
+<span class="lineNum">     113 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != deactivationVersion);</span>
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            :         /*
+<span class="lineNum">     116 </span>                :            :          * Set to true as we want to verify that it gets set to false
+<span class="lineNum">     117 </span>                :            :          * once the testFunc() call returns
+<span class="lineNum">     118 </span>                :            :          */
+<span class="lineNum">     119 </span>                :<span class="lineCov">          4 :         isProcessActive = true;</span>
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 1);</span>
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :            :         /*
+<span class="lineNum">     124 </span>                :            :          * Deactivation must call RunawayCleaner_StartCleanup before finishing deactivation
+<span class="lineNum">     125 </span>                :            :          * to check for cleanup requirement for any pending runaway event. The method is
+<span class="lineNum">     126 </span>                :            :          * supposed to throw an exception, but for this test we are mocking the function
+<span class="lineNum">     127 </span>                :            :          * without side effect. I.e., the function behaves as if a proper cleanup is not
+<span class="lineNum">     128 </span>                :            :          * possible
+<span class="lineNum">     129 </span>                :            :          */
+<span class="lineNum">     130 </span>                :<span class="lineCov">          4 :         will_be_called(RunawayCleaner_StartCleanup);</span>
+<span class="lineNum">     131 </span>                :<span class="lineCov">          4 :         TimestampTz lastTime = GetCurrentTimestamp();</span>
+<span class="lineNum">     132 </span>                :<span class="lineCov">          4 :         MySessionState-&gt;idle_start = 0;</span>
+<span class="lineNum">     133 </span>                :            : 
+<span class="lineNum">     134 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     135 </span>                :<span class="lineCov">          4 :         will_return(RunawayCleaner_IsCleanupInProgress, true);</span>
+<span class="lineNum">     136 </span>                :            :         /*
+<span class="lineNum">     137 </span>                :            :          * Expecting an exception as we are indicating an ongoing cleanup
+<span class="lineNum">     138 </span>                :            :          * and yet returning to IdleTracker_DactivateProcess
+<span class="lineNum">     139 </span>                :            :          */
+<span class="lineNum">     140 </span>                :<span class="lineCov">          4 :         EXPECT_EXCEPTION();</span>
+<span class="lineNum">     141 </span>                :            : #endif
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          8 :         PG_TRY();</span>
+<span class="lineNum">     144 </span>                :            :         {
+<span class="lineNum">     145 </span>                :<span class="lineCov">          4 :                 testFunc();</span>
+<span class="lineNum">     146 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     147 </span>                :<span class="lineCov">          4 :                 assert_false(&quot;Expected an assertion failure&quot;);</span>
+<span class="lineNum">     148 </span>                :            : #endif
+<span class="lineNum">     149 </span>                :            :         }
+<span class="lineNum">     150 </span>                :<span class="lineCov">          4 :         PG_CATCH();</span>
+<span class="lineNum">     151 </span>                :            :         {
+<span class="lineNum">     152 </span>                :            : 
+<span class="lineNum">     153 </span>                :            :         }
+<span class="lineNum">     154 </span>                :<span class="lineCov">          4 :         PG_END_TRY();</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineCov">          4 :         assert_true(activationVersion == 0);</span>
+<span class="lineNum">     157 </span>                :<span class="lineCov">          4 :         assert_true(deactivationVersion == *CurrentVersion);</span>
+<span class="lineNum">     158 </span>                :<span class="lineCov">          4 :         assert_true(isProcessActive == false);</span>
+<span class="lineNum">     159 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 0);</span>
+<span class="lineNum">     160 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          4 :         assert_true(lastTime &gt; 0 &amp;&amp; MySessionState-&gt;idle_start &gt;= lastTime);</span>
+<span class="lineNum">     161 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">     162 </span>                :            : 
+<span class="lineNum">     163 </span>                :            : /*
+<span class="lineNum">     164 </span>                :            :  * A shared method to test proper deactivation during IdleTracker_Shutdown()
+<span class="lineNum">     165 </span>                :            :  * or a direct call to IdleTracker_DeactivateProcess() during regular
+<span class="lineNum">     166 </span>                :            :  * deactivation of an active process when a proper cleanup was done, throwing
+<span class="lineNum">     167 </span>                :            :  * and elog(ERROR,...) and therefore the call would never return to the calling
+<span class="lineNum">     168 </span>                :            :  * function
+<a name="169"><span class="lineNum">     169 </span>                :            :  */</a>
+<span class="lineNum">     170 </span>                :            : static void
+<span class="lineNum">     171 </span>                :            : CheckForDeactivationWithProperCleanup(void (*testFunc)(void))
+<span class="lineNum">     172 </span>                :            : {
+<span class="lineNum">     173 </span>                :            :         static EventVersion fakeCurrentVersion = 10;
+<span class="lineNum">     174 </span>                :<span class="lineCov">          4 :         CurrentVersion = &amp;fakeCurrentVersion;</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>                :<span class="lineCov">          4 :         InitFakeSessionState(1 /* activeProcessCount */, CLEANUP_COUNTDOWN_BEFORE_RUNAWAY /* cleanupCountdown */,</span>
+<span class="lineNum">     177 </span>                :            :                         RunawayStatus_NotRunaway /* runawayStatus */, 1 /* pinCount */, 0 /* vmem */);
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :<span class="lineCov">          4 :         EventVersion oldVersion = *CurrentVersion;</span>
+<span class="lineNum">     180 </span>                :            :         /* Ensure we have a pending runaway event */
+<span class="lineNum">     181 </span>                :<span class="lineCov">          4 :         EventVersion fakeLatestRunawayVersion = *CurrentVersion - 1;</span>
+<span class="lineNum">     182 </span>                :<span class="lineCov">          4 :         latestRunawayVersion = &amp;fakeLatestRunawayVersion;</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineCov">          4 :         activationVersion = 0;</span>
+<span class="lineNum">     185 </span>                :<span class="lineCov">          4 :         deactivationVersion = 0;</span>
+<span class="lineNum">     186 </span>                :            : 
+<span class="lineNum">     187 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != activationVersion);</span>
+<span class="lineNum">     188 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != deactivationVersion);</span>
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>                :            :         /*
+<span class="lineNum">     191 </span>                :            :          * Set to true as we want to verify that it gets set to false
+<span class="lineNum">     192 </span>                :            :          * once the testFunc() call returns
+<span class="lineNum">     193 </span>                :            :          */
+<span class="lineNum">     194 </span>                :<span class="lineCov">          4 :         isProcessActive = true;</span>
+<span class="lineNum">     195 </span>                :            : 
+<span class="lineNum">     196 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 1);</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :         /*
+<span class="lineNum">     199 </span>                :            :          * Deactivation must call RunawayCleaner_StartCleanup before finishing deactivation
+<span class="lineNum">     200 </span>                :            :          * to check for cleanup requirement for any pending runaway event. The mocked method
+<span class="lineNum">     201 </span>                :            :          * is throwing an exception here, which would block execution of code following the call
+<span class="lineNum">     202 </span>                :            :          * site
+<span class="lineNum">     203 </span>                :            :          */
+<span class="lineNum">     204 </span>                :<span class="lineCov">          4 :         will_be_called_with_sideeffect(RunawayCleaner_StartCleanup, &amp;_ExceptionalCondition, NULL);</span>
+<span class="lineNum">     205 </span>                :<span class="lineCov">          4 :         TimestampTz lastTime = GetCurrentTimestamp();</span>
+<span class="lineNum">     206 </span>                :<span class="lineCov">          4 :         MySessionState-&gt;idle_start = 0;</span>
+<span class="lineNum">     207 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          8 :         PG_TRY();</span>
+<span class="lineNum">     208 </span>                :            :         {
+<span class="lineNum">     209 </span>                :<span class="lineCov">          4 :                 testFunc();</span>
+<span class="lineNum">     210 </span>                :<span class="lineCov">          4 :                 assert_false(&quot;Expected an exception&quot;);</span>
+<span class="lineNum">     211 </span>                :            :         }
+<span class="lineNum">     212 </span>                :<span class="lineCov">          4 :         PG_CATCH();</span>
+<span class="lineNum">     213 </span>                :            :         {
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>                :            :         }
+<span class="lineNum">     216 </span>                :<span class="lineCov">          4 :         PG_END_TRY();</span>
+<span class="lineNum">     217 </span>                :            : 
+<span class="lineNum">     218 </span>                :<span class="lineCov">          4 :         assert_true(activationVersion == 0);</span>
+<span class="lineNum">     219 </span>                :<span class="lineCov">          4 :         assert_true(deactivationVersion == *CurrentVersion);</span>
+<span class="lineNum">     220 </span>                :<span class="lineCov">          4 :         assert_true(isProcessActive == false);</span>
+<span class="lineNum">     221 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 0);</span>
+<span class="lineNum">     222 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          4 :         assert_true(lastTime &gt; 0 &amp;&amp; MySessionState-&gt;idle_start &gt;= lastTime);</span>
+<span class="lineNum">     223 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            : /*
+<span class="lineNum">     226 </span>                :            :  * A shared method to test that the IdleTracker_DeactivateProcess ignores
+<span class="lineNum">     227 </span>                :            :  * deactivation for an already idle process when the proc_exit_inprogress
+<span class="lineNum">     228 </span>                :            :  * is set to true
+<a name="229"><span class="lineNum">     229 </span>                :            :  */</a>
+<span class="lineNum">     230 </span>                :            : static void
+<span class="lineNum">     231 </span>                :            : PreventDuplicateDeactivationDuringProcExit(void (*testFunc)(void))
+<span class="lineNum">     232 </span>                :            : {
+<span class="lineNum">     233 </span>                :            :         static EventVersion fakeCurrentVersion = 10;
+<span class="lineNum">     234 </span>                :<span class="lineCov">          4 :         CurrentVersion = &amp;fakeCurrentVersion;</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineCov">          4 :         InitFakeSessionState(1 /* activeProcessCount */, CLEANUP_COUNTDOWN_BEFORE_RUNAWAY /* cleanupCountdown */,</span>
+<span class="lineNum">     237 </span>                :            :                         RunawayStatus_NotRunaway /* runawayStatus */, 1 /* pinCount */, 0 /* vmem */);
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>                :<span class="lineCov">          4 :         EventVersion oldVersion = *CurrentVersion;</span>
+<span class="lineNum">     240 </span>                :            :         /* Ensure we have a pending runaway event */
+<span class="lineNum">     241 </span>                :<span class="lineCov">          4 :         EventVersion fakeLatestRunawayVersion = *CurrentVersion - 1;</span>
+<span class="lineNum">     242 </span>                :<span class="lineCov">          4 :         latestRunawayVersion = &amp;fakeLatestRunawayVersion;</span>
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :<span class="lineCov">          4 :         activationVersion = 0;</span>
+<span class="lineNum">     245 </span>                :<span class="lineCov">          4 :         deactivationVersion = 0;</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != activationVersion);</span>
+<span class="lineNum">     248 </span>                :<span class="lineCov">          4 :         assert_true(*CurrentVersion != deactivationVersion);</span>
+<span class="lineNum">     249 </span>                :            : 
+<span class="lineNum">     250 </span>                :            :         /*
+<span class="lineNum">     251 </span>                :            :          * Set to false to mark the process as deactivated
+<span class="lineNum">     252 </span>                :            :          */
+<span class="lineNum">     253 </span>                :<span class="lineCov">          4 :         isProcessActive = false;</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 1);</span>
+<span class="lineNum">     256 </span>                :            :         /*
+<span class="lineNum">     257 </span>                :            :          * Setting proc_exit_inprogress to true means we won't try to
+<span class="lineNum">     258 </span>                :            :          * deactivate an already idle process
+<span class="lineNum">     259 </span>                :            :          */
+<span class="lineNum">     260 </span>                :<span class="lineCov">          4 :         proc_exit_inprogress = true;</span>
+<span class="lineNum">     261 </span>                :            :         /* Interrupts should be held off during proc_exit_inprogress*/
+<span class="lineNum">     262 </span>                :<span class="lineCov">          4 :         InterruptHoldoffCount = 1;</span>
+<span class="lineNum">     263 </span>                :<span class="lineCov">          4 :         MySessionState-&gt;idle_start = 0;</span>
+<span class="lineNum">     264 </span>                :            :         /* Now the deactivation should succeed as we have held off interrupts */
+<span class="lineNum">     265 </span>                :<span class="lineCov">          4 :         testFunc();</span>
+<span class="lineNum">     266 </span>                :<span class="lineCov">          4 :         InterruptHoldoffCount = 0;</span>
+<span class="lineNum">     267 </span>                :            : 
+<span class="lineNum">     268 </span>                :<span class="lineCov">          4 :         assert_true(activationVersion == deactivationVersion);</span>
+<span class="lineNum">     269 </span>                :<span class="lineCov">          4 :         assert_true(deactivationVersion != *CurrentVersion);</span>
+<span class="lineNum">     270 </span>                :<span class="lineCov">          4 :         assert_true(isProcessActive == false);</span>
+<span class="lineNum">     271 </span>                :            :         /* We haven't reduced the activeProcessCount */
+<span class="lineNum">     272 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;activeProcessCount == 1);</span>
+<span class="lineNum">     273 </span>                :            :         /* idle_start shouldn't change as we were already idle */
+<span class="lineNum">     274 </span>                :<span class="lineCov">          4 :         assert_true(MySessionState-&gt;idle_start == 0);</span>
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :            : #ifdef USE_ASSERT_CHECKING
+<span class="lineNum">     277 </span>                :            :         /*
+<span class="lineNum">     278 </span>                :            :          * Now test that the testFunc fails assert if we try to deactivate an already
+<span class="lineNum">     279 </span>                :            :          * idle process during a normal execution (i.e., not proc_exit_inprogress)
+<span class="lineNum">     280 </span>                :            :          */
+<span class="lineNum">     281 </span>                :<span class="lineCov">          4 :         proc_exit_inprogress = false;</span>
+<span class="lineNum">     282 </span>                :<span class="lineCov">          4 :         EXPECT_EXCEPTION();</span>
+<span class="lineNum">     283 </span>        [<span class="branchCov" title="Branch 0 was taken 4 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          8 :         PG_TRY();</span>
+<span class="lineNum">     284 </span>                :            :         {
+<span class="lineNum">     285 </span>                :<span class="lineCov">          4 :                 testFunc();</span>
+<span class="lineNum">     286 </span>                :<span class="lineCov">          4 :                 assert_false(&quot;Expected assertion failure&quot;);</span>
+<span class="lineNum">     287 </span>                :            :         }
+<span class="lineNum">     288 </span>                :<span class="lineCov">          4 :         PG_CATCH();</span>
+<span class="lineNum">     289 </span>                :            :         {
+<span class="lineNum">     290 </span>                :            : 
+<span class="lineNum">     291 </span>                :            :         }
+<span class="lineNum">     292 </span>                :<span class="lineCov">          4 :         PG_END_TRY();</span>
+<span class="lineNum">     293 </span>                :            : #endif
+<span class="lineNum">     294 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :            : /*
+<span class="lineNum">     297 </span>                :            :  * Checks if IdleTracker_ShmemInit() properly initializes the global variables
+<span class="lineNum">     298 </span>                :            :  * as the postmaster
+<a name="299"><span class="lineNum">     299 </span>                :            :  */</a>
+<span class="lineNum">     300 </span>                :            : void
+<span class="lineNum">     301 </span>                :            : test__IdleTracker_ShmemInit__InitializesGlobalVarsWhenPostmaster(void **state)
+<span class="lineNum">     302 </span>                :            : {
+<span class="lineNum">     303 </span>                :<span class="lineCov">          2 :         IsUnderPostmaster = false;</span>
+<span class="lineNum">     304 </span>                :            : 
+<span class="lineNum">     305 </span>                :            :         static EventVersion fakeCurrentVersion = 10;
+<span class="lineNum">     306 </span>                :<span class="lineCov">          2 :         CurrentVersion = &amp;fakeCurrentVersion;</span>
+<span class="lineNum">     307 </span>                :            : 
+<span class="lineNum">     308 </span>                :<span class="lineCov">          2 :         activationVersion = 0;</span>
+<span class="lineNum">     309 </span>                :<span class="lineCov">          2 :         deactivationVersion = 0;</span>
+<span class="lineNum">     310 </span>                :            : 
+<span class="lineNum">     311 </span>                :<span class="lineCov">          2 :         assert_true(*CurrentVersion != activationVersion);</span>
+<span class="lineNum">     312 </span>                :<span class="lineCov">          2 :         assert_true(*CurrentVersion != deactivationVersion);</span>
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>                :            :         /*
+<span class="lineNum">     315 </span>                :            :          * Set to true as we want to verfiy that it gets set to false
+<span class="lineNum">     316 </span>                :            :          * once the IdleTracker_ShmemInit() call returns
+<span class="lineNum">     317 </span>                :            :          */
+<span class="lineNum">     318 </span>                :<span class="lineCov">          2 :         isProcessActive = true;</span>
+<span class="lineNum">     319 </span>                :            : 
+<span class="lineNum">     320 </span>                :<span class="lineCov">          2 :         IdleTracker_ShmemInit();</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>                :<span class="lineCov">          2 :         assert_true(activationVersion == *CurrentVersion);</span>
+<span class="lineNum">     323 </span>                :<span class="lineCov">          2 :         assert_true(deactivationVersion == *CurrentVersion);</span>
+<span class="lineNum">     324 </span>                :<span class="lineCov">          2 :         assert_true(isProcessActive == false);</span>
+<span class="lineNum">     325 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :            : /*
+<span class="lineNum">     328 </span>                :            :  * Checks if IdleTracker_Init() activates the current process
+<a name="329"><span class="lineNum">     329 </span>                :            :  */</a>
+<span class="lineNum">     330 </span>                :            : void
+<span class="lineNum">     331 </span>                :            : test__IdleTracker_Init__ActivatesProcess(void **state)
+<span class="lineNum">     332 </span>                :            : {
+<span class="lineNum">     333 </span>                :<span class="lineCov">          2 :         CheckForActivation(&amp;IdleTracker_Init);</span>
+<span class="lineNum">     334 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     335 </span>                :            : 
+<span class="lineNum">     336 </span>                :            : /*
+<span class="lineNum">     337 </span>                :            :  * Checks if IdleTracker_ActivateProcess() activates the current process
+<a name="338"><span class="lineNum">     338 </span>                :            :  */</a>
+<span class="lineNum">     339 </span>                :            : void
+<span class="lineNum">     340 </span>                :            : test__IdleTracker_ActivateProcess__ActivatesProcess(void **state)
+<span class="lineNum">     341 </span>                :            : {
+<span class="lineNum">     342 </span>                :<span class="lineCov">          2 :         CheckForActivation(&amp;IdleTracker_ActivateProcess);</span>
+<span class="lineNum">     343 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     344 </span>                :            : 
+<span class="lineNum">     345 </span>                :            : /*
+<span class="lineNum">     346 </span>                :            :  * Checks if IdleTracker_DeactivateProcess() deactivates the current process
+<span class="lineNum">     347 </span>                :            :  * when a proper cleanup was done
+<a name="348"><span class="lineNum">     348 </span>                :            :  */</a>
+<span class="lineNum">     349 </span>                :            : void
+<span class="lineNum">     350 </span>                :            : test__IdleTracker_DeactivateProcess__DeactivatesProcessWithCleanup(void **state)
+<span class="lineNum">     351 </span>                :            : {
+<span class="lineNum">     352 </span>                :<span class="lineCov">          2 :         CheckForDeactivationWithProperCleanup(&amp;IdleTracker_DeactivateProcess);</span>
+<span class="lineNum">     353 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :            : /*
+<span class="lineNum">     356 </span>                :            :  * Checks if IdleTracker_Shutdown() deactivates the current process when a
+<span class="lineNum">     357 </span>                :            :  * proper cleanup was done
+<a name="358"><span class="lineNum">     358 </span>                :            :  */</a>
+<span class="lineNum">     359 </span>                :            : void
+<span class="lineNum">     360 </span>                :            : test__IdleTracker_Shutdown__DeactivatesProcessWithCleanup(void **state)
+<span class="lineNum">     361 </span>                :            : {
+<span class="lineNum">     362 </span>                :<span class="lineCov">          2 :         CheckForDeactivationWithProperCleanup(&amp;IdleTracker_Shutdown);</span>
+<span class="lineNum">     363 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     364 </span>                :            : 
+<span class="lineNum">     365 </span>                :            : /*
+<span class="lineNum">     366 </span>                :            :  * Checks if IdleTracker_DeactivateProcess() deactivates the current process
+<span class="lineNum">     367 </span>                :            :  * when a proper cleanup could not be done
+<a name="368"><span class="lineNum">     368 </span>                :            :  */</a>
+<span class="lineNum">     369 </span>                :            : void
+<span class="lineNum">     370 </span>                :            : test__IdleTracker_DeactivateProcess__DeactivatesProcessWithoutCleanup(void **state)
+<span class="lineNum">     371 </span>                :            : {
+<span class="lineNum">     372 </span>                :<span class="lineCov">          2 :         CheckForDeactivationWithoutCleanup(&amp;IdleTracker_DeactivateProcess);</span>
+<span class="lineNum">     373 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     374 </span>                :            : 
+<span class="lineNum">     375 </span>                :            : /*
+<span class="lineNum">     376 </span>                :            :  * Checks if IdleTracker_Shutdown() deactivates the current process when a
+<span class="lineNum">     377 </span>                :            :  * proper cleanup could not be done
+<a name="378"><span class="lineNum">     378 </span>                :            :  */</a>
+<span class="lineNum">     379 </span>                :            : void
+<span class="lineNum">     380 </span>                :            : test__IdleTracker_Shutdown__DeactivatesProcessWithoutCleanup(void **state)
+<span class="lineNum">     381 </span>                :            : {
+<span class="lineNum">     382 </span>                :<span class="lineCov">          2 :         CheckForDeactivationWithoutCleanup(&amp;IdleTracker_Shutdown);</span>
+<span class="lineNum">     383 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :            : /*
+<span class="lineNum">     386 </span>                :            :  * Checks if IdleTracker_DeactivateProcess() ignores deactivation if the
+<span class="lineNum">     387 </span>                :            :  * proc_exit_inprogress is set to true
+<a name="388"><span class="lineNum">     388 </span>                :            :  */</a>
+<span class="lineNum">     389 </span>                :            : void
+<span class="lineNum">     390 </span>                :            : test__IdleTracker_DeactivateProcess__IgnoresDeactivationDuringProcExit(void **state)
+<span class="lineNum">     391 </span>                :            : {
+<span class="lineNum">     392 </span>                :<span class="lineCov">          2 :         PreventDuplicateDeactivationDuringProcExit(&amp;IdleTracker_DeactivateProcess);</span>
+<span class="lineNum">     393 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :            : /*
+<span class="lineNum">     396 </span>                :            :  * Checks if IdleTracker_Shutdown() ignores deactivation if the
+<span class="lineNum">     397 </span>                :            :  * proc_exit_inprogress is set to true
+<a name="398"><span class="lineNum">     398 </span>                :            :  */</a>
+<span class="lineNum">     399 </span>                :            : void
+<span class="lineNum">     400 </span>                :            : test__IdleTracker_Shutdown__IgnoresDeactivationDuringProcExit(void **state)
+<span class="lineNum">     401 </span>                :            : {
+<span class="lineNum">     402 </span>                :<span class="lineCov">          2 :         PreventDuplicateDeactivationDuringProcExit(&amp;IdleTracker_Shutdown);</span>
+<span class="lineNum">     403 </span>                :<span class="lineCov">          2 : }</span>
+<a name="404"><span class="lineNum">     404 </span>                :            : </a>
+<span class="lineNum">     405 </span>                :            : int
+<span class="lineNum">     406 </span>                :            : main(int argc, char* argv[])
+<span class="lineNum">     407 </span>                :            : {
+<span class="lineNum">     408 </span>                :<span class="lineCov">          2 :         cmockery_parse_arguments(argc, argv);</span>
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :            :         const UnitTest tests[] = {
+<span class="lineNum">     411 </span>                :            :                 unit_test(test__IdleTracker_ShmemInit__InitializesGlobalVarsWhenPostmaster),
+<span class="lineNum">     412 </span>                :            :                 unit_test(test__IdleTracker_Init__ActivatesProcess),
+<span class="lineNum">     413 </span>                :            :                 unit_test(test__IdleTracker_ActivateProcess__ActivatesProcess),
+<span class="lineNum">     414 </span>                :            :                 unit_test(test__IdleTracker_DeactivateProcess__DeactivatesProcessWithCleanup),
+<span class="lineNum">     415 </span>                :            :                 unit_test(test__IdleTracker_Shutdown__DeactivatesProcessWithCleanup),
+<span class="lineNum">     416 </span>                :            :                 unit_test(test__IdleTracker_DeactivateProcess__DeactivatesProcessWithoutCleanup),
+<span class="lineNum">     417 </span>                :            :                 unit_test(test__IdleTracker_Shutdown__DeactivatesProcessWithoutCleanup),
+<span class="lineNum">     418 </span>                :            :                 unit_test(test__IdleTracker_DeactivateProcess__IgnoresDeactivationDuringProcExit),
+<span class="lineNum">     419 </span>                :            :                 unit_test(test__IdleTracker_Shutdown__IgnoresDeactivationDuringProcExit),
+<span class="lineNum">     420 </span>                :            :         };
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :<span class="lineCov">          2 :         return run_tests(tests);</span>
+<span class="lineNum">     423 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

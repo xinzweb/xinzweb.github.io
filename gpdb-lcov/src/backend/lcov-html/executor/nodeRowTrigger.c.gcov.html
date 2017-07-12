@@ -1,0 +1,697 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/nodeRowTrigger.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - nodeRowTrigger.c<span style="font-size: 80%;"> (source / <a href="nodeRowTrigger.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">241</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">14</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">130</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nodeRowTriggerOp.c
+<span class="lineNum">       4 </span>                :            :  *        Implementation of nodeRowTriggerOp.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Copyright (c) 2012, EMC Corp.
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * The semantics of triggers is the following:
+<span class="lineNum">       9 </span>                :            :  * After triggers are executed after each tuple is processed, which
+<span class="lineNum">      10 </span>                :            :  * is not the case for DML statements going through the planner.
+<span class="lineNum">      11 </span>                :            :  * Before triggers are immediately executed after each tuple is processed.
+<span class="lineNum">      12 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      13 </span>                :            :  */
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;cdb/cdbpartition.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;commands/tablecmds.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;executor/nodeRowTrigger.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;executor/instrument.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;commands/trigger.h&quot;
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : /* Optimizer mapping for Row Triggers */
+<span class="lineNum">      25 </span>                :            : #define GPMD_TRIGGER_ROW 1
+<span class="lineNum">      26 </span>                :            : #define GPMD_TRIGGER_BEFORE 2
+<span class="lineNum">      27 </span>                :            : #define GPMD_TRIGGER_INSERT 4
+<span class="lineNum">      28 </span>                :            : #define GPMD_TRIGGER_DELETE 8
+<span class="lineNum">      29 </span>                :            : #define GPMD_TRIGGER_UPDATE 16
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : /* Number of slots used by node.*/
+<span class="lineNum">      32 </span>                :            : #define ROWTRIGGER_NSLOTS 4
+<span class="lineNum">      33 </span>                :            : /* Memory used by RowTrigger */
+<span class="lineNum">      34 </span>                :            : #define ROWTRIGGER_MEM 1
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : /* Executes the corresponding (INSERT/DELETE/UPDATE) ExecTrigger. */
+<span class="lineNum">      37 </span>                :            : static HeapTuple
+<span class="lineNum">      38 </span>                :            : ExecTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">      39 </span>                :            :                                 HeapTuple originalTuple,
+<span class="lineNum">      40 </span>                :            :                                 HeapTuple finalTuple, int eventFlags, bool *processTuple);
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>                :            : /* Executes Before and After Update triggers. */
+<span class="lineNum">      43 </span>                :            : static HeapTuple
+<span class="lineNum">      44 </span>                :            : ExecUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">      45 </span>                :            :                                 TriggerDesc *trigdesc, int ntrigs, int *tgindx, HeapTuple newtuple,
+<span class="lineNum">      46 </span>                :            :                                 HeapTuple trigtuple /*old*/, TriggerEvent eventFlags);
+<span class="lineNum">      47 </span>                :            : 
+<span class="lineNum">      48 </span>                :            : /* Executes Before and After Insert triggers. */
+<span class="lineNum">      49 </span>                :            : static HeapTuple
+<span class="lineNum">      50 </span>                :            : ExecInsertTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">      51 </span>                :            :                                 TriggerDesc *trigdesc, int ntrigs, int *tgindx,  HeapTuple      trigtuple, TriggerEvent eventFlags);
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>                :            : /* Executes Before and After Delete triggers. */
+<span class="lineNum">      54 </span>                :            : static bool
+<span class="lineNum">      55 </span>                :            : ExecDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">      56 </span>                :            :                                 TriggerDesc *trigdesc, int ntrigs, int *tgindx,  HeapTuple      trigtuple, TriggerEvent eventFlags);
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            : /* Stores the matching attribute values in a TupleTableSlot.
+<span class="lineNum">      59 </span>                :            :  * This is used to generate a TupleTableSlot for the new and old values. */
+<span class="lineNum">      60 </span>                :            : static void
+<span class="lineNum">      61 </span>                :            : StoreTupleForTrigger(TupleTableSlot *slot, Datum *values, bool *nulls, ListCell *attr);
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : /* Constructs output TupleTableSlot */
+<span class="lineNum">      64 </span>                :            : static void
+<span class="lineNum">      65 </span>                :            : ConstructNewTupleTableSlot(HeapTuple newtuple, TupleTableSlot *triggerTuple, ListCell *attr, Datum *values, bool *nulls);
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : /* Obtains the Heap/Mem tuples to process during the trigger */
+<span class="lineNum">      68 </span>                :            : static void
+<span class="lineNum">      69 </span>                :            : AssignTuplesForTriggers(void **newTuple, void **oldTuple,  RowTrigger *plannode,
+<span class="lineNum">      70 </span>                :            :                                         RowTriggerState *node,  Relation relation);
+<span class="lineNum">      71 </span>                :            : 
+<span class="lineNum">      72 </span>                :            : /* Initializes event trigger flags and relation to TriggerData struct */
+<span class="lineNum">      73 </span>                :            : static void
+<span class="lineNum">      74 </span>                :            : InitTriggerData(TriggerData *triggerData, TriggerEvent eventFlags, Relation relation);
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : 
+<span class="lineNum">      77 </span>                :            : /*
+<span class="lineNum">      78 </span>                :            :  * Estimated Memory Usage of RowTrigger Node.
+<a name="79"><span class="lineNum">      79 </span>                :            :  * */</a>
+<span class="lineNum">      80 </span>                :            : void
+<span class="lineNum">      81 </span>                :            : ExecRowTriggerExplainEnd(PlanState *planstate, struct StringInfoData *buf)
+<span class="lineNum">      82 </span>                :            : {
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :         planstate-&gt;instrument-&gt;execmemused += ROWTRIGGER_MEM;</span>
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      85 </span>                :            : 
+<a name="86"><span class="lineNum">      86 </span>                :            : /* Sets common initialization parameters across types of triggers. */</a>
+<span class="lineNum">      87 </span>                :            : static void
+<span class="lineNum">      88 </span>                :            : InitTriggerData(TriggerData *triggerData, TriggerEvent eventFlags, Relation relation)
+<span class="lineNum">      89 </span>                :            : {
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         triggerData-&gt;type = T_TriggerData;</span>
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :         triggerData-&gt;tg_event = eventFlags;</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         triggerData-&gt;tg_relation = relation;</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            : /*
+<span class="lineNum">      96 </span>                :            :  * Executes Before and After Update Row Triggers.
+<span class="lineNum">      97 </span>                :            :  * Allows modifying the NEW values of an updated tuple.
+<span class="lineNum">      98 </span>                :            :  * This function allows raising exceptions.
+<span class="lineNum">      99 </span>                :            :  *
+<a name="100"><span class="lineNum">     100 </span>                :            :  * */</a>
+<span class="lineNum">     101 </span>                :            : HeapTuple
+<span class="lineNum">     102 </span>                :            : ExecUpdateTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">     103 </span>                :            :                                 TriggerDesc *trigdesc, int ntrigs, int *tgindx, HeapTuple newtuple,
+<span class="lineNum">     104 </span>                :            :                                 HeapTuple trigtuple /*old*/, TriggerEvent eventFlags)
+<span class="lineNum">     105 </span>                :            : {
+<span class="lineNum">     106 </span>                :            :         TriggerData triggerData;
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :            :         HeapTuple       oldtuple;
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :         HeapTuple       intuple = newtuple;</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :         InitTriggerData(&amp;triggerData, eventFlags, relinfo-&gt;ri_RelationDesc);</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :            :         /* Executes all update triggers one by one. The resulting tuple from a
+<span class="lineNum">     114 </span>                :            :         * trigger is given to the following one */
+<span class="lineNum">     115 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (int i = 0; i &lt; ntrigs; i++)</span>
+<span class="lineNum">     116 </span>                :            :         {
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                 Trigger    *trigger = &amp;trigdesc-&gt;triggers[tgindx[i]];</span>
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!trigger-&gt;tgenabled)</span>
+<span class="lineNum">     120 </span>                :            :                 {
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     122 </span>                :            :                 }
+<span class="lineNum">     123 </span>                :            : 
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigtuple = trigtuple;</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_newtuple = oldtuple = newtuple;</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigtuplebuf = InvalidBuffer;</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_newtuplebuf = InvalidBuffer;</span>
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigger = trigger;</span>
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                 newtuple = ExecCallTriggerFunc(&amp;triggerData,</span>
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                                                                            tgindx[i],</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                                                                            relinfo-&gt;ri_TrigFunctions,</span>
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                                                                            relinfo-&gt;ri_TrigInstrument,</span>
+<span class="lineNum">     134 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                                            GetPerTupleMemoryContext(estate));</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (oldtuple != newtuple &amp;&amp; oldtuple != intuple)</span>
+<span class="lineNum">     137 </span>                :            :                 {
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                         heap_freetuple(oldtuple);</span>
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (newtuple == NULL)</span>
+<span class="lineNum">     142 </span>                :            :                 {
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     144 </span>                :            :                 }
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     146 </span>                :            : 
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :         return newtuple;</span>
+<span class="lineNum">     148 </span>                :            : }
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>                :            : /*
+<span class="lineNum">     151 </span>                :            :  * Executes Before and After Insert Row Triggers.
+<span class="lineNum">     152 </span>                :            :  * Allows modifying the NEW values of an inserted tuple.
+<span class="lineNum">     153 </span>                :            :  * This function allows raising exceptions.
+<a name="154"><span class="lineNum">     154 </span>                :            :  * */</a>
+<span class="lineNum">     155 </span>                :            : HeapTuple
+<span class="lineNum">     156 </span>                :            : ExecInsertTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">     157 </span>                :            :                                 TriggerDesc *trigdesc, int ntrigs, int *tgindx,
+<span class="lineNum">     158 </span>                :            :                                 HeapTuple       trigtuple, TriggerEvent eventFlags)
+<span class="lineNum">     159 </span>                :            : {
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :         HeapTuple       newtuple = trigtuple;</span>
+<span class="lineNum">     161 </span>                :            :         HeapTuple       oldtuple;
+<span class="lineNum">     162 </span>                :            :         TriggerData triggerData;
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         InitTriggerData(&amp;triggerData, eventFlags, relinfo-&gt;ri_RelationDesc);</span>
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         triggerData.tg_newtuple = NULL;</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         triggerData.tg_newtuplebuf = InvalidBuffer;</span>
+<span class="lineNum">     168 </span>                :            : 
+<span class="lineNum">     169 </span>                :            :         /* Executes all insert triggers one by one. The resulting tuple from a
+<span class="lineNum">     170 </span>                :            :          * trigger is given to the following one */
+<span class="lineNum">     171 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (int i = 0; i &lt; ntrigs; i++)</span>
+<span class="lineNum">     172 </span>                :            :         {
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :                 Trigger    *trigger = &amp;trigdesc-&gt;triggers[tgindx[i]];</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!trigger-&gt;tgenabled)</span>
+<span class="lineNum">     176 </span>                :            :                 {
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     178 </span>                :            :                 }
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigtuple = oldtuple = newtuple;</span>
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigtuplebuf = InvalidBuffer;</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigger = trigger;</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                 newtuple = ExecCallTriggerFunc(&amp;triggerData,</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                                                                            tgindx[i],</span>
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                                                                            relinfo-&gt;ri_TrigFunctions,</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                                                                            relinfo-&gt;ri_TrigInstrument,</span>
+<span class="lineNum">     188 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                                            GetPerTupleMemoryContext(estate));</span>
+<span class="lineNum">     189 </span>                :            : 
+<span class="lineNum">     190 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (oldtuple != newtuple &amp;&amp; oldtuple != trigtuple)</span>
+<span class="lineNum">     191 </span>                :            :                 {
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                         heap_freetuple(oldtuple);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (newtuple == NULL)</span>
+<span class="lineNum">     196 </span>                :            :                 {
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     198 </span>                :            :                 }
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :         return newtuple;</span>
+<span class="lineNum">     201 </span>                :            : }
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            : /*
+<span class="lineNum">     204 </span>                :            :  * Executes Before and After Delete Row Triggers.
+<span class="lineNum">     205 </span>                :            :  * This trigger can only cancel the deletion of a tuple.
+<span class="lineNum">     206 </span>                :            :  *
+<span class="lineNum">     207 </span>                :            :  * If any of the triggers return NULL tuple, this method
+<span class="lineNum">     208 </span>                :            :  * will return false to indicate that this tuple should not
+<span class="lineNum">     209 </span>                :            :  * be deleted.
+<a name="210"><span class="lineNum">     210 </span>                :            :  */</a>
+<span class="lineNum">     211 </span>                :            : bool
+<span class="lineNum">     212 </span>                :            : ExecDeleteTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">     213 </span>                :            :                                 TriggerDesc *trigdesc, int ntrigs, int *tgindx,
+<span class="lineNum">     214 </span>                :            :                                 HeapTuple       trigtuple, TriggerEvent eventFlags)
+<span class="lineNum">     215 </span>                :            : {
+<span class="lineNum">     216 </span>                :            :         TriggerData triggerData;
+<span class="lineNum">     217 </span>                :            :         HeapTuple       newtuple;
+<span class="lineNum">     218 </span>                :            : 
+<span class="lineNum">     219 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (trigtuple == NULL)</span>
+<span class="lineNum">     220 </span>                :            :         {
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     222 </span>                :            :         }
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :         InitTriggerData(&amp;triggerData, eventFlags, relinfo-&gt;ri_RelationDesc);</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         triggerData.tg_newtuple = NULL;</span>
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :         triggerData.tg_newtuplebuf = InvalidBuffer;</span>
+<span class="lineNum">     227 </span>                :            : 
+<span class="lineNum">     228 </span>                :            :         /* Executes all triggers one by one. If a predicate fails the execution
+<span class="lineNum">     229 </span>                :            :          * of the rest of the triggers is suspended. */
+<span class="lineNum">     230 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (int i = 0; i &lt; ntrigs; i++)</span>
+<span class="lineNum">     231 </span>                :            :         {
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                 Trigger    *trigger = &amp;trigdesc-&gt;triggers[tgindx[i]];</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!trigger-&gt;tgenabled)</span>
+<span class="lineNum">     235 </span>                :            :                 {
+<span class="lineNum">     236 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     237 </span>                :            :                 }
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigtuple = trigtuple;</span>
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigtuplebuf = InvalidBuffer;</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                 triggerData.tg_trigger = trigger;</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 newtuple = ExecCallTriggerFunc(&amp;triggerData,</span>
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                                                                            tgindx[i],</span>
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                                                                            relinfo-&gt;ri_TrigFunctions,</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :                                                                            relinfo-&gt;ri_TrigInstrument,</span>
+<span class="lineNum">     247 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                                            GetPerTupleMemoryContext(estate));</span>
+<span class="lineNum">     248 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (newtuple == NULL)</span>
+<span class="lineNum">     249 </span>                :            :                 {
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     251 </span>                :            :                 }
+<span class="lineNum">     252 </span>                :            : 
+<span class="lineNum">     253 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (newtuple != trigtuple)</span>
+<span class="lineNum">     254 </span>                :            :                 {
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                         heap_freetuple(newtuple);</span>
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     261 </span>                :            : 
+<span class="lineNum">     262 </span>                :            : /*
+<span class="lineNum">     263 </span>                :            :  * This function executes the appropriate triggers determined by the given flags.
+<span class="lineNum">     264 </span>                :            :  * This function also returns the resulting tuple from the trigger.
+<span class="lineNum">     265 </span>                :            :  * In a delete operation, the value of insertTuple is modified to
+<span class="lineNum">     266 </span>                :            :  * specify the action to take (DELETE or IGNORE) about that current tuple.
+<a name="267"><span class="lineNum">     267 </span>                :            :  * */</a>
+<span class="lineNum">     268 </span>                :            : HeapTuple
+<span class="lineNum">     269 </span>                :            : ExecTriggers(EState *estate, ResultRelInfo *relinfo,
+<span class="lineNum">     270 </span>                :            :                                 HeapTuple originalTuple,
+<span class="lineNum">     271 </span>                :            :                                 HeapTuple finalTuple, int eventFlags, bool *processTuple)
+<span class="lineNum">     272 </span>                :            : {
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :         TriggerDesc *trigdesc = relinfo-&gt;ri_TrigDesc;</span>
+<span class="lineNum">     274 </span>                :            : 
+<span class="lineNum">     275 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert( NULL != trigdesc);</span>
+<span class="lineNum">     276 </span>                :            : 
+<span class="lineNum">     277 </span>                :            :         /* Since GPMD_TRIGGER_INSERT is equal to zero. The result should be negated.
+<span class="lineNum">     278 </span>                :            :          * This is not needed for the rest of the flags.*/
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :         int insert = !(eventFlags &amp; GPMD_TRIGGER_INSERT) ? TRIGGER_EVENT_INSERT:0;</span>
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :         int delete = (eventFlags &amp; GPMD_TRIGGER_DELETE) ? TRIGGER_EVENT_DELETE:0;</span>
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :         int update = (eventFlags &amp; GPMD_TRIGGER_UPDATE) ? TRIGGER_EVENT_UPDATE:0;</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :         int before = (eventFlags &amp; GPMD_TRIGGER_BEFORE) ? TRIGGER_EVENT_BEFORE:0;</span>
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>                :            : 
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :         int                     ntrigs = 0;</span>
+<span class="lineNum">     286 </span>                :<span class="lineNoCov">          0 :         int                *tgindx = NULL;</span>
+<span class="lineNum">     287 </span>                :            : 
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :         TriggerEvent triggerType = insert | delete | update;</span>
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :         TriggerEvent triggerFlags = triggerType | TRIGGER_EVENT_ROW | before;</span>
+<span class="lineNum">     290 </span>                :            : 
+<span class="lineNum">     291 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (before)</span>
+<span class="lineNum">     292 </span>                :            :         {
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                 ntrigs = trigdesc-&gt;n_before_row[triggerType];</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                 tgindx = trigdesc-&gt;tg_before_row[triggerType];</span>
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     296 </span>                :            :         else
+<span class="lineNum">     297 </span>                :            :         {
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                 ntrigs = trigdesc-&gt;n_after_row[triggerType];</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                 tgindx = trigdesc-&gt;tg_after_row[triggerType];</span>
+<span class="lineNum">     300 </span>                :            :         }
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (delete)</span>
+<span class="lineNum">     303 </span>                :            :         {
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                 *processTuple = ExecDeleteTriggers(estate, relinfo, trigdesc, ntrigs, tgindx,</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :                                                                                 originalTuple, triggerFlags);</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     307 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (update)</span>
+<span class="lineNum">     308 </span>                :            :         {
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :                 originalTuple = ExecUpdateTriggers(estate, relinfo, trigdesc, ntrigs, tgindx,</span>
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                                                                                 originalTuple, finalTuple, triggerFlags);</span>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (NULL == originalTuple)</span>
+<span class="lineNum">     313 </span>                :            :                 {
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                         *processTuple = false;</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     317 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (!insert)</span>
+<span class="lineNum">     318 </span>                :            :         {
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                 originalTuple = ExecInsertTriggers(estate, relinfo, trigdesc, ntrigs, tgindx,</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :                                                                                 originalTuple, triggerFlags);</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     322 </span>                :            :         else
+<span class="lineNum">     323 </span>                :            :         {
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                 insist_log(false, &quot;unrecognized trigger type&quot;);</span>
+<span class="lineNum">     325 </span>                :            :         }
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :         return originalTuple;</span>
+<span class="lineNum">     328 </span>                :            : }
+<span class="lineNum">     329 </span>                :            : 
+<a name="330"><span class="lineNum">     330 </span>                :            : /* Build new TupleTableSlot given a List of attributes and a slot. */</a>
+<span class="lineNum">     331 </span>                :            : void
+<span class="lineNum">     332 </span>                :            : StoreTupleForTrigger(TupleTableSlot *slot, Datum *values, bool *nulls, ListCell *attr)
+<span class="lineNum">     333 </span>                :            : {
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(slot);</span>
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         ExecStoreAllNullTuple(slot);</span>
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         slot_getallattrs(slot);</span>
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :         Datum *new_values = slot_get_values(slot);</span>
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :         bool *new_nulls = slot_get_isnull(slot);</span>
+<span class="lineNum">     341 </span>                :            : 
+<span class="lineNum">     342 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (int attno = 0; attno &lt; slot-&gt;tts_tupleDescriptor-&gt;natts; attno++)</span>
+<span class="lineNum">     343 </span>                :            :         {
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                 new_values[attno] = values[attr-&gt;data.int_value-1];</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                 new_nulls[attno] = nulls[attr-&gt;data.int_value-1];</span>
+<span class="lineNum">     346 </span>                :            : 
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                 attr = attr-&gt;next;</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="350"><span class="lineNum">     350 </span>                :            : /* Store results from trigger to output tuple */</a>
+<span class="lineNum">     351 </span>                :            : void
+<span class="lineNum">     352 </span>                :            : ConstructNewTupleTableSlot(HeapTuple newtuple, TupleTableSlot *triggerTuple, ListCell *attr, Datum *values, bool *nulls)
+<span class="lineNum">     353 </span>                :            : {
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :         ExecStoreGenericTuple(newtuple , triggerTuple, true);</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :         slot_getallattrs(triggerTuple);</span>
+<span class="lineNum">     356 </span>                :            : 
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :         Datum *new_values = slot_get_values(triggerTuple);</span>
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :         bool *new_nulls = slot_get_isnull(triggerTuple);</span>
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for(int attno = 0; attno &lt; triggerTuple-&gt;tts_tupleDescriptor-&gt;natts; attno++)</span>
+<span class="lineNum">     361 </span>                :            :         {
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :                 values[attr-&gt;data.int_value-1] = new_values[attno];</span>
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :                 nulls[attr-&gt;data.int_value-1] = new_nulls[attno];</span>
+<span class="lineNum">     364 </span>                :            : 
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :                 attr = attr-&gt;next;</span>
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     368 </span>                :            : 
+<span class="lineNum">     369 </span>                :            : /* Fetches Heap Tuples from TupleTableSlots.
+<span class="lineNum">     370 </span>                :            :  * Updates require extracting the Heap Tuple from the old
+<span class="lineNum">     371 </span>                :            :  * and new tuple.
+<span class="lineNum">     372 </span>                :            :  * INSERT and DELETES modify the value of newTuple.
+<a name="373"><span class="lineNum">     373 </span>                :            :  */</a>
+<span class="lineNum">     374 </span>                :            : void
+<span class="lineNum">     375 </span>                :            : AssignTuplesForTriggers(void **newTuple, void **oldTuple,  RowTrigger *plannode,
+<span class="lineNum">     376 </span>                :            :                                         RowTriggerState *node,  Relation relation)
+<span class="lineNum">     377 </span>                :            : {
+<span class="lineNum">     378 </span>                :            :         /* Check for valid tuples. */
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         bool rel_is_heap = RelationIsHeap(relation);</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 :         bool rel_is_aorows = RelationIsAoCols(relation);</span>
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         bool rel_is_aocols = RelationIsAoRows(relation);</span>
+<span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 :         bool rel_is_external = RelationIsExternal(relation);</span>
+<span class="lineNum">     383 </span>                :            : 
+<span class="lineNum">     384 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rel_is_aocols || rel_is_external)</span>
+<span class="lineNum">     385 </span>                :            :         {
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Triggers are not supported on column-oriented or external tables&quot;);</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rel_is_aorows &amp;&amp; !(plannode-&gt;eventFlags &amp; GPMD_TRIGGER_INSERT))</span>
+<span class="lineNum">     390 </span>                :            :         {
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;Append only tables only support INSERT triggers&quot;);</span>
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     393 </span>                :            : 
+<span class="lineNum">     394 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rel_is_heap)</span>
+<span class="lineNum">     395 </span>                :            :         {
+<span class="lineNum">     396 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannode-&gt;newValuesColIdx != NIL)</span>
+<span class="lineNum">     397 </span>                :            :                 {
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :                         *newTuple = ExecFetchSlotHeapTuple(node-&gt;newTuple);</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     400 </span>                :            : 
+<span class="lineNum">     401 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannode-&gt;oldValuesColIdx != NIL)</span>
+<span class="lineNum">     402 </span>                :            :                 {
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :                         *oldTuple = ExecFetchSlotHeapTuple(node-&gt;oldTuple);</span>
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     406 </span>                :            :         else
+<span class="lineNum">     407 </span>                :            :         {
+<span class="lineNum">     408 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannode-&gt;newValuesColIdx != NIL)</span>
+<span class="lineNum">     409 </span>                :            :                 {
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :                         *newTuple = ExecFetchSlotMemTuple(node-&gt;newTuple, !rel_is_aorows);</span>
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     412 </span>                :            : 
+<span class="lineNum">     413 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannode-&gt;oldValuesColIdx != NIL)</span>
+<span class="lineNum">     414 </span>                :            :                 {
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :                         *oldTuple = ExecFetchSlotMemTuple(node-&gt;oldTuple, !rel_is_aorows);</span>
+<span class="lineNum">     416 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     417 </span>                :            :         }
+<span class="lineNum">     418 </span>                :            : 
+<span class="lineNum">     419 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( plannode-&gt;newValuesColIdx == NIL &amp;&amp;</span>
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :                         plannode-&gt;oldValuesColIdx )</span>
+<span class="lineNum">     421 </span>                :            :         {
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :                 *newTuple = *oldTuple;</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                 *oldTuple = NULL;</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     426 </span>                :            : 
+<span class="lineNum">     427 </span>                :            : /*
+<span class="lineNum">     428 </span>                :            :  * Exec Function for After and Before Row Triggers.
+<span class="lineNum">     429 </span>                :            :  * INSERT and UPDATE triggers allow modifying the NEW values of the
+<span class="lineNum">     430 </span>                :            :  * inserted/modified tuple. All the functions allow raising exceptions
+<span class="lineNum">     431 </span>                :            :  * or messages.
+<span class="lineNum">     432 </span>                :            :  * Before DELETE triggers ignore tuples that do not meet
+<span class="lineNum">     433 </span>                :            :  * a user-defined predicate.
+<span class="lineNum">     434 </span>                :            :  *
+<span class="lineNum">     435 </span>                :            :  * TODO: Support After Trigger Update.
+<a name="436"><span class="lineNum">     436 </span>                :            :  * */</a>
+<span class="lineNum">     437 </span>                :            : TupleTableSlot*
+<span class="lineNum">     438 </span>                :            : ExecRowTrigger(RowTriggerState *node)
+<span class="lineNum">     439 </span>                :            : {
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :         PlanState *outerNode = outerPlanState(node);</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :         RowTrigger *plannode = (RowTrigger *) node-&gt;ps.plan;</span>
+<span class="lineNum">     442 </span>                :            : 
+<span class="lineNum">     443 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != outerNode);</span>
+<span class="lineNum">     444 </span>                :            : 
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :         ResultRelInfo *resultRelInfo = outerNode-&gt;state-&gt;es_result_relation_info;</span>
+<span class="lineNum">     446 </span>                :            : 
+<span class="lineNum">     447 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NULL != resultRelInfo);</span>
+<span class="lineNum">     448 </span>                :            : 
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :         bool processTuple = true;</span>
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 :         TupleTableSlot *slot = NULL;</span>
+<span class="lineNum">     451 </span>                :            : 
+<span class="lineNum">     452 </span>                :            :         /* Loop if DELETE skips a tuple */
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         do</span>
+<span class="lineNum">     454 </span>                :            :         {
+<span class="lineNum">     455 </span>                :<span class="lineNoCov">          0 :                  slot = ExecProcNode(outerNode);</span>
+<span class="lineNum">     456 </span>                :            : 
+<span class="lineNum">     457 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (TupIsNull(slot))</span>
+<span class="lineNum">     458 </span>                :            :                 {
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     460 </span>                :            :                 }
+<span class="lineNum">     461 </span>                :            : 
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :                 slot_getallattrs(slot);</span>
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :                 Datum *values = slot_get_values(slot);</span>
+<span class="lineNum">     464 </span>                :<span class="lineNoCov">          0 :                 bool *nulls = slot_get_isnull(slot);</span>
+<span class="lineNum">     465 </span>                :            : 
+<span class="lineNum">     466 </span>                :            :                 /* Build new TupleTableSlots */
+<span class="lineNum">     467 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannode-&gt;newValuesColIdx != NIL)</span>
+<span class="lineNum">     468 </span>                :            :                 {
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 :                         StoreTupleForTrigger(node-&gt;newTuple, values, nulls, plannode-&gt;newValuesColIdx-&gt;head);</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     471 </span>                :            : 
+<span class="lineNum">     472 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (plannode-&gt;oldValuesColIdx != NIL)</span>
+<span class="lineNum">     473 </span>                :            :                 {
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :                         StoreTupleForTrigger(node-&gt;oldTuple, values, nulls, plannode-&gt;oldValuesColIdx-&gt;head);</span>
+<span class="lineNum">     475 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     476 </span>                :            : 
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 :                 void *tuple = NULL;</span>
+<span class="lineNum">     478 </span>                :<span class="lineNoCov">          0 :                 void *oldTuple = NULL;</span>
+<span class="lineNum">     479 </span>                :            : 
+<span class="lineNum">     480 </span>                :<span class="lineNoCov">          0 :                 AssignTuplesForTriggers(&amp;tuple, &amp;oldTuple, plannode, node, resultRelInfo-&gt;ri_RelationDesc);</span>
+<span class="lineNum">     481 </span>                :            : 
+<span class="lineNum">     482 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(tuple);</span>
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                 processTuple = true;</span>
+<span class="lineNum">     485 </span>                :            : 
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :                 HeapTuple newtuple = ExecTriggers(outerNode-&gt;state, resultRelInfo, tuple,</span>
+<span class="lineNum">     487 </span>                :<span class="lineNoCov">          0 :                                                                 oldTuple, plannode-&gt;eventFlags, &amp;processTuple);</span>
+<span class="lineNum">     488 </span>                :            : 
+<span class="lineNum">     489 </span>                :            :                 /* A tuple does not get processed if a predicate is not satisfied. */
+<span class="lineNum">     490 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (processTuple)</span>
+<span class="lineNum">     491 </span>                :            :                 {
+<span class="lineNum">     492 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (newtuple == NULL)</span>
+<span class="lineNum">     493 </span>                :            :                         {       
+<span class="lineNum">     494 </span>                :            :                                 /* Request next tuple to insert if a null new tuple is provided. */
+<span class="lineNum">     495 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (plannode-&gt;eventFlags &amp; GPMD_TRIGGER_INSERT)</span>
+<span class="lineNum">     496 </span>                :            :                                 {
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                                         slot = NULL;</span>
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :                                         processTuple = false;</span>
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     501 </span>                :            :                         else
+<span class="lineNum">     502 </span>                :            :                         {
+<span class="lineNum">     503 </span>                :            :                                 /* Update output tuple modified by the trigger. We are only interested in a modified
+<span class="lineNum">     504 </span>                :            :                                 * tuple for before triggers. */
+<span class="lineNum">     505 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (newtuple != tuple &amp;&amp;</span>
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :                                         (plannode-&gt;eventFlags &amp; GPMD_TRIGGER_BEFORE))</span>
+<span class="lineNum">     507 </span>                :            :                                 {
+<span class="lineNum">     508 </span>                :            :                                         /* UPDATE triggers require oldValues */
+<span class="lineNum">     509 </span>                :<span class="lineNoCov">          0 :                                         List *colidx = plannode-&gt;newValuesColIdx;</span>
+<span class="lineNum">     510 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (plannode-&gt;eventFlags &amp; GPMD_TRIGGER_UPDATE)</span>
+<span class="lineNum">     511 </span>                :            :                                         {
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :                                                 colidx = plannode-&gt;oldValuesColIdx;</span>
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                                         ConstructNewTupleTableSlot(newtuple, node-&gt;triggerTuple, colidx-&gt;head, values, nulls);</span>
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     516 </span>                :            :                         }
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     518 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         } while (!processTuple);</span>
+<span class="lineNum">     519 </span>                :            : 
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :         return slot;</span>
+<span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     522 </span>                :            : 
+<span class="lineNum">     523 </span>                :            : /**
+<span class="lineNum">     524 </span>                :            :  * Init RowTrigger, which initializes the trigger tuples.
+<a name="525"><span class="lineNum">     525 </span>                :            :  * */</a>
+<span class="lineNum">     526 </span>                :            : RowTriggerState*
+<span class="lineNum">     527 </span>                :            : ExecInitRowTrigger(RowTrigger *node, EState *estate, int eflags)
+<span class="lineNum">     528 </span>                :            : {
+<span class="lineNum">     529 </span>                :            :         RowTriggerState *rowTriggerState;
+<span class="lineNum">     530 </span>                :            :         Plan *outerPlan;
+<span class="lineNum">     531 </span>                :            :         
+<span class="lineNum">     532 </span>                :            :         /* check for unsupported flags */
+<span class="lineNum">     533 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!(eflags &amp; (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK | EXEC_FLAG_REWIND)));</span>
+<span class="lineNum">     534 </span>                :            :         
+<span class="lineNum">     535 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         rowTriggerState = makeNode(RowTriggerState);</span>
+<span class="lineNum">     536 </span>                :<span class="lineNoCov">          0 :         rowTriggerState-&gt;ps.plan = (Plan *)node;</span>
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :         rowTriggerState-&gt;ps.state = estate;</span>
+<span class="lineNum">     538 </span>                :            : 
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :         ExecInitResultTupleSlot(estate, &amp;rowTriggerState-&gt;ps);</span>
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :         rowTriggerState-&gt;ps.targetlist = (List *)</span>
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;plan.targetlist,</span>
+<span class="lineNum">     543 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) rowTriggerState);</span>
+<span class="lineNum">     544 </span>                :            : 
+<span class="lineNum">     545 </span>                :            :         /*
+<span class="lineNum">     546 </span>                :            :          * then initialize outer plan
+<span class="lineNum">     547 </span>                :            :          */
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :         outerPlan = outerPlan(node);</span>
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :         outerPlanState(rowTriggerState) = ExecInitNode(outerPlan, estate, eflags);</span>
+<span class="lineNum">     550 </span>                :            :         
+<span class="lineNum">     551 </span>                :            :         /*
+<span class="lineNum">     552 </span>                :            :          * RowTrigger nodes do not project.
+<span class="lineNum">     553 </span>                :            :          */
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :         ExecAssignResultTypeFromTL(&amp;rowTriggerState-&gt;ps);</span>
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :         ExecAssignProjectionInfo(&amp;rowTriggerState-&gt;ps, NULL);</span>
+<span class="lineNum">     556 </span>                :            : 
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :         rowTriggerState-&gt;newTuple  = ExecInitExtraTupleSlot(estate);</span>
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :         rowTriggerState-&gt;oldTuple  = ExecInitExtraTupleSlot(estate);</span>
+<span class="lineNum">     559 </span>                :<span class="lineNoCov">          0 :         rowTriggerState-&gt;triggerTuple = ExecInitExtraTupleSlot(estate);</span>
+<span class="lineNum">     560 </span>                :            : 
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :         TupleDesc tupDesc =</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                         estate-&gt;es_result_relation_info-&gt;ri_RelationDesc-&gt;rd_att;</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :<span class="lineNoCov">          0 :         ExecSetSlotDescriptor(rowTriggerState-&gt;newTuple, tupDesc);</span>
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :         ExecSetSlotDescriptor(rowTriggerState-&gt;oldTuple, tupDesc);</span>
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :         ExecSetSlotDescriptor(rowTriggerState-&gt;triggerTuple, tupDesc);</span>
+<span class="lineNum">     567 </span>                :            : 
+<span class="lineNum">     568 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (estate-&gt;es_instrument)</span>
+<span class="lineNum">     569 </span>                :            :         {
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :                 rowTriggerState-&gt;ps.cdbexplainbuf = makeStringInfo();</span>
+<span class="lineNum">     571 </span>                :            : 
+<span class="lineNum">     572 </span>                :            :                 /* Request a callback at end of query. */
+<span class="lineNum">     573 </span>                :<span class="lineNoCov">          0 :                 rowTriggerState-&gt;ps.cdbexplainfun = ExecRowTriggerExplainEnd;</span>
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     575 </span>                :            : 
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :         initGpmonPktForRowTrigger((Plan *)node, &amp;rowTriggerState-&gt;ps.gpmon_pkt, estate);</span>
+<span class="lineNum">     577 </span>                :            : 
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         return rowTriggerState;</span>
+<span class="lineNum">     579 </span>                :            : }
+<span class="lineNum">     580 </span>                :            : 
+<a name="581"><span class="lineNum">     581 </span>                :            : /* Free Resources Requested by RowTrigger node. */</a>
+<span class="lineNum">     582 </span>                :            : void
+<span class="lineNum">     583 </span>                :            : ExecEndRowTrigger(RowTriggerState *node)
+<span class="lineNum">     584 </span>                :            : {
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :         ExecFreeExprContext(&amp;node-&gt;ps);</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :         ExecEndNode(outerPlanState(node));</span>
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :         EndPlanStateGpmonPkt(&amp;node-&gt;ps);</span>
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     589 </span>                :            : 
+<a name="590"><span class="lineNum">     590 </span>                :            : /* Return number of TupleTableSlots used by RowTrigger node.*/</a>
+<span class="lineNum">     591 </span>                :            : int
+<span class="lineNum">     592 </span>                :            : ExecCountSlotsRowTrigger(RowTrigger *node)
+<span class="lineNum">     593 </span>                :            : {
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         return ExecCountSlotsNode(outerPlan(node)) + ROWTRIGGER_NSLOTS;</span>
+<span class="lineNum">     595 </span>                :            : }
+<span class="lineNum">     596 </span>                :            : 
+<a name="597"><span class="lineNum">     597 </span>                :            : /* Tracing execution for GP Monitor. */</a>
+<span class="lineNum">     598 </span>                :            : void
+<span class="lineNum">     599 </span>                :            : initGpmonPktForRowTrigger(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *estate)
+<span class="lineNum">     600 </span>                :            : {
+<span class="lineNum">     601 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(planNode != NULL &amp;&amp; gpmon_pkt != NULL &amp;&amp; IsA(planNode, RowTrigger));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     602 </span>                :            : 
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :         InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);</span>
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,724 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/adt/interpolate.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/adt</a> - interpolate.c<span style="font-size: 80%;"> (source / <a href="interpolate.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">264</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">12</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">126</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * interpolate.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Copyright (c) 2012, Greenplum inc
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">       8 </span>                :            :  */
+<span class="lineNum">       9 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      10 </span>                :            : 
+<span class="lineNum">      11 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      12 </span>                :            : #include &quot;utils/date.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;utils/interpolate.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;utils/numeric.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;utils/timestamp.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : /* 
+<span class="lineNum">      18 </span>                :            :  * linterp_abscissa
+<span class="lineNum">      19 </span>                :            :  *
+<span class="lineNum">      20 </span>                :            :  * Common code that checks arguments.  The result is a floating point value
+<span class="lineNum">      21 </span>                :            :  * representing what fraction of the distance x lies along the interval from
+<span class="lineNum">      22 </span>                :            :  * x0 to x1.  It can be negative or greater than one (extrapolation) though
+<span class="lineNum">      23 </span>                :            :  * this isn't the intended use.  If x0 == x1, then the fraction is not
+<span class="lineNum">      24 </span>                :            :  * determined and the function returns 0 and sets *notnull false.  In all
+<span class="lineNum">      25 </span>                :            :  * other cases (except error exits) *notnull is set to true.  An additional
+<span class="lineNum">      26 </span>                :            :  * flag indicates whether the abscissa value is equal to the lower boundary
+<span class="lineNum">      27 </span>                :            :  * value.
+<a name="28"><span class="lineNum">      28 </span>                :            :  */</a>
+<span class="lineNum">      29 </span>                :            : static float8
+<span class="lineNum">      30 </span>                :            : linterp_abscissa(PG_FUNCTION_ARGS, bool *p_eq_bounds, bool *p_eq_abscissas)
+<span class="lineNum">      31 </span>                :            : {
+<span class="lineNum">      32 </span>                :            :         Oid         x_type;
+<span class="lineNum">      33 </span>                :            :         Oid         x0_type;
+<span class="lineNum">      34 </span>                :            :         Oid         x1_type;
+<span class="lineNum">      35 </span>                :            :         Oid                     y0_type;
+<span class="lineNum">      36 </span>                :            :         Oid                     y1_type;
+<span class="lineNum">      37 </span>                :<span class="lineNoCov">          0 :         float8          p = 0;</span>
+<span class="lineNum">      38 </span>                :<span class="lineNoCov">          0 :         bool            eq_bounds = false;</span>
+<span class="lineNum">      39 </span>                :<span class="lineNoCov">          0 :         bool            eq_abscissas = false;</span>
+<span class="lineNum">      40 </span>                :            :         
+<span class="lineNum">      41 </span>                :            :         /* The abscissa (x) arguments are nominally declared anyelement.
+<span class="lineNum">      42 </span>                :            :          * All the type checking is up to us.  We insist that the types
+<span class="lineNum">      43 </span>                :            :          * are exactly alike.  Explicit casts may be needed.
+<span class="lineNum">      44 </span>                :            :          */
+<span class="lineNum">      45 </span>                :<span class="lineNoCov">          0 :         x_type = get_fn_expr_argtype(fcinfo-&gt;flinfo, 0);</span>
+<span class="lineNum">      46 </span>                :<span class="lineNoCov">          0 :         x0_type = get_fn_expr_argtype(fcinfo-&gt;flinfo, 1);</span>
+<span class="lineNum">      47 </span>                :<span class="lineNoCov">          0 :         x1_type = get_fn_expr_argtype(fcinfo-&gt;flinfo, 3);</span>
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!OidIsValid(x_type)||!OidIsValid(x0_type)||!OidIsValid(x1_type))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">      50 </span>                :            :         {
+<span class="lineNum">      51 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;could not determine argument data types&quot;);</span>
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      53 </span>                :            :         
+<span class="lineNum">      54 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( x_type!=x0_type || x_type!=x1_type )</span>
+<span class="lineNum">      55 </span>                :            :         {
+<span class="lineNum">      56 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;abscissa types unequal&quot;);</span>
+<span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      58 </span>                :            :         
+<span class="lineNum">      59 </span>                :            :         /* The ordinate (y) arguments are specifically declared in the SQL
+<span class="lineNum">      60 </span>                :            :          * function declaration.  Here we just check and insist they are
+<span class="lineNum">      61 </span>                :            :          * identical.
+<span class="lineNum">      62 </span>                :            :          */
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :         y0_type = get_fn_expr_argtype(fcinfo-&gt;flinfo, 2);</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :         y1_type = get_fn_expr_argtype(fcinfo-&gt;flinfo, 4);</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( y0_type !=  y1_type )</span>
+<span class="lineNum">      67 </span>                :            :         {
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;mismatched ordinate types&quot;);</span>
+<span class="lineNum">      69 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (x_type)</span>
+<span class="lineNum">         </span><span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span><span class="branchNoExec" title="Branch 8 was not executed"> # </span> 
+<span class="lineNum">         </span>      <span class="branchNoExec" title="Branch 9 was not executed"> # </span><span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">      72 </span>                :            :         {
+<span class="lineNum">      73 </span>                :            :         case INT8OID:
+<span class="lineNum">      74 </span>                :            :                 {
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :                         float8 x = (float8)PG_GETARG_INT64(0);</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :                         float8 x0 = (float8)PG_GETARG_INT64(1);</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                         float8 x1 = (float8)PG_GETARG_INT64(3);</span>
+<span class="lineNum">      78 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( x1 == x0 )</span>
+<span class="lineNum">      79 </span>                :            :                         {
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :                                 eq_bounds = true;</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :                                 eq_abscissas = ( x == x0 );</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">      83 </span>                :            :                         else
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :                                 p = (x-x0)/(x1-x0);</span>
+<span class="lineNum">      85 </span>                :            :                 }
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">      87 </span>                :            :         case INT4OID:
+<span class="lineNum">      88 </span>                :            :                 {
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :                         float8 x = (float8)PG_GETARG_INT32(0);</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :                         float8 x0 = (float8)PG_GETARG_INT32(1);</span>
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :                         float8 x1 = (float8)PG_GETARG_INT32(3);</span>
+<span class="lineNum">      92 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( x1 == x0 )</span>
+<span class="lineNum">      93 </span>                :            :                         {
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :                                 eq_bounds = true;</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                                 eq_abscissas = ( x == x0 );</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">      97 </span>                :            :                         else
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                                 p = (x-x0)/(x1-x0);</span>
+<span class="lineNum">      99 </span>                :            :                 }
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     101 </span>                :            :         case INT2OID:
+<span class="lineNum">     102 </span>                :            :                 {
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                         float8 x = (float8)PG_GETARG_INT16(0);</span>
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :                         float8 x0 = (float8)PG_GETARG_INT16(1);</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                         float8 x1 = (float8)PG_GETARG_INT16(3);</span>
+<span class="lineNum">     106 </span>                :            :                         
+<span class="lineNum">     107 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( x1 == x0 )</span>
+<span class="lineNum">     108 </span>                :            :                         {
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                                 eq_bounds = true;</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :                                 eq_abscissas = ( x == x0 );</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     112 </span>                :            :                         else
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :                                 p = (x-x0)/(x1-x0);</span>
+<span class="lineNum">     114 </span>                :            :                 }
+<span class="lineNum">     115 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     116 </span>                :            :         case FLOAT4OID:
+<span class="lineNum">     117 </span>                :            :                 {
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                         float8 x = (float8)PG_GETARG_FLOAT4(0);</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                         float8 x0 = (float8)PG_GETARG_FLOAT4(1);</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                         float8 x1 = (float8)PG_GETARG_FLOAT4(3);</span>
+<span class="lineNum">     121 </span>                :            :                         
+<span class="lineNum">     122 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( x1 == x0 )</span>
+<span class="lineNum">     123 </span>                :            :                         {
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                                 eq_bounds = true;</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                                 eq_abscissas = ( x == x0 );</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     127 </span>                :            :                         else
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                                 p = (x-x0)/(x1-x0);</span>
+<span class="lineNum">     129 </span>                :            :                 }
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     131 </span>                :            :         case FLOAT8OID:
+<span class="lineNum">     132 </span>                :            :                 {
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                         float8 x = PG_GETARG_FLOAT8(0);</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                         float8 x0 = PG_GETARG_FLOAT8(1);</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                         float8 x1 = PG_GETARG_FLOAT8(3);</span>
+<span class="lineNum">     136 </span>                :            :                         
+<span class="lineNum">     137 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( x1 == x0 )</span>
+<span class="lineNum">     138 </span>                :            :                         {
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                                 eq_bounds = true;</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                                 eq_abscissas = ( x == x0 );</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     142 </span>                :            :                         else
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                                 p = (x-x0)/(x1-x0);</span>
+<span class="lineNum">     144 </span>                :            :                 }
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     146 </span>                :            :         case DATEOID:
+<span class="lineNum">     147 </span>                :            :                 {
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :                         DateADT x = PG_GETARG_DATEADT(0);</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                         DateADT x0 = PG_GETARG_DATEADT(1);</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :                         DateADT x1 = PG_GETARG_DATEADT(3);</span>
+<span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :                         int32 x_x0 = date_diff(x, x0);</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                         int32 x1_x0 = date_diff(x1, x0);</span>
+<span class="lineNum">     153 </span>                :            :                         
+<span class="lineNum">     154 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( x1 == x0 )</span>
+<span class="lineNum">     155 </span>                :            :                         {
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                                 eq_bounds = true;</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                                 eq_abscissas = ( x_x0 == 0 );</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     159 </span>                :            :                         else
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                                 p = ((float8)x_x0)/((float8)x1_x0);</span>
+<span class="lineNum">     161 </span>                :            :                 }
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     163 </span>                :            :         case TIMEOID:
+<span class="lineNum">     164 </span>                :            :                 {
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                         TimeADT x = PG_GETARG_TIMEADT(0);</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                         TimeADT x0 = PG_GETARG_TIMEADT(1);</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :                         TimeADT x1 = PG_GETARG_TIMEADT(3);</span>
+<span class="lineNum">     168 </span>                :            :                         
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                         p = time_li_fraction(x, x0, x1, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     170 </span>                :            :                 }
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     172 </span>                :            :         case TIMESTAMPOID:
+<span class="lineNum">     173 </span>                :            :                 {
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :                         Timestamp x = PG_GETARG_TIMESTAMP(0);</span>
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :                         Timestamp x0 = PG_GETARG_TIMESTAMP(1);</span>
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :                         Timestamp x1 = PG_GETARG_TIMESTAMP(3);</span>
+<span class="lineNum">     177 </span>                :            :                         
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :                         p = timestamp_li_fraction(x, x0, x1, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     179 </span>                :            :                 }
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     181 </span>                :            :         case TIMESTAMPTZOID:
+<span class="lineNum">     182 </span>                :            :                 {
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                         TimestampTz x = PG_GETARG_TIMESTAMPTZ(0);</span>
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                         TimestampTz x0 = PG_GETARG_TIMESTAMPTZ(1);</span>
+<span class="lineNum">     185 </span>                :<span class="lineNoCov">          0 :                         TimestampTz x1 = PG_GETARG_TIMESTAMPTZ(3);</span>
+<span class="lineNum">     186 </span>                :            :                         
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                         p = timestamptz_li_fraction(x, x0, x1, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     188 </span>                :            :                 }
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     190 </span>                :            :         case INTERVALOID:
+<span class="lineNum">     191 </span>                :            :                 {
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                         Interval * x = PG_GETARG_INTERVAL_P(0);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                         Interval * x0 = PG_GETARG_INTERVAL_P(1);</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                         Interval * x1 = PG_GETARG_INTERVAL_P(3);</span>
+<span class="lineNum">     195 </span>                :            :                         
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :                         p = interval_li_fraction(x, x0, x1, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     197 </span>                :            :                 }
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     199 </span>                :            :         case NUMERICOID:    
+<span class="lineNum">     200 </span>                :            :                 {
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :                         Numeric x = PG_GETARG_NUMERIC(0);</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :                         Numeric x0 = PG_GETARG_NUMERIC(1);</span>
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                         Numeric x1 = PG_GETARG_NUMERIC(3);</span>
+<span class="lineNum">     204 </span>                :            :                         
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                         p = numeric_li_fraction(x, x0, x1, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     206 </span>                :            :                 }
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 break;</span>
+<span class="lineNum">     208 </span>                :            :         default:
+<span class="lineNum">     209 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     210 </span>                :            :                                 (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
+<span class="lineNum">     211 </span>                :            :                                  errmsg(&quot;abscissa type not supported&quot;)));
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     213 </span>                :            : 
+<span class="lineNum">     214 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( p_eq_bounds )</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                 *p_eq_bounds = eq_bounds;</span>
+<span class="lineNum">     216 </span>                :            :         
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( p_eq_abscissas )</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                 *p_eq_abscissas = eq_abscissas;</span>
+<span class="lineNum">     219 </span>                :            :         
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :         return p;</span>
+<span class="lineNum">     221 </span>                :            : }
+<span class="lineNum">     222 </span>                :            : 
+<span class="lineNum">     223 </span>                :            : 
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :            : /*
+<span class="lineNum">     227 </span>                :            :  * The anticipated declaration is as follows:
+<span class="lineNum">     228 </span>                :            :  *
+<span class="lineNum">     229 </span>                :            :     CREATE FUNCTION linear_interpolate(
+<span class="lineNum">     230 </span>                :            :             x anyelement,
+<span class="lineNum">     231 </span>                :            :             x0 anyelement,
+<span class="lineNum">     232 </span>                :            :             y0 T,
+<span class="lineNum">     233 </span>                :            :             x1 anyelement,
+<span class="lineNum">     234 </span>                :            :             y1 T
+<span class="lineNum">     235 </span>                :            :             ) 
+<span class="lineNum">     236 </span>                :            :         RETURNS T
+<span class="lineNum">     237 </span>                :            :         LANGUAGE internal IMMUTABLE STRICT;
+<span class="lineNum">     238 </span>                :            :         AS 'linterp_T'; 
+<span class="lineNum">     239 </span>                :            :  * 
+<span class="lineNum">     240 </span>                :            :  * We check this in the common code included in each linear 
+<span class="lineNum">     241 </span>                :            :  * interpolation function.  The common code eliminates duplication 
+<span class="lineNum">     242 </span>                :            :  * and deals with multiple data types (under the anyelement
+<span class="lineNum">     243 </span>                :            :  * declaration) to avoid the need to define a different function for 
+<span class="lineNum">     244 </span>                :            :  * each abscissa type.  The ordinate-type specific linear interpolation
+<span class="lineNum">     245 </span>                :            :  * functions follow.  Each is of the form
+<span class="lineNum">     246 </span>                :            :  *
+<span class="lineNum">     247 </span>                :            :         PG_FUNCTION_INFO_V1(linterp_T);
+<span class="lineNum">     248 </span>                :            :         Datum
+<span class="lineNum">     249 </span>                :            :         linterp_T(PG_FUNCTION_ARGS)
+<span class="lineNum">     250 </span>                :            :         {
+<span class="lineNum">     251 </span>                :            :                 float8          p;
+<span class="lineNum">     252 </span>                :            :                 T                       result;
+<span class="lineNum">     253 </span>                :            :                 
+<span class="lineNum">     254 </span>                :            :                 // Common 
+<span class="lineNum">     255 </span>                :            :                 p = linterp_abscissa(fcinfo, ...); // declared in PG_FUNCTION_ARGS
+<span class="lineNum">     256 </span>                :            :                 
+<span class="lineNum">     257 </span>                :            :                 // Ordinate type specific code
+<span class="lineNum">     258 </span>                :            :         
+<span class="lineNum">     259 </span>                :            :                 PG_RETURN_T(result);
+<span class="lineNum">     260 </span>                :            :         }
+<span class="lineNum">     261 </span>                :            :  *
+<span class="lineNum">     262 </span>                :            :  * The Python script src/include/catalog/li_extras.py generates
+<span class="lineNum">     263 </span>                :            :  * declarations appropriate for src/include/catalog/pg_proc.sql
+<span class="lineNum">     264 </span>                :            :  * and the upgrade script upg2_catupgrade_XXX.sql as well as human-
+<span class="lineNum">     265 </span>                :            :  * readable and terse regression tests for make installcheck.
+<span class="lineNum">     266 </span>                :            :  */
+<a name="267"><span class="lineNum">     267 </span>                :            :  </a>
+<span class="lineNum">     268 </span>                :            : Datum
+<span class="lineNum">     269 </span>                :            : linterp_int64(PG_FUNCTION_ARGS)
+<span class="lineNum">     270 </span>                :            : {
+<span class="lineNum">     271 </span>                :            :         float8 y0;
+<span class="lineNum">     272 </span>                :            :         float8 y1;
+<span class="lineNum">     273 </span>                :            :         float8 p;
+<span class="lineNum">     274 </span>                :            :         float8 r;
+<span class="lineNum">     275 </span>                :            :         int64 result;
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     278 </span>                :            :         
+<span class="lineNum">     279 </span>                :            :         /* Common */
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     281 </span>                :            :         
+<span class="lineNum">     282 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         y0 = (float8)PG_GETARG_INT64(2);</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :         y1 = (float8)PG_GETARG_INT64(4);</span>
+<span class="lineNum">     285 </span>                :            :         
+<span class="lineNum">     286 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     287 </span>                :            :         {
+<span class="lineNum">     288 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; y0 == y1 )</span>
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :                         r = y0;</span>
+<span class="lineNum">     290 </span>                :            :                 else 
+<span class="lineNum">     291 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     293 </span>                :            :         else 
+<span class="lineNum">     294 </span>                :            :         {
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                 r = round(y0+p*(y1-y0));</span>
+<span class="lineNum">     296 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( r &lt; LONG_MIN || r &gt; LONG_MAX )</span>
+<span class="lineNum">     297 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     298 </span>                :            :                                         (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+<span class="lineNum">     299 </span>                :            :                                          errmsg(&quot;value \&quot;%f\&quot; is out of range for type bigint&quot;, r)));
+<span class="lineNum">     300 </span>                :            :         }
+<span class="lineNum">     301 </span>                :            : 
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         result = (int64)r;</span>
+<span class="lineNum">     303 </span>                :            : 
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT64(result);</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="306"><span class="lineNum">     306 </span>                :            : </a>
+<span class="lineNum">     307 </span>                :            : Datum
+<span class="lineNum">     308 </span>                :            : linterp_int32(PG_FUNCTION_ARGS)
+<span class="lineNum">     309 </span>                :            : {
+<span class="lineNum">     310 </span>                :            :         float8 y0;
+<span class="lineNum">     311 </span>                :            :         float8 y1;
+<span class="lineNum">     312 </span>                :            :         float8 p;
+<span class="lineNum">     313 </span>                :            :         float8 r;
+<span class="lineNum">     314 </span>                :            :         int32 result;
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     317 </span>                :            :         
+<span class="lineNum">     318 </span>                :            :         /* Common */
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     320 </span>                :            :         
+<span class="lineNum">     321 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :         y0 = (float8)PG_GETARG_INT32(2);</span>
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :         y1 = (float8)PG_GETARG_INT32(4);</span>
+<span class="lineNum">     324 </span>                :            :         
+<span class="lineNum">     325 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     326 </span>                :            :         {
+<span class="lineNum">     327 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; y0 == y1 )</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                         r = y0;</span>
+<span class="lineNum">     329 </span>                :            :                 else 
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     332 </span>                :            :         else 
+<span class="lineNum">     333 </span>                :            :         {
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :                 r = round(y0+p*(y1-y0));</span>
+<span class="lineNum">     335 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( r &lt; INT_MIN || r &gt; INT_MAX )</span>
+<span class="lineNum">     336 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     337 </span>                :            :                                         (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+<span class="lineNum">     338 </span>                :            :                                          errmsg(&quot;value \&quot;%f\&quot; is out of range for type integer&quot;, r)));
+<span class="lineNum">     339 </span>                :            :         }
+<span class="lineNum">     340 </span>                :            :         
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :         result = (int32)r;</span>
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT32(result);</span>
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="344"><span class="lineNum">     344 </span>                :            : </a>
+<span class="lineNum">     345 </span>                :            : Datum
+<span class="lineNum">     346 </span>                :            : linterp_int16(PG_FUNCTION_ARGS)
+<span class="lineNum">     347 </span>                :            : {
+<span class="lineNum">     348 </span>                :            :         float8 y0;
+<span class="lineNum">     349 </span>                :            :         float8 y1;
+<span class="lineNum">     350 </span>                :            :         float8 p;
+<span class="lineNum">     351 </span>                :            :         float8 r;
+<span class="lineNum">     352 </span>                :            :         int16 result;
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     355 </span>                :            :         
+<span class="lineNum">     356 </span>                :            :         /* Common */
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     358 </span>                :            :         
+<span class="lineNum">     359 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :         y0 = (float8)PG_GETARG_INT16(2);</span>
+<span class="lineNum">     361 </span>                :<span class="lineNoCov">          0 :         y1 = (float8)PG_GETARG_INT16(4);</span>
+<span class="lineNum">     362 </span>                :            :         
+<span class="lineNum">     363 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     364 </span>                :            :         {
+<span class="lineNum">     365 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; y0 == y1 )</span>
+<span class="lineNum">     366 </span>                :<span class="lineNoCov">          0 :                         r = y0;</span>
+<span class="lineNum">     367 </span>                :            :                 else 
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     370 </span>                :            :         else 
+<span class="lineNum">     371 </span>                :            :         {
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :                 r = round(y0+p*(y1-y0));</span>
+<span class="lineNum">     373 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( r &lt; SHRT_MIN || r &gt; SHRT_MAX )</span>
+<span class="lineNum">     374 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     375 </span>                :            :                                         (errcode(ERRCODE_NUMERIC_VALUE_OUT_OF_RANGE),
+<span class="lineNum">     376 </span>                :            :                                          errmsg(&quot;value \&quot;%f\&quot; is out of range for type smallint&quot;, r)));
+<span class="lineNum">     377 </span>                :            :         }       
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         result = (int16)r;</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INT16(result);</span>
+<span class="lineNum">     380 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="381"><span class="lineNum">     381 </span>                :            : </a>
+<span class="lineNum">     382 </span>                :            : Datum
+<span class="lineNum">     383 </span>                :            : linterp_float8(PG_FUNCTION_ARGS)
+<span class="lineNum">     384 </span>                :            : {
+<span class="lineNum">     385 </span>                :            :         float8 y0;
+<span class="lineNum">     386 </span>                :            :         float8 y1;
+<span class="lineNum">     387 </span>                :            :         float8 p;
+<span class="lineNum">     388 </span>                :            :         float8 result;
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     391 </span>                :            :         
+<span class="lineNum">     392 </span>                :            :         /* Common */
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     394 </span>                :            :         
+<span class="lineNum">     395 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :         y0 = (float8)PG_GETARG_FLOAT8(2);</span>
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :         y1 = (float8)PG_GETARG_FLOAT8(4);</span>
+<span class="lineNum">     398 </span>                :            :         
+<span class="lineNum">     399 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     400 </span>                :            :         {
+<span class="lineNum">     401 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; y0 == y1 )</span>
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     403 </span>                :            :                 else 
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     406 </span>                :            :         else 
+<span class="lineNum">     407 </span>                :            :         {
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :                 result = (float8)(y0+p*(y1-y0));</span>
+<span class="lineNum">     409 </span>                :            :         }
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_FLOAT8(result);</span>
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="412"><span class="lineNum">     412 </span>                :            : </a>
+<span class="lineNum">     413 </span>                :            : Datum
+<span class="lineNum">     414 </span>                :            : linterp_float4(PG_FUNCTION_ARGS)
+<span class="lineNum">     415 </span>                :            : {
+<span class="lineNum">     416 </span>                :            :         float8 y0;
+<span class="lineNum">     417 </span>                :            :         float8 y1;
+<span class="lineNum">     418 </span>                :            :         float8 p;
+<span class="lineNum">     419 </span>                :            :         float4 result;
+<span class="lineNum">     420 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     422 </span>                :            :         
+<span class="lineNum">     423 </span>                :            :         /* Common */
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     425 </span>                :            :         
+<span class="lineNum">     426 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :         y0 = (float8)PG_GETARG_FLOAT4(2);</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :         y1 = (float8)PG_GETARG_FLOAT4(4);</span>
+<span class="lineNum">     429 </span>                :            :         
+<span class="lineNum">     430 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     431 </span>                :            :         {
+<span class="lineNum">     432 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; y0 == y1 )</span>
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     434 </span>                :            :                 else 
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     437 </span>                :            :         else 
+<span class="lineNum">     438 </span>                :            :         {
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :                 result = (float4)(y0+p*(y1-y0));</span>
+<span class="lineNum">     440 </span>                :            :         }
+<span class="lineNum">     441 </span>                :            :         
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_FLOAT4(result);</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="444"><span class="lineNum">     444 </span>                :            : </a>
+<span class="lineNum">     445 </span>                :            : Datum
+<span class="lineNum">     446 </span>                :            : linterp_DateADT(PG_FUNCTION_ARGS)
+<span class="lineNum">     447 </span>                :            : {
+<span class="lineNum">     448 </span>                :            :         DateADT y0;
+<span class="lineNum">     449 </span>                :            :         DateADT y1;
+<span class="lineNum">     450 </span>                :            :         int32 dy;
+<span class="lineNum">     451 </span>                :            :         float8 p;
+<span class="lineNum">     452 </span>                :            :         DateADT result;
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     455 </span>                :            :         
+<span class="lineNum">     456 </span>                :            :         /* Common */
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     458 </span>                :            :         
+<span class="lineNum">     459 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :         y0 = PG_GETARG_DATEADT(2);</span>
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :         y1 = PG_GETARG_DATEADT(4);</span>
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :         dy = date_diff(y1, y0);</span>
+<span class="lineNum">     463 </span>                :            :         
+<span class="lineNum">     464 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     465 </span>                :            :         {
+<span class="lineNum">     466 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; dy == 0 )</span>
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     468 </span>                :            :                 else 
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     471 </span>                :            :         else 
+<span class="lineNum">     472 </span>                :            :         {
+<span class="lineNum">     473 </span>                :<span class="lineNoCov">          0 :                 result = date_pl_days(y0, (int32) (p * (float8) dy));</span>
+<span class="lineNum">     474 </span>                :            :         }
+<span class="lineNum">     475 </span>                :            : 
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATEADT(result);</span>
+<span class="lineNum">     477 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     478 </span>                :            : 
+<a name="479"><span class="lineNum">     479 </span>                :            : </a>
+<span class="lineNum">     480 </span>                :            : Datum
+<span class="lineNum">     481 </span>                :            : linterp_TimeADT(PG_FUNCTION_ARGS)
+<span class="lineNum">     482 </span>                :            : {
+<span class="lineNum">     483 </span>                :            :         TimeADT y0;
+<span class="lineNum">     484 </span>                :            :         TimeADT y1;
+<span class="lineNum">     485 </span>                :            :         float8  p;
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :         TimeADT result = 0;</span>
+<span class="lineNum">     487 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     489 </span>                :            :         
+<span class="lineNum">     490 </span>                :            :         /* Common */
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     492 </span>                :            :         
+<span class="lineNum">     493 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :         y0 = PG_GETARG_TIMEADT(2);</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :         y1 = PG_GETARG_TIMEADT(4);</span>
+<span class="lineNum">     496 </span>                :            :         
+<span class="lineNum">     497 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     498 </span>                :            :         {
+<span class="lineNum">     499 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; (y0 == y1) )</span>
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     501 </span>                :            :                 else
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     504 </span>                :            :         else 
+<span class="lineNum">     505 </span>                :            :         {
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :                 result = time_li_value(p, y0, y1);</span>
+<span class="lineNum">     507 </span>                :            :         }
+<span class="lineNum">     508 </span>                :            : 
+<span class="lineNum">     509 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TIMEADT(result);</span>
+<span class="lineNum">     510 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="511"><span class="lineNum">     511 </span>                :            : </a>
+<span class="lineNum">     512 </span>                :            : Datum
+<span class="lineNum">     513 </span>                :            : linterp_Timestamp(PG_FUNCTION_ARGS)
+<span class="lineNum">     514 </span>                :            : {
+<span class="lineNum">     515 </span>                :            :         float8  p;
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :         Timestamp y0 = PG_GETARG_TIMESTAMP(2);</span>
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :         Timestamp y1 = PG_GETARG_TIMESTAMP(4);</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :         Timestamp result = 0;</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     521 </span>                :            :         
+<span class="lineNum">     522 </span>                :            :         /* Common */
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     524 </span>                :            :         
+<span class="lineNum">     525 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     526 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     527 </span>                :            :         {
+<span class="lineNum">     528 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; timestamp_cmp_internal(y0,y1) == 0 )</span>
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     530 </span>                :            :                 else
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     533 </span>                :            :         else 
+<span class="lineNum">     534 </span>                :            :         {
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :                 result = timestamp_li_value(p, y0, y1);</span>
+<span class="lineNum">     536 </span>                :            :         }
+<span class="lineNum">     537 </span>                :            : 
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TIMESTAMP(result);</span>
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="540"><span class="lineNum">     540 </span>                :            : </a>
+<span class="lineNum">     541 </span>                :            : Datum
+<span class="lineNum">     542 </span>                :            : linterp_TimestampTz(PG_FUNCTION_ARGS)
+<span class="lineNum">     543 </span>                :            : {
+<span class="lineNum">     544 </span>                :            :         float8  p;
+<span class="lineNum">     545 </span>                :<span class="lineNoCov">          0 :         TimestampTz     y0 = PG_GETARG_TIMESTAMP(2);</span>
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :         TimestampTz     y1 = PG_GETARG_TIMESTAMP(4);</span>
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :         TimestampTz     result = 0;</span>
+<span class="lineNum">     548 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     550 </span>                :            :         
+<span class="lineNum">     551 </span>                :            :         /* Common */
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     553 </span>                :            :         
+<span class="lineNum">     554 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     555 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     556 </span>                :            :         {
+<span class="lineNum">     557 </span>                :            :                 /* Internally, TSTZ is like TS, UTC is stored. */
+<span class="lineNum">     558 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; timestamp_cmp_internal(y0,y1) == 0 )</span>
+<span class="lineNum">     559 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     560 </span>                :            :                 else
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     563 </span>                :            :         else 
+<span class="lineNum">     564 </span>                :            :         {
+<span class="lineNum">     565 </span>                :<span class="lineNoCov">          0 :                 result = timestamptz_li_value(p, y0, y1);</span>
+<span class="lineNum">     566 </span>                :            :         }
+<span class="lineNum">     567 </span>                :            :         
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_TIMESTAMPTZ(result);</span>
+<span class="lineNum">     569 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="570"><span class="lineNum">     570 </span>                :            : </a>
+<span class="lineNum">     571 </span>                :            : Datum
+<span class="lineNum">     572 </span>                :            : linterp_Interval(PG_FUNCTION_ARGS)
+<span class="lineNum">     573 </span>                :            : {
+<span class="lineNum">     574 </span>                :            :         float8  p;
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :         Interval *y0 = PG_GETARG_INTERVAL_P(2);</span>
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :         Interval *y1 = PG_GETARG_INTERVAL_P(4);</span>
+<span class="lineNum">     577 </span>                :<span class="lineNoCov">          0 :         Interval *result = NULL;</span>
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     580 </span>                :            :         
+<span class="lineNum">     581 </span>                :            :         /* Common */
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     583 </span>                :            :         
+<span class="lineNum">     584 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     585 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     586 </span>                :            :         {
+<span class="lineNum">     587 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; interval_cmp_internal(y0, y1) == 0 )</span>
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     589 </span>                :            :                 else
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     592 </span>                :            :         else 
+<span class="lineNum">     593 </span>                :            :         {
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :                 result = interval_li_value(p, y0, y1);</span>
+<span class="lineNum">     595 </span>                :            :         }
+<span class="lineNum">     596 </span>                :            :         
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_INTERVAL_P(result);</span>
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="599"><span class="lineNum">     599 </span>                :            : </a>
+<span class="lineNum">     600 </span>                :            : Datum
+<span class="lineNum">     601 </span>                :            : linterp_Numeric(PG_FUNCTION_ARGS)
+<span class="lineNum">     602 </span>                :            : {
+<span class="lineNum">     603 </span>                :            :         float8 p;
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :         Numeric y0 = PG_GETARG_NUMERIC(2);</span>
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :         Numeric y1 = PG_GETARG_NUMERIC(4);</span>
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :         Numeric result = NULL;</span>
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :         bool eq_bounds = false;</span>
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :         bool eq_abscissas = false;</span>
+<span class="lineNum">     609 </span>                :            :         
+<span class="lineNum">     610 </span>                :            :         /* Common */
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :         p = linterp_abscissa(fcinfo, &amp;eq_bounds, &amp;eq_abscissas);</span>
+<span class="lineNum">     612 </span>                :            :         
+<span class="lineNum">     613 </span>                :            :         /* Ordinate type specific code*/
+<span class="lineNum">     614 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ( eq_bounds )</span>
+<span class="lineNum">     615 </span>                :            :         {
+<span class="lineNum">     616 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ( eq_abscissas &amp;&amp; cmp_numerics(y0,y1) == 0 )</span>
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :                         result = y0;</span>
+<span class="lineNum">     618 </span>                :            :                 else
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :                         PG_RETURN_NULL();</span>
+<span class="lineNum">     620 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     621 </span>                :            :         else 
+<span class="lineNum">     622 </span>                :            :         {
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :                 result = numeric_li_value(p, y0, y1);</span>
+<span class="lineNum">     624 </span>                :            :         }
+<span class="lineNum">     625 </span>                :            :         
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_NUMERIC(result);</span>
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     628 </span>                :            : 
+<span class="lineNum">     629 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

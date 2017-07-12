@@ -1,0 +1,476 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/adt/name.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/adt</a> - name.c<span style="font-size: 80%;"> (source / <a href="name.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">99</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">23</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">32</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * name.c
+<span class="lineNum">       4 </span>                :            :  *        Functions for the built-in type &quot;name&quot;.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * name replaces char16 and is carefully implemented so that it
+<span class="lineNum">       7 </span>                :            :  * is a string of physical length NAMEDATALEN.
+<span class="lineNum">       8 </span>                :            :  * DO NOT use hard-coded constants anywhere
+<span class="lineNum">       9 </span>                :            :  * always use NAMEDATALEN as the symbolic constant!   - jolly 8/21/95
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  * Portions Copyright (c) 1996-2009, PostgreSQL Global Development Group
+<span class="lineNum">      13 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">      14 </span>                :            :  *
+<span class="lineNum">      15 </span>                :            :  *
+<span class="lineNum">      16 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      17 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/utils/adt/name.c,v 1.61 2008/01/01 19:45:52 momjian Exp $
+<span class="lineNum">      18 </span>                :            :  *
+<span class="lineNum">      19 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      20 </span>                :            :  */
+<span class="lineNum">      21 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : #include &quot;catalog/namespace.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;libpq/pqformat.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;mb/pg_wchar.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;utils/array.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :            : 
+<span class="lineNum">      33 </span>                :            : /*****************************************************************************
+<span class="lineNum">      34 </span>                :            :  *       USER I/O ROUTINES (none)                                                                                                *
+<span class="lineNum">      35 </span>                :            :  *****************************************************************************/
+<span class="lineNum">      36 </span>                :            : 
+<span class="lineNum">      37 </span>                :            : 
+<span class="lineNum">      38 </span>                :            : /*
+<span class="lineNum">      39 </span>                :            :  *              namein  - converts &quot;...&quot; to internal representation
+<span class="lineNum">      40 </span>                :            :  *
+<span class="lineNum">      41 </span>                :            :  *              Note:
+<span class="lineNum">      42 </span>                :            :  *                              [Old] Currently if strlen(s) &lt; NAMEDATALEN, the extra chars are nulls
+<span class="lineNum">      43 </span>                :            :  *                              Now, always NULL terminated
+<a name="44"><span class="lineNum">      44 </span>                :            :  */</a>
+<span class="lineNum">      45 </span>                :            : Datum
+<span class="lineNum">      46 </span>                :            : namein(PG_FUNCTION_ARGS)
+<span class="lineNum">      47 </span>                :            : {
+<span class="lineNum">      48 </span>                :<span class="lineNoCov">          0 :         char       *s = PG_GETARG_CSTRING(0);</span>
+<span class="lineNum">      49 </span>                :            :         Name            result;
+<span class="lineNum">      50 </span>                :            :         int                     len;
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :         len = strlen(s);</span>
+<span class="lineNum">      53 </span>                :            : 
+<span class="lineNum">      54 </span>                :            :         /* Truncate oversize input */
+<span class="lineNum">      55 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (len &gt;= NAMEDATALEN)</span>
+<span class="lineNum">      56 </span>                :<span class="lineNoCov">          0 :                 len = pg_mbcliplen(s, len, NAMEDATALEN - 1);</span>
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            :         /* We use palloc0 here to ensure result is zero-padded */
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :         result = (Name) palloc0(NAMEDATALEN);</span>
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :         memcpy(NameStr(*result), s, len);</span>
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_NAME(result);</span>
+<span class="lineNum">      63 </span>                :            : }
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : /*
+<span class="lineNum">      66 </span>                :            :  *              nameout - converts internal representation to &quot;...&quot;
+<a name="67"><span class="lineNum">      67 </span>                :            :  */</a>
+<span class="lineNum">      68 </span>                :            : Datum
+<span class="lineNum">      69 </span>                :            : nameout(PG_FUNCTION_ARGS)
+<span class="lineNum">      70 </span>                :            : {
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :         Name            s = PG_GETARG_NAME(0);</span>
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_CSTRING(pstrdup(NameStr(*s)));</span>
+<span class="lineNum">      74 </span>                :            : }
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : /*
+<span class="lineNum">      77 </span>                :            :  *              namerecv                        - converts external binary format to name
+<a name="78"><span class="lineNum">      78 </span>                :            :  */</a>
+<span class="lineNum">      79 </span>                :            : Datum
+<span class="lineNum">      80 </span>                :            : namerecv(PG_FUNCTION_ARGS)
+<span class="lineNum">      81 </span>                :            : {
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         StringInfo      buf = (StringInfo) PG_GETARG_POINTER(0);</span>
+<span class="lineNum">      83 </span>                :            :         Name            result;
+<span class="lineNum">      84 </span>                :            :         char       *str;
+<span class="lineNum">      85 </span>                :            :         int                     nbytes;
+<span class="lineNum">      86 </span>                :            : 
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :         str = pq_getmsgtext(buf, buf-&gt;len - buf-&gt;cursor, &amp;nbytes);</span>
+<span class="lineNum">      88 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (nbytes &gt;= NAMEDATALEN)</span>
+<span class="lineNum">      89 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">      90 </span>                :            :                                 (errcode(ERRCODE_NAME_TOO_LONG),
+<span class="lineNum">      91 </span>                :            :                                  errmsg(&quot;identifier too long&quot;),
+<span class="lineNum">      92 </span>                :            :                                  errdetail(&quot;Identifier must be less than %d characters.&quot;,
+<span class="lineNum">      93 </span>                :            :                                                    NAMEDATALEN)));
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :         result = (NameData *) palloc0(NAMEDATALEN);</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :         memcpy(result, str, nbytes);</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :         pfree(str);</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_NAME(result);</span>
+<span class="lineNum">      98 </span>                :            : }
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            : /*
+<span class="lineNum">     101 </span>                :            :  *              namesend                        - converts name to binary format
+<a name="102"><span class="lineNum">     102 </span>                :            :  */</a>
+<span class="lineNum">     103 </span>                :            : Datum
+<span class="lineNum">     104 </span>                :            : namesend(PG_FUNCTION_ARGS)
+<span class="lineNum">     105 </span>                :            : {
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         Name            s = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     107 </span>                :            :         StringInfoData buf;
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :         pq_begintypsend(&amp;buf);</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :         pq_sendtext(&amp;buf, NameStr(*s), strlen(NameStr(*s)));</span>
+<span class="lineNum">     111 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BYTEA_P(pq_endtypsend(&amp;buf));</span>
+<span class="lineNum">     112 </span>                :            : }
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            : /*****************************************************************************
+<span class="lineNum">     116 </span>                :            :  *       PUBLIC ROUTINES                                                                                                                 *
+<span class="lineNum">     117 </span>                :            :  *****************************************************************************/
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :            : /*
+<span class="lineNum">     120 </span>                :            :  *              nameeq  - returns 1 iff arguments are equal
+<span class="lineNum">     121 </span>                :            :  *              namene  - returns 1 iff arguments are not equal
+<span class="lineNum">     122 </span>                :            :  *
+<span class="lineNum">     123 </span>                :            :  *              BUGS:
+<span class="lineNum">     124 </span>                :            :  *                              Assumes that &quot;xy\0\0a&quot; should be equal to &quot;xy\0b&quot;.
+<span class="lineNum">     125 </span>                :            :  *                              If not, can do the comparison backwards for efficiency.
+<span class="lineNum">     126 </span>                :            :  *
+<span class="lineNum">     127 </span>                :            :  *              namelt  - returns 1 iff a &lt; b
+<span class="lineNum">     128 </span>                :            :  *              namele  - returns 1 iff a &lt;= b
+<span class="lineNum">     129 </span>                :            :  *              namegt  - returns 1 iff a &gt; b
+<span class="lineNum">     130 </span>                :            :  *              namege  - returns 1 iff a &gt;= b
+<span class="lineNum">     131 </span>                :            :  *
+<a name="132"><span class="lineNum">     132 </span>                :            :  */</a>
+<span class="lineNum">     133 </span>                :            : Datum
+<span class="lineNum">     134 </span>                :            : nameeq(PG_FUNCTION_ARGS)
+<span class="lineNum">     135 </span>                :            : {
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     137 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     138 </span>                :            : 
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(strncmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) == 0);</span>
+<span class="lineNum">     140 </span>                :            : }
+<a name="141"><span class="lineNum">     141 </span>                :            : </a>
+<span class="lineNum">     142 </span>                :            : Datum
+<span class="lineNum">     143 </span>                :            : namene(PG_FUNCTION_ARGS)
+<span class="lineNum">     144 </span>                :            : {
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     147 </span>                :            : 
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(strncmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) != 0);</span>
+<span class="lineNum">     149 </span>                :            : }
+<a name="150"><span class="lineNum">     150 </span>                :            : </a>
+<span class="lineNum">     151 </span>                :            : Datum
+<span class="lineNum">     152 </span>                :            : namelt(PG_FUNCTION_ARGS)
+<span class="lineNum">     153 </span>                :            : {
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(strncmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &lt; 0);</span>
+<span class="lineNum">     158 </span>                :            : }
+<a name="159"><span class="lineNum">     159 </span>                :            : </a>
+<span class="lineNum">     160 </span>                :            : Datum
+<span class="lineNum">     161 </span>                :            : namele(PG_FUNCTION_ARGS)
+<span class="lineNum">     162 </span>                :            : {
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     165 </span>                :            : 
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(strncmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &lt;= 0);</span>
+<span class="lineNum">     167 </span>                :            : }
+<a name="168"><span class="lineNum">     168 </span>                :            : </a>
+<span class="lineNum">     169 </span>                :            : Datum
+<span class="lineNum">     170 </span>                :            : namegt(PG_FUNCTION_ARGS)
+<span class="lineNum">     171 </span>                :            : {
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(strncmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &gt; 0);</span>
+<span class="lineNum">     176 </span>                :            : }
+<a name="177"><span class="lineNum">     177 </span>                :            : </a>
+<span class="lineNum">     178 </span>                :            : Datum
+<span class="lineNum">     179 </span>                :            : namege(PG_FUNCTION_ARGS)
+<span class="lineNum">     180 </span>                :            : {
+<span class="lineNum">     181 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(strncmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &gt;= 0);</span>
+<span class="lineNum">     185 </span>                :            : }
+<span class="lineNum">     186 </span>                :            : 
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :            : /*
+<span class="lineNum">     189 </span>                :            :  * comparison routines for LIKE indexing support
+<span class="lineNum">     190 </span>                :            :  */
+<a name="191"><span class="lineNum">     191 </span>                :            : </a>
+<span class="lineNum">     192 </span>                :            : Datum
+<span class="lineNum">     193 </span>                :            : name_pattern_eq(PG_FUNCTION_ARGS)
+<span class="lineNum">     194 </span>                :            : {
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(memcmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) == 0);</span>
+<span class="lineNum">     199 </span>                :            : }
+<a name="200"><span class="lineNum">     200 </span>                :            : </a>
+<span class="lineNum">     201 </span>                :            : Datum
+<span class="lineNum">     202 </span>                :            : name_pattern_ne(PG_FUNCTION_ARGS)
+<span class="lineNum">     203 </span>                :            : {
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(memcmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) != 0);</span>
+<span class="lineNum">     208 </span>                :            : }
+<a name="209"><span class="lineNum">     209 </span>                :            : </a>
+<span class="lineNum">     210 </span>                :            : Datum
+<span class="lineNum">     211 </span>                :            : name_pattern_lt(PG_FUNCTION_ARGS)
+<span class="lineNum">     212 </span>                :            : {
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     215 </span>                :            : 
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(memcmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &lt; 0);</span>
+<span class="lineNum">     217 </span>                :            : }
+<a name="218"><span class="lineNum">     218 </span>                :            : </a>
+<span class="lineNum">     219 </span>                :            : Datum
+<span class="lineNum">     220 </span>                :            : name_pattern_le(PG_FUNCTION_ARGS)
+<span class="lineNum">     221 </span>                :            : {
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(memcmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &lt;= 0);</span>
+<span class="lineNum">     226 </span>                :            : }
+<a name="227"><span class="lineNum">     227 </span>                :            : </a>
+<span class="lineNum">     228 </span>                :            : Datum
+<span class="lineNum">     229 </span>                :            : name_pattern_gt(PG_FUNCTION_ARGS)
+<span class="lineNum">     230 </span>                :            : {
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(memcmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &gt; 0);</span>
+<span class="lineNum">     235 </span>                :            : }
+<a name="236"><span class="lineNum">     236 </span>                :            : </a>
+<span class="lineNum">     237 </span>                :            : Datum
+<span class="lineNum">     238 </span>                :            : name_pattern_ge(PG_FUNCTION_ARGS)
+<span class="lineNum">     239 </span>                :            : {
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :         Name            arg1 = PG_GETARG_NAME(0);</span>
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :         Name            arg2 = PG_GETARG_NAME(1);</span>
+<span class="lineNum">     242 </span>                :            : 
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_BOOL(memcmp(NameStr(*arg1), NameStr(*arg2), NAMEDATALEN) &gt;= 0);</span>
+<span class="lineNum">     244 </span>                :            : }
+<span class="lineNum">     245 </span>                :            : 
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>                :            : /* (see char.c for comparison/operation routines) */
+<a name="248"><span class="lineNum">     248 </span>                :            : </a>
+<span class="lineNum">     249 </span>                :            : int
+<span class="lineNum">     250 </span>                :            : namecpy(Name n1, Name n2)
+<span class="lineNum">     251 </span>                :            : {
+<span class="lineNum">     252 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!n1 || !n2)</span>
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :         strncpy(NameStr(*n1), NameStr(*n2), NAMEDATALEN);</span>
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     257 </span>                :            : 
+<span class="lineNum">     258 </span>                :            : #ifdef NOT_USED
+<span class="lineNum">     259 </span>                :            : int
+<span class="lineNum">     260 </span>                :            : namecat(Name n1, Name n2)
+<span class="lineNum">     261 </span>                :            : {
+<span class="lineNum">     262 </span>                :            :         return namestrcat(n1, NameStr(*n2));            /* n2 can't be any longer than
+<span class="lineNum">     263 </span>                :            :                                                                                                  * n1 */
+<span class="lineNum">     264 </span>                :            : }
+<span class="lineNum">     265 </span>                :            : #endif
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :            : #ifdef NOT_USED
+<span class="lineNum">     268 </span>                :            : int
+<span class="lineNum">     269 </span>                :            : namecmp(Name n1, Name n2)
+<span class="lineNum">     270 </span>                :            : {
+<span class="lineNum">     271 </span>                :            :         return strncmp(NameStr(*n1), NameStr(*n2), NAMEDATALEN);
+<span class="lineNum">     272 </span>                :            : }
+<span class="lineNum">     273 </span>                :            : #endif
+<a name="274"><span class="lineNum">     274 </span>                :            : </a>
+<span class="lineNum">     275 </span>                :            : int
+<span class="lineNum">     276 </span>                :            : namestrcpy(Name name, const char *str)
+<span class="lineNum">     277 </span>                :            : {
+<span class="lineNum">     278 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!name || !str)</span>
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     280 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         StrNCpy(NameStr(*name), str, NAMEDATALEN);</span>
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :         return 0;</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     283 </span>                :            : 
+<span class="lineNum">     284 </span>                :            : #ifdef NOT_USED
+<span class="lineNum">     285 </span>                :            : int
+<span class="lineNum">     286 </span>                :            : namestrcat(Name name, const char *str)
+<span class="lineNum">     287 </span>                :            : {
+<span class="lineNum">     288 </span>                :            :         int                     i;
+<span class="lineNum">     289 </span>                :            :         char       *p,
+<span class="lineNum">     290 </span>                :            :                            *q;
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            :         if (!name || !str)
+<span class="lineNum">     293 </span>                :            :                 return -1;
+<span class="lineNum">     294 </span>                :            :         for (i = 0, p = NameStr(*name); i &lt; NAMEDATALEN &amp;&amp; *p; ++i, ++p)
+<span class="lineNum">     295 </span>                :            :                 ;
+<span class="lineNum">     296 </span>                :            :         for (q = str; i &lt; NAMEDATALEN; ++i, ++p, ++q)
+<span class="lineNum">     297 </span>                :            :         {
+<span class="lineNum">     298 </span>                :            :                 *p = *q;
+<span class="lineNum">     299 </span>                :            :                 if (!*q)
+<span class="lineNum">     300 </span>                :            :                         break;
+<span class="lineNum">     301 </span>                :            :         }
+<span class="lineNum">     302 </span>                :            :         return 0;
+<span class="lineNum">     303 </span>                :            : }
+<span class="lineNum">     304 </span>                :            : #endif
+<a name="305"><span class="lineNum">     305 </span>                :            : </a>
+<span class="lineNum">     306 </span>                :            : int
+<span class="lineNum">     307 </span>                :            : namestrcmp(Name name, const char *str)
+<span class="lineNum">     308 </span>                :            : {
+<span class="lineNum">     309 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!name &amp;&amp; !str)</span>
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                 return 0;</span>
+<span class="lineNum">     311 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!name)</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                 return -1;                              /* NULL &lt; anything */</span>
+<span class="lineNum">     313 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!str)</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                 return 1;                               /* NULL &lt; anything */</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :         return strncmp(NameStr(*name), str, NAMEDATALEN);</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :            : 
+<span class="lineNum">     319 </span>                :            : /*
+<span class="lineNum">     320 </span>                :            :  * SQL-functions CURRENT_USER, SESSION_USER
+<a name="321"><span class="lineNum">     321 </span>                :            :  */</a>
+<span class="lineNum">     322 </span>                :            : Datum
+<span class="lineNum">     323 </span>                :            : current_user(PG_FUNCTION_ARGS)
+<span class="lineNum">     324 </span>                :            : {
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(DirectFunctionCall1(namein, CStringGetDatum(GetUserNameFromId(GetUserId()))));</span>
+<span class="lineNum">     326 </span>                :            : }
+<a name="327"><span class="lineNum">     327 </span>                :            : </a>
+<span class="lineNum">     328 </span>                :            : Datum
+<span class="lineNum">     329 </span>                :            : session_user(PG_FUNCTION_ARGS)
+<span class="lineNum">     330 </span>                :            : {
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(DirectFunctionCall1(namein, CStringGetDatum(GetUserNameFromId(GetSessionUserId()))));</span>
+<span class="lineNum">     332 </span>                :            : }
+<span class="lineNum">     333 </span>                :            : 
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :            : /*
+<span class="lineNum">     336 </span>                :            :  * SQL-functions CURRENT_SCHEMA, CURRENT_SCHEMAS
+<a name="337"><span class="lineNum">     337 </span>                :            :  */</a>
+<span class="lineNum">     338 </span>                :            : Datum
+<span class="lineNum">     339 </span>                :            : current_schema(PG_FUNCTION_ARGS)
+<span class="lineNum">     340 </span>                :            : {
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :         List       *search_path = fetch_search_path(false);</span>
+<span class="lineNum">     342 </span>                :            :         char       *nspname;
+<span class="lineNum">     343 </span>                :            : 
+<span class="lineNum">     344 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (search_path == NIL)</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :         nspname = get_namespace_name(linitial_oid(search_path));</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :         list_free(search_path);</span>
+<span class="lineNum">     348 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!nspname)</span>
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_NULL();               /* recently-deleted namespace? */</span>
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_DATUM(DirectFunctionCall1(namein, CStringGetDatum(nspname)));</span>
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="352"><span class="lineNum">     352 </span>                :            : </a>
+<span class="lineNum">     353 </span>                :            : Datum
+<span class="lineNum">     354 </span>                :            : current_schemas(PG_FUNCTION_ARGS)
+<span class="lineNum">     355 </span>                :            : {
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :         List       *search_path = fetch_search_path(PG_GETARG_BOOL(0));</span>
+<span class="lineNum">     357 </span>                :            :         ListCell   *l;
+<span class="lineNum">     358 </span>                :            :         Datum      *names;
+<span class="lineNum">     359 </span>                :            :         int                     i;
+<span class="lineNum">     360 </span>                :            :         ArrayType  *array;
+<span class="lineNum">     361 </span>                :            : 
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :         names = (Datum *) palloc(list_length(search_path) * sizeof(Datum));</span>
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :         i = 0;</span>
+<span class="lineNum">     364 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, search_path)</span>
+<span class="lineNum">     365 </span>                :            :         {
+<span class="lineNum">     366 </span>                :            :                 char       *nspname;
+<span class="lineNum">     367 </span>                :            : 
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                 nspname = get_namespace_name(lfirst_oid(l));</span>
+<span class="lineNum">     369 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (nspname)                    /* watch out for deleted namespace */</span>
+<span class="lineNum">     370 </span>                :            :                 {
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                         names[i] = DirectFunctionCall1(namein, CStringGetDatum(nspname));</span>
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :                         i++;</span>
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :         list_free(search_path);</span>
+<span class="lineNum">     376 </span>                :            : 
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :         array = construct_array(names, i,</span>
+<span class="lineNum">     378 </span>                :            :                                                         NAMEOID,
+<span class="lineNum">     379 </span>                :            :                                                         NAMEDATALEN,            /* sizeof(Name) */
+<span class="lineNum">     380 </span>                :            :                                                         false,          /* Name is not by-val */
+<span class="lineNum">     381 </span>                :            :                                                         'c');           /* alignment of Name */
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_POINTER(array);</span>
+<span class="lineNum">     384 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

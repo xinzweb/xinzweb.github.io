@@ -1,0 +1,1165 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - optimizer/path/joinpath.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">optimizer/path</a> - joinpath.c<span style="font-size: 80%;"> (source / <a href="joinpath.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">397</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">254</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * joinpath.c
+<span class="lineNum">       4 </span>                :            :  *        Routines to find all possible paths for processing a set of joins
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2005-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/optimizer/path/joinpath.c,v 1.118 2008/10/04 21:56:53 tgl Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &lt;math.h&gt;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : #include &quot;optimizer/cost.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;optimizer/pathnode.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;optimizer/paths.h&quot;
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : #include &quot;executor/nodeHash.h&quot;                  /* ExecHashRowSize() */
+<span class="lineNum">      25 </span>                :            : #include &quot;cdb/cdbpath.h&quot;                        /* cdbpath_rows() */
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :            : static void sort_inner_and_outer(PlannerInfo *root, RelOptInfo *joinrel,
+<span class="lineNum">      29 </span>                :            :                                          RelOptInfo *outerrel, RelOptInfo *innerrel,
+<span class="lineNum">      30 </span>                :            :                                          List *restrictlist, List *mergeclause_list,
+<span class="lineNum">      31 </span>                :            :                                          JoinType jointype);
+<span class="lineNum">      32 </span>                :            : static void match_unsorted_outer(PlannerInfo *root, RelOptInfo *joinrel,
+<span class="lineNum">      33 </span>                :            :                                          RelOptInfo *outerrel, RelOptInfo *innerrel,
+<span class="lineNum">      34 </span>                :            :                                          List *restrictlist, List *mergeclause_list,
+<span class="lineNum">      35 </span>                :            :                                          JoinType jointype);
+<span class="lineNum">      36 </span>                :            : static void hash_inner_and_outer(PlannerInfo *root, RelOptInfo *joinrel,
+<span class="lineNum">      37 </span>                :            :                                          Path *outerpath, Path *innerpath,
+<span class="lineNum">      38 </span>                :            :                                          List *restrictlist,
+<span class="lineNum">      39 </span>                :            :                                          List *mergeclause_list,    /*CDB*/
+<span class="lineNum">      40 </span>                :            :                                          List *hashclause_list,     /*CDB*/
+<span class="lineNum">      41 </span>                :            :                                          JoinType jointype);
+<span class="lineNum">      42 </span>                :            : static Path *best_appendrel_indexscan(PlannerInfo *root, RelOptInfo *rel,
+<span class="lineNum">      43 </span>                :            :                                                  RelOptInfo *outer_rel, JoinType jointype);
+<span class="lineNum">      44 </span>                :            : static List *select_mergejoin_clauses(PlannerInfo *root,
+<span class="lineNum">      45 </span>                :            :                                                  RelOptInfo *joinrel,
+<span class="lineNum">      46 </span>                :            :                                                  RelOptInfo *outerrel,
+<span class="lineNum">      47 </span>                :            :                                                  RelOptInfo *innerrel,
+<span class="lineNum">      48 </span>                :            :                                                  List *restrictlist,
+<span class="lineNum">      49 </span>                :            :                                                  JoinType jointype);
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : static List *hashclauses_for_join(List *restrictlist,
+<span class="lineNum">      52 </span>                :            :                                          RelOptInfo *outerrel,
+<span class="lineNum">      53 </span>                :            :                                          RelOptInfo *innerrel,
+<span class="lineNum">      54 </span>                :            :                                          JoinType jointype);
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :            : /*
+<span class="lineNum">      57 </span>                :            :  * add_paths_to_joinrel
+<span class="lineNum">      58 </span>                :            :  *        Given a join relation and two component rels from which it can be made,
+<span class="lineNum">      59 </span>                :            :  *        consider all possible paths that use the two component rels as outer
+<span class="lineNum">      60 </span>                :            :  *        and inner rel respectively.  Add these paths to the join rel's pathlist
+<span class="lineNum">      61 </span>                :            :  *        if they survive comparison with other paths (and remove any existing
+<span class="lineNum">      62 </span>                :            :  *        paths that are dominated by these paths).
+<span class="lineNum">      63 </span>                :            :  *
+<span class="lineNum">      64 </span>                :            :  * Modifies the pathlist field of the joinrel node to contain the best
+<span class="lineNum">      65 </span>                :            :  * paths found so far.
+<a name="66"><span class="lineNum">      66 </span>                :            :  */</a>
+<span class="lineNum">      67 </span>                :            : void
+<span class="lineNum">      68 </span>                :            : add_paths_to_joinrel(PlannerInfo *root,
+<span class="lineNum">      69 </span>                :            :                                          RelOptInfo *joinrel,
+<span class="lineNum">      70 </span>                :            :                                          RelOptInfo *outerrel,
+<span class="lineNum">      71 </span>                :            :                                          RelOptInfo *innerrel,
+<span class="lineNum">      72 </span>                :            :                                          JoinType jointype,
+<span class="lineNum">      73 </span>                :            :                                          List *restrictlist)
+<span class="lineNum">      74 </span>                :            : {
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :         List       *mergeclause_list = NIL;</span>
+<span class="lineNum">      76 </span>                :            :     List       *hashclause_list;
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(outerrel-&gt;pathlist &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">      79 </span>                :            :            outerrel-&gt;cheapest_startup_path &amp;&amp;
+<span class="lineNum">      80 </span>                :            :            outerrel-&gt;cheapest_total_path);
+<span class="lineNum">      81 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(innerrel-&gt;pathlist &amp;&amp;</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">      82 </span>                :            :            innerrel-&gt;cheapest_startup_path &amp;&amp;
+<span class="lineNum">      83 </span>                :            :            innerrel-&gt;cheapest_total_path);
+<span class="lineNum">      84 </span>                :            : 
+<span class="lineNum">      85 </span>                :            :         /*
+<span class="lineNum">      86 </span>                :            :          * Find potential mergejoin clauses.  We can skip this if we are not
+<span class="lineNum">      87 </span>                :            :          * interested in doing a mergejoin.  However, mergejoin is currently our
+<span class="lineNum">      88 </span>                :            :          * only way of implementing full outer joins, so override mergejoin
+<span class="lineNum">      89 </span>                :            :          * disable if it's a full join.
+<span class="lineNum">      90 </span>                :            :      *
+<span class="lineNum">      91 </span>                :            :      * CDB: Always build mergeclause_list.  We need it for motion planning.
+<span class="lineNum">      92 </span>                :            :          */
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :         mergeclause_list = select_mergejoin_clauses(root,</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :                                                                                                 joinrel,</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                                                                                                 outerrel,</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :                                                                                                 innerrel,</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :                                                                                                 restrictlist,</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                                                                                                 jointype);</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :            :         /*
+<span class="lineNum">     101 </span>                :            :          * 1. Consider mergejoin paths where both relations must be explicitly
+<span class="lineNum">     102 </span>                :            :          * sorted.
+<span class="lineNum">     103 </span>                :            :          */
+<span class="lineNum">     104 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((root-&gt;config-&gt;enable_mergejoin ||</span>
+<span class="lineNum">     105 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         root-&gt;config-&gt;mpp_trying_fallback_plan ||</span>
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 jointype == JOIN_FULL) &amp;&amp;</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :                 jointype != JOIN_LASJ_NOTIN)</span>
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :             sort_inner_and_outer(root, joinrel, outerrel, innerrel,</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                                                      restrictlist, mergeclause_list, jointype);</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            :         /*
+<span class="lineNum">     112 </span>                :            :          * 2. Consider paths where the outer relation need not be explicitly
+<span class="lineNum">     113 </span>                :            :          * sorted. This includes both nestloops and mergejoins where the outer
+<span class="lineNum">     114 </span>                :            :          * path is already ordered.
+<span class="lineNum">     115 </span>                :            :          */
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :         match_unsorted_outer(root, joinrel, outerrel, innerrel,</span>
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                                                  restrictlist, mergeclause_list, jointype);</span>
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :            : #ifdef NOT_USED
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :            :         /*
+<span class="lineNum">     122 </span>                :            :          * 3. Consider paths where the inner relation need not be explicitly
+<span class="lineNum">     123 </span>                :            :          * sorted.      This includes mergejoins only (nestloops were already built in
+<span class="lineNum">     124 </span>                :            :          * match_unsorted_outer).
+<span class="lineNum">     125 </span>                :            :          *
+<span class="lineNum">     126 </span>                :            :          * Diked out as redundant 2/13/2000 -- tgl.  There isn't any really
+<span class="lineNum">     127 </span>                :            :          * significant difference between the inner and outer side of a mergejoin,
+<span class="lineNum">     128 </span>                :            :          * so match_unsorted_inner creates no paths that aren't equivalent to
+<span class="lineNum">     129 </span>                :            :          * those made by match_unsorted_outer when add_paths_to_joinrel() is
+<span class="lineNum">     130 </span>                :            :          * invoked with the two rels given in the other order.
+<span class="lineNum">     131 </span>                :            :          */
+<span class="lineNum">     132 </span>                :            :         match_unsorted_inner(root, joinrel, outerrel, innerrel,
+<span class="lineNum">     133 </span>                :            :                                                  restrictlist, mergeclause_list, jointype);
+<span class="lineNum">     134 </span>                :            : #endif
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            :         /*
+<span class="lineNum">     137 </span>                :            :          * 4. Consider paths where both outer and inner relations must be hashed
+<span class="lineNum">     138 </span>                :            :          * before being joined.
+<span class="lineNum">     139 </span>                :            :      *
+<span class="lineNum">     140 </span>                :            :          * We consider both the cheapest-total-cost and cheapest-startup-cost
+<span class="lineNum">     141 </span>                :            :          * outer paths.  There's no need to consider any but the
+<span class="lineNum">     142 </span>                :            :          * cheapest-total-cost inner path, however.
+<span class="lineNum">     143 </span>                :            :          */
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (root-&gt;config-&gt;enable_hashjoin</span>
+<span class="lineNum">     145 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         || root-&gt;config-&gt;mpp_trying_fallback_plan)</span>
+<span class="lineNum">     146 </span>                :            :     {
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :             hashclause_list = hashclauses_for_join(restrictlist,</span>
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :                                                outerrel,</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                                                innerrel,</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :                                                jointype);</span>
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (hashclause_list)</span>
+<span class="lineNum">     152 </span>                :            :         {
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :             hash_inner_and_outer(root,</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                                  joinrel,</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :                                  outerrel-&gt;cheapest_total_path,</span>
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                                  innerrel-&gt;cheapest_total_path,</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                                                              restrictlist,</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                                  mergeclause_list,</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                                  hashclause_list,</span>
+<span class="lineNum">     160 </span>                :<span class="lineNoCov">          0 :                                  jointype);</span>
+<span class="lineNum">     161 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :             if (outerrel-&gt;cheapest_startup_path != outerrel-&gt;cheapest_total_path)</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                 hash_inner_and_outer(root,</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :                                      joinrel,</span>
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                                      outerrel-&gt;cheapest_startup_path,</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                                      innerrel-&gt;cheapest_total_path,</span>
+<span class="lineNum">     166 </span>                :<span class="lineNoCov">          0 :                                                                  restrictlist,</span>
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :                                      mergeclause_list,</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                                      hashclause_list,</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                                      jointype);</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     171 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     173 </span>                :            : 
+<span class="lineNum">     174 </span>                :            : /*
+<span class="lineNum">     175 </span>                :            :  * sort_inner_and_outer
+<span class="lineNum">     176 </span>                :            :  *        Create mergejoin join paths by explicitly sorting both the outer and
+<span class="lineNum">     177 </span>                :            :  *        inner join relations on each available merge ordering.
+<span class="lineNum">     178 </span>                :            :  *
+<span class="lineNum">     179 </span>                :            :  * 'joinrel' is the join relation
+<span class="lineNum">     180 </span>                :            :  * 'outerrel' is the outer join relation
+<span class="lineNum">     181 </span>                :            :  * 'innerrel' is the inner join relation
+<span class="lineNum">     182 </span>                :            :  * 'restrictlist' contains all of the RestrictInfo nodes for restriction
+<span class="lineNum">     183 </span>                :            :  *              clauses that apply to this join
+<span class="lineNum">     184 </span>                :            :  * 'mergeclause_list' is a list of RestrictInfo nodes for available
+<span class="lineNum">     185 </span>                :            :  *              mergejoin clauses in this join
+<span class="lineNum">     186 </span>                :            :  * 'jointype' is the type of join to do
+<a name="187"><span class="lineNum">     187 </span>                :            :  */</a>
+<span class="lineNum">     188 </span>                :            : static void
+<span class="lineNum">     189 </span>                :            : sort_inner_and_outer(PlannerInfo *root,
+<span class="lineNum">     190 </span>                :            :                                          RelOptInfo *joinrel,
+<span class="lineNum">     191 </span>                :            :                                          RelOptInfo *outerrel,
+<span class="lineNum">     192 </span>                :            :                                          RelOptInfo *innerrel,
+<span class="lineNum">     193 </span>                :            :                                          List *restrictlist,
+<span class="lineNum">     194 </span>                :            :                                          List *mergeclause_list,
+<span class="lineNum">     195 </span>                :            :                                          JoinType jointype)
+<span class="lineNum">     196 </span>                :            : {
+<span class="lineNum">     197 </span>                :            :         bool            useallclauses;
+<span class="lineNum">     198 </span>                :            :         Path       *outer_path;
+<span class="lineNum">     199 </span>                :            :         Path       *inner_path;
+<span class="lineNum">     200 </span>                :            :         List       *all_pathkeys;
+<span class="lineNum">     201 </span>                :            :         ListCell   *l;
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :            :         /*
+<span class="lineNum">     204 </span>                :            :          * If we are doing a right or full join, we must use *all* the
+<span class="lineNum">     205 </span>                :            :          * mergeclauses as join clauses, else we will not have a valid plan.
+<span class="lineNum">     206 </span>                :            :          */
+<span class="lineNum">     207 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (jointype)</span>
+<span class="lineNum">         </span>      <span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span>]
+<span class="lineNum">     208 </span>                :            :         {
+<span class="lineNum">     209 </span>                :            :                 case JOIN_INNER:
+<span class="lineNum">     210 </span>                :            :                 case JOIN_LEFT:
+<span class="lineNum">     211 </span>                :            :                 case JOIN_LASJ:
+<span class="lineNum">     212 </span>                :            :                 case JOIN_LASJ_NOTIN:
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                         useallclauses = false;</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     215 </span>                :            :                 case JOIN_RIGHT:
+<span class="lineNum">     216 </span>                :            :                 case JOIN_FULL:
+<span class="lineNum">     217 </span>                :<span class="lineNoCov">          0 :                         useallclauses = true;</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     219 </span>                :            :                 default:
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;unrecognized join type: %d&quot;,</span>
+<span class="lineNum">     221 </span>                :            :                                  (int) jointype);
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                         useallclauses = false;          /* keep compiler quiet */</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     224 </span>                :            :         }
+<span class="lineNum">     225 </span>                :            : 
+<span class="lineNum">     226 </span>                :            :         /*
+<span class="lineNum">     227 </span>                :            :          * We only consider the cheapest-total-cost input paths, since we are
+<span class="lineNum">     228 </span>                :            :          * assuming here that a sort is required.  We will consider
+<span class="lineNum">     229 </span>                :            :          * cheapest-startup-cost input paths later, and only if they don't need a
+<span class="lineNum">     230 </span>                :            :          * sort.
+<span class="lineNum">     231 </span>                :            :          */
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         outer_path = outerrel-&gt;cheapest_total_path;</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :         inner_path = innerrel-&gt;cheapest_total_path;</span>
+<span class="lineNum">     234 </span>                :            : 
+<span class="lineNum">     235 </span>                :            :         /*
+<span class="lineNum">     236 </span>                :            :          * Each possible ordering of the available mergejoin clauses will generate
+<span class="lineNum">     237 </span>                :            :          * a differently-sorted result path at essentially the same cost.  We have
+<span class="lineNum">     238 </span>                :            :          * no basis for choosing one over another at this level of joining, but
+<span class="lineNum">     239 </span>                :            :          * some sort orders may be more useful than others for higher-level
+<span class="lineNum">     240 </span>                :            :          * mergejoins, so it's worth considering multiple orderings.
+<span class="lineNum">     241 </span>                :            :          *
+<span class="lineNum">     242 </span>                :            :          * Actually, it's not quite true that every mergeclause ordering will
+<span class="lineNum">     243 </span>                :            :          * generate a different path order, because some of the clauses may be
+<span class="lineNum">     244 </span>                :            :          * partially redundant (refer to the same EquivalenceClasses).  Therefore,
+<span class="lineNum">     245 </span>                :            :          * what we do is convert the mergeclause list to a list of canonical
+<span class="lineNum">     246 </span>                :            :          * pathkeys, and then consider different orderings of the pathkeys.
+<span class="lineNum">     247 </span>                :            :          *
+<span class="lineNum">     248 </span>                :            :          * Generating a path for *every* permutation of the pathkeys doesn't seem
+<span class="lineNum">     249 </span>                :            :          * like a winning strategy; the cost in planning time is too high. For
+<span class="lineNum">     250 </span>                :            :          * now, we generate one path for each pathkey, listing that pathkey first
+<span class="lineNum">     251 </span>                :            :          * and the rest in random order.  This should allow at least a one-clause
+<span class="lineNum">     252 </span>                :            :          * mergejoin without re-sorting against any other possible mergejoin
+<span class="lineNum">     253 </span>                :            :          * partner path.  But if we've not guessed the right ordering of secondary
+<span class="lineNum">     254 </span>                :            :          * keys, we may end up evaluating clauses as qpquals when they could have
+<span class="lineNum">     255 </span>                :            :          * been done as mergeclauses.  (In practice, it's rare that there's more
+<span class="lineNum">     256 </span>                :            :          * than two or three mergeclauses, so expending a huge amount of thought
+<span class="lineNum">     257 </span>                :            :          * on that is probably not worth it.)
+<span class="lineNum">     258 </span>                :            :          *
+<span class="lineNum">     259 </span>                :            :          * The pathkey order returned by select_outer_pathkeys_for_merge() has
+<span class="lineNum">     260 </span>                :            :          * some heuristics behind it (see that function), so be sure to try it
+<span class="lineNum">     261 </span>                :            :          * exactly as-is as well as making variants.
+<span class="lineNum">     262 </span>                :            :          */
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :         all_pathkeys = select_outer_pathkeys_for_merge(root,</span>
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :                                                                                                    mergeclause_list,</span>
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :                                                                                                    joinrel);</span>
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, all_pathkeys)</span>
+<span class="lineNum">     268 </span>                :            :         {
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :                 List       *front_pathkey = (List *) lfirst(l);</span>
+<span class="lineNum">     270 </span>                :            :                 List       *cur_mergeclauses;
+<span class="lineNum">     271 </span>                :            :                 List       *outerkeys;
+<span class="lineNum">     272 </span>                :            :                 List       *innerkeys;
+<span class="lineNum">     273 </span>                :            :                 List       *merge_pathkeys;
+<span class="lineNum">     274 </span>                :            : 
+<span class="lineNum">     275 </span>                :            :                 /* Make a pathkey list with this guy first */
+<span class="lineNum">     276 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (l != list_head(all_pathkeys))</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :                         outerkeys = lcons(front_pathkey,</span>
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                                                           list_delete_ptr(list_copy(all_pathkeys),</span>
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                                                                                           front_pathkey));</span>
+<span class="lineNum">     280 </span>                :            :                 else
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                         outerkeys = all_pathkeys;       /* no work at first one... */</span>
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>                :            :                 /* Sort the mergeclauses into the corresponding ordering */
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                 cur_mergeclauses = find_mergeclauses_for_pathkeys(root,</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                                                                                                                   outerkeys,</span>
+<span class="lineNum">     286 </span>                :            :                                                                                                                   true,
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :                                                                                                                   mergeclause_list);</span>
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :            :                 /* Should have used them all... */
+<span class="lineNum">     290 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(list_length(cur_mergeclauses) == list_length(mergeclause_list));</span>
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            :                 /* Build sort pathkeys for the inner side */
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                 innerkeys = make_inner_pathkeys_for_merge(root,</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                                                                                                   cur_mergeclauses,</span>
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :                                                                                                   outerkeys);</span>
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :            :                 /* Build pathkeys representing output sort order */
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :                 merge_pathkeys = build_join_pathkeys(root, joinrel, jointype,</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                                                                                          outerkeys);</span>
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :            :                 /*
+<span class="lineNum">     302 </span>                :            :                  * And now we can make the path.
+<span class="lineNum">     303 </span>                :            :                  *
+<span class="lineNum">     304 </span>                :            :                  * Note: it's possible that the cheapest paths will already be sorted
+<span class="lineNum">     305 </span>                :            :                  * properly.  create_mergejoin_path will detect that case and suppress
+<span class="lineNum">     306 </span>                :            :                  * an explicit sort step, so we needn't do so here.
+<span class="lineNum">     307 </span>                :            :                  */
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :                                  create_mergejoin_path(root,</span>
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                                                                            joinrel,</span>
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :                                                                            jointype,</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                                                                            outer_path,</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                                                                            inner_path,</span>
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                                                                            restrictlist,</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                                                                            merge_pathkeys,</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :                                                                            cur_mergeclauses,</span>
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                                        mergeclause_list,</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                                                                            outerkeys,</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                                                                            innerkeys));</span>
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :            : /*
+<span class="lineNum">     324 </span>                :            :  * match_unsorted_outer
+<span class="lineNum">     325 </span>                :            :  *        Creates possible join paths for processing a single join relation
+<span class="lineNum">     326 </span>                :            :  *        'joinrel' by employing either iterative substitution or
+<span class="lineNum">     327 </span>                :            :  *        mergejoining on each of its possible outer paths (considering
+<span class="lineNum">     328 </span>                :            :  *        only outer paths that are already ordered well enough for merging).
+<span class="lineNum">     329 </span>                :            :  *
+<span class="lineNum">     330 </span>                :            :  * We always generate a nestloop path for each available outer path.
+<span class="lineNum">     331 </span>                :            :  * In fact we may generate as many as five: one on the cheapest-total-cost
+<span class="lineNum">     332 </span>                :            :  * inner path, one on the same with materialization, one on the
+<span class="lineNum">     333 </span>                :            :  * cheapest-startup-cost inner path (if different), one on the
+<span class="lineNum">     334 </span>                :            :  * cheapest-total inner-indexscan path (if any), and one on the
+<span class="lineNum">     335 </span>                :            :  * cheapest-startup inner-indexscan path (if different).
+<span class="lineNum">     336 </span>                :            :  *
+<span class="lineNum">     337 </span>                :            :  * We also consider mergejoins if mergejoin clauses are available.      We have
+<span class="lineNum">     338 </span>                :            :  * two ways to generate the inner path for a mergejoin: sort the cheapest
+<span class="lineNum">     339 </span>                :            :  * inner path, or use an inner path that is already suitably ordered for the
+<span class="lineNum">     340 </span>                :            :  * merge.  If we have several mergeclauses, it could be that there is no inner
+<span class="lineNum">     341 </span>                :            :  * path (or only a very expensive one) for the full list of mergeclauses, but
+<span class="lineNum">     342 </span>                :            :  * better paths exist if we truncate the mergeclause list (thereby discarding
+<span class="lineNum">     343 </span>                :            :  * some sort key requirements).  So, we consider truncations of the
+<span class="lineNum">     344 </span>                :            :  * mergeclause list as well as the full list.  (Ideally we'd consider all
+<span class="lineNum">     345 </span>                :            :  * subsets of the mergeclause list, but that seems way too expensive.)
+<span class="lineNum">     346 </span>                :            :  *
+<span class="lineNum">     347 </span>                :            :  * 'joinrel' is the join relation
+<span class="lineNum">     348 </span>                :            :  * 'outerrel' is the outer join relation
+<span class="lineNum">     349 </span>                :            :  * 'innerrel' is the inner join relation
+<span class="lineNum">     350 </span>                :            :  * 'restrictlist' contains all of the RestrictInfo nodes for restriction
+<span class="lineNum">     351 </span>                :            :  *              clauses that apply to this join
+<span class="lineNum">     352 </span>                :            :  * 'mergeclause_list' is a list of RestrictInfo nodes for available
+<span class="lineNum">     353 </span>                :            :  *              mergejoin clauses in this join
+<span class="lineNum">     354 </span>                :            :  * 'jointype' is the type of join to do
+<a name="355"><span class="lineNum">     355 </span>                :            :  */</a>
+<span class="lineNum">     356 </span>                :            : static void
+<span class="lineNum">     357 </span>                :            : match_unsorted_outer(PlannerInfo *root,
+<span class="lineNum">     358 </span>                :            :                                          RelOptInfo *joinrel,
+<span class="lineNum">     359 </span>                :            :                                          RelOptInfo *outerrel,
+<span class="lineNum">     360 </span>                :            :                                          RelOptInfo *innerrel,
+<span class="lineNum">     361 </span>                :            :                                          List *restrictlist,
+<span class="lineNum">     362 </span>                :            :                                          List *mergeclause_list,
+<span class="lineNum">     363 </span>                :            :                                          JoinType jointype)
+<span class="lineNum">     364 </span>                :            : {
+<span class="lineNum">     365 </span>                :            :         bool            nestjoinOK;
+<span class="lineNum">     366 </span>                :            :         bool            useallclauses;
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         Path       *inner_cheapest_startup = innerrel-&gt;cheapest_startup_path;</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         Path       *inner_cheapest_total = innerrel-&gt;cheapest_total_path;</span>
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :         Path       *matpath = NULL;</span>
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :         Path       *index_cheapest_startup = NULL;</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :         Path       *index_cheapest_total = NULL;</span>
+<span class="lineNum">     372 </span>                :            :         ListCell   *l;
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>                :            :         /*
+<span class="lineNum">     375 </span>                :            :          * Nestloop only supports inner and left joins.  Also, if we are
+<span class="lineNum">     376 </span>                :            :          * doing a right or full join, we must use *all* the mergeclauses as join
+<span class="lineNum">     377 </span>                :            :          * clauses, else we will not have a valid plan.  (Although these two flags
+<span class="lineNum">     378 </span>                :            :          * are currently inverses, keep them separate for clarity and possible
+<span class="lineNum">     379 </span>                :            :          * future changes.)
+<span class="lineNum">     380 </span>                :            :          */
+<span class="lineNum">     381 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (jointype)</span>
+<span class="lineNum">         </span>      <span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span><span class="branchNoExec" title="Branch 6 was not executed"> # </span>]
+<span class="lineNum">     382 </span>                :            :         {
+<span class="lineNum">     383 </span>                :            :                 case JOIN_INNER:
+<span class="lineNum">     384 </span>                :            :                 case JOIN_LEFT:
+<span class="lineNum">     385 </span>                :            :                 case JOIN_LASJ:
+<span class="lineNum">     386 </span>                :            :                 case JOIN_LASJ_NOTIN:
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :                         nestjoinOK = true;</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :                         useallclauses = false;</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     390 </span>                :            :                 case JOIN_RIGHT:
+<span class="lineNum">     391 </span>                :            :                 case JOIN_FULL:
+<span class="lineNum">     392 </span>                :<span class="lineNoCov">          0 :                         nestjoinOK = false;</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :                         useallclauses = true;</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     395 </span>                :            :                 default:
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;unrecognized join type: %d&quot;,</span>
+<span class="lineNum">     397 </span>                :            :                                  (int) jointype);
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :                         nestjoinOK = false; /* keep compiler quiet */</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :                         useallclauses = false;</span>
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     401 </span>                :            :         }
+<span class="lineNum">     402 </span>                :            : 
+<span class="lineNum">     403 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!root-&gt;config-&gt;enable_nestloop</span>
+<span class="lineNum">     404 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         &amp;&amp; !root-&gt;config-&gt;mpp_trying_fallback_plan)</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                 nestjoinOK = false;</span>
+<span class="lineNum">     406 </span>                :            : 
+<span class="lineNum">     407 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (nestjoinOK)</span>
+<span class="lineNum">     408 </span>                :            :         {
+<span class="lineNum">     409 </span>                :<span class="lineNoCov">          0 :                 bool    materialize_inner = true;</span>
+<span class="lineNum">     410 </span>                :            : 
+<span class="lineNum">     411 </span>                :            :                 /*
+<span class="lineNum">     412 </span>                :            :                  * Consider materializing the cheapest inner path unless it is
+<span class="lineNum">     413 </span>                :            :                  * cheaply rescannable.
+<span class="lineNum">     414 </span>                :            :                  *
+<span class="lineNum">     415 </span>                :            :                  * Unlike upstream we choose to materialize pretty much
+<span class="lineNum">     416 </span>                :            :                  * everything on the inner side. The original change cited
+<span class="lineNum">     417 </span>                :            :                  * performance as the reason.
+<span class="lineNum">     418 </span>                :            :                  */
+<span class="lineNum">     419 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsA(inner_cheapest_total, UniquePath))</span>
+<span class="lineNum">     420 </span>                :            :                 {
+<span class="lineNum">     421 </span>                :<span class="lineNoCov">          0 :                         UniquePath *unique_path = (UniquePath *)inner_cheapest_total;</span>
+<span class="lineNum">     422 </span>                :            : 
+<span class="lineNum">     423 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (unique_path-&gt;umethod == UNIQUE_PATH_SORT ||</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                                 unique_path-&gt;umethod == UNIQUE_PATH_HASH)</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                                 materialize_inner = false;</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     427 </span>                :            : 
+<span class="lineNum">     428 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (materialize_inner)</span>
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                         matpath = (Path *)create_material_path(root, innerrel, inner_cheapest_total);</span>
+<span class="lineNum">     430 </span>                :            : 
+<span class="lineNum">     431 </span>                :            :                 /*
+<span class="lineNum">     432 </span>                :            :                  * Get the best innerjoin indexpaths (if any) for this outer rel.
+<span class="lineNum">     433 </span>                :            :                  * They're the same for all outer paths.
+<span class="lineNum">     434 </span>                :            :                  */
+<span class="lineNum">     435 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (innerrel-&gt;reloptkind != RELOPT_JOINREL)</span>
+<span class="lineNum">     436 </span>                :            :                 {
+<span class="lineNum">     437 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (IsA(inner_cheapest_total, AppendPath))</span>
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                                 index_cheapest_total = best_appendrel_indexscan(root,</span>
+<span class="lineNum">     439 </span>                :<span class="lineNoCov">          0 :                                                                                                                                 innerrel,</span>
+<span class="lineNum">     440 </span>                :<span class="lineNoCov">          0 :                                                                                                                                 outerrel,</span>
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                                                                                                                                 jointype);</span>
+<span class="lineNum">     442 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         else if (innerrel-&gt;rtekind == RTE_RELATION)</span>
+<span class="lineNum">     443 </span>                :<span class="lineNoCov">          0 :                                 best_inner_indexscan(root, innerrel, outerrel, jointype,</span>
+<span class="lineNum">     444 </span>                :            :                                                                          &amp;index_cheapest_startup,
+<span class="lineNum">     445 </span>                :            :                                                                          &amp;index_cheapest_total);
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     448 </span>                :            : 
+<span class="lineNum">     449 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, outerrel-&gt;pathlist)</span>
+<span class="lineNum">     450 </span>                :            :         {
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :                 Path       *outerpath = (Path *) lfirst(l);</span>
+<span class="lineNum">     452 </span>                :            :                 List       *merge_pathkeys;
+<span class="lineNum">     453 </span>                :            :                 List       *mergeclauses;
+<span class="lineNum">     454 </span>                :            :                 List       *innersortkeys;
+<span class="lineNum">     455 </span>                :            :                 List       *trialsortkeys;
+<span class="lineNum">     456 </span>                :            :                 Path       *cheapest_startup_inner;
+<span class="lineNum">     457 </span>                :            :                 Path       *cheapest_total_inner;
+<span class="lineNum">     458 </span>                :            :                 int                     num_sortkeys;
+<span class="lineNum">     459 </span>                :            :                 int                     sortkeycnt;
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>                :            :                 /*
+<span class="lineNum">     462 </span>                :            :                  * The result will have this sort order (even if it is implemented as
+<span class="lineNum">     463 </span>                :            :                  * a nestloop, and even if some of the mergeclauses are implemented by
+<span class="lineNum">     464 </span>                :            :                  * qpquals rather than as true mergeclauses):
+<span class="lineNum">     465 </span>                :            :                  */
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 :                 merge_pathkeys = build_join_pathkeys(root, joinrel, jointype,</span>
+<span class="lineNum">     467 </span>                :<span class="lineNoCov">          0 :                                                                                          outerpath-&gt;pathkeys);</span>
+<span class="lineNum">     468 </span>                :            : 
+<span class="lineNum">     469 </span>                :            :         /*
+<span class="lineNum">     470 </span>                :            :          * Consider nested joins.
+<span class="lineNum">     471 </span>                :            :          */
+<span class="lineNum">     472 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (nestjoinOK)</span>
+<span class="lineNum">     473 </span>                :            :                 {
+<span class="lineNum">     474 </span>                :            :                         /*
+<span class="lineNum">     475 </span>                :            :                          * Always consider a nestloop join with this outer and
+<span class="lineNum">     476 </span>                :            :                          * cheapest-total-cost inner.  When appropriate, also consider
+<span class="lineNum">     477 </span>                :            :                          * using the materialized form of the cheapest inner, the
+<span class="lineNum">     478 </span>                :            :                          * cheapest-startup-cost inner path, and the cheapest innerjoin
+<span class="lineNum">     479 </span>                :            :                          * indexpaths.
+<span class="lineNum">     480 </span>                :            :                          */
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :                                          create_nestloop_path(root,</span>
+<span class="lineNum">     483 </span>                :<span class="lineNoCov">          0 :                                                                                   joinrel,</span>
+<span class="lineNum">     484 </span>                :<span class="lineNoCov">          0 :                                                                                   jointype,</span>
+<span class="lineNum">     485 </span>                :<span class="lineNoCov">          0 :                                                                                   outerpath,</span>
+<span class="lineNum">     486 </span>                :<span class="lineNoCov">          0 :                                                                                   inner_cheapest_total,</span>
+<span class="lineNum">     487 </span>                :<span class="lineNoCov">          0 :                                                                                   restrictlist,</span>
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :                                           mergeclause_list,         /*CDB*/</span>
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 :                                                                                   merge_pathkeys));</span>
+<span class="lineNum">     490 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (matpath != NULL)</span>
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :                                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :                                                  create_nestloop_path(root,</span>
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :                                                                                           joinrel,</span>
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :                                                                                           jointype,</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :                                                                                           outerpath,</span>
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :                                                                                           matpath,</span>
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                                                                                           restrictlist,</span>
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :                                               mergeclause_list,     /*CDB*/</span>
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                                                                                           merge_pathkeys));</span>
+<span class="lineNum">     500 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (inner_cheapest_startup != inner_cheapest_total)</span>
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :                                                  create_nestloop_path(root,</span>
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :                                                                                           joinrel,</span>
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :                                                                                           jointype,</span>
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                                                                                           outerpath,</span>
+<span class="lineNum">     506 </span>                :<span class="lineNoCov">          0 :                                                                                           inner_cheapest_startup,</span>
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :                                                                                           restrictlist,</span>
+<span class="lineNum">     508 </span>                :<span class="lineNoCov">          0 :                                               mergeclause_list,     /*CDB*/</span>
+<span class="lineNum">     509 </span>                :<span class="lineNoCov">          0 :                                                                                           merge_pathkeys));</span>
+<span class="lineNum">     510 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (index_cheapest_total != NULL)</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :                                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :                                                  create_nestloop_path(root,</span>
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :                                                                                           joinrel,</span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :                                                                                           jointype,</span>
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :                                                                                           outerpath,</span>
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :                                                                                           index_cheapest_total,</span>
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :                                                                                           restrictlist,</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :                                               mergeclause_list,     /*CDB*/</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :                                                                                           merge_pathkeys));</span>
+<span class="lineNum">     520 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (index_cheapest_startup != NULL &amp;&amp;</span>
+<span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 :                                 index_cheapest_startup != index_cheapest_total)</span>
+<span class="lineNum">     522 </span>                :<span class="lineNoCov">          0 :                                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :                                                  create_nestloop_path(root,</span>
+<span class="lineNum">     524 </span>                :<span class="lineNoCov">          0 :                                                                                           joinrel,</span>
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :                                                                                           jointype,</span>
+<span class="lineNum">     526 </span>                :<span class="lineNoCov">          0 :                                                                                           outerpath,</span>
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :                                                                                           index_cheapest_startup,</span>
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 :                                                                                           restrictlist,</span>
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :                                               mergeclause_list,</span>
+<span class="lineNum">     530 </span>                :<span class="lineNoCov">          0 :                                                                                           merge_pathkeys));</span>
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     532 </span>                :            : 
+<span class="lineNum">     533 </span>                :            :                 /* Can't do anything else if outer path needs to be unique'd */
+<span class="lineNum">     534 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsA(outerpath, UniquePath))     /* CDB - is this still needed? */</span>
+<span class="lineNum">     535 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     536 </span>                :            : 
+<span class="lineNum">     537 </span>                :            :                 /* Look for useful mergeclauses (if any) */
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :                 mergeclauses = find_mergeclauses_for_pathkeys(root,</span>
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :                                                                                                           outerpath-&gt;pathkeys,</span>
+<span class="lineNum">     540 </span>                :            :                                                                                                           true,
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :                                                                                                           mergeclause_list);</span>
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :            :                 /*
+<span class="lineNum">     544 </span>                :            :                  * Done with this outer path if no chance for a mergejoin.
+<span class="lineNum">     545 </span>                :            :                  *
+<span class="lineNum">     546 </span>                :            :                  * Special corner case: for &quot;x FULL JOIN y ON true&quot;, there will be no
+<span class="lineNum">     547 </span>                :            :                  * join clauses at all.  Ordinarily we'd generate a clauseless
+<span class="lineNum">     548 </span>                :            :                  * nestloop path, but since mergejoin is our only join type that
+<span class="lineNum">     549 </span>                :            :                  * supports FULL JOIN, it's necessary to generate a clauseless
+<span class="lineNum">     550 </span>                :            :                  * mergejoin path instead.
+<span class="lineNum">     551 </span>                :            :                  */
+<span class="lineNum">     552 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (mergeclauses == NIL</span>
+<span class="lineNum">     553 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 || (!root-&gt;config-&gt;enable_mergejoin</span>
+<span class="lineNum">     554 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 &amp;&amp; !root-&gt;config-&gt;mpp_trying_fallback_plan)</span>
+<span class="lineNum">     555 </span>                :            :                         )
+<span class="lineNum">     556 </span>                :            :                 {
+<span class="lineNum">     557 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (jointype == JOIN_FULL)</span>
+<span class="lineNum">     558 </span>                :            :                                  /* okay to try for mergejoin */ ;
+<span class="lineNum">     559 </span>                :            :                         else
+<span class="lineNum">     560 </span>                :<span class="lineNoCov">          0 :                                 continue;</span>
+<span class="lineNum">     561 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     562 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (useallclauses &amp;&amp; list_length(mergeclauses) != list_length(mergeclause_list))</span>
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     564 </span>                :            : 
+<span class="lineNum">     565 </span>                :            :                 /* The merge join executor code doesn't support LASJ_NOTIN */
+<span class="lineNum">     566 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (jointype == JOIN_LASJ_NOTIN)</span>
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     568 </span>                :            : 
+<span class="lineNum">     569 </span>                :            :                 /* Compute the required ordering of the inner path */
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :                 innersortkeys = make_inner_pathkeys_for_merge(root,</span>
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 :                                                                                                           mergeclauses,</span>
+<span class="lineNum">     572 </span>                :<span class="lineNoCov">          0 :                                                                                                           outerpath-&gt;pathkeys);</span>
+<span class="lineNum">     573 </span>                :            : 
+<span class="lineNum">     574 </span>                :            :                 /*
+<span class="lineNum">     575 </span>                :            :                  * Generate a mergejoin on the basis of sorting the cheapest inner.
+<span class="lineNum">     576 </span>                :            :                  * Since a sort will be needed, only cheapest total cost matters. (But
+<span class="lineNum">     577 </span>                :            :                  * create_mergejoin_path will do the right thing if
+<span class="lineNum">     578 </span>                :            :                  * inner_cheapest_total is already correctly sorted.)
+<span class="lineNum">     579 </span>                :            :                  */
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :                                  create_mergejoin_path(root,</span>
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :                                                                            joinrel,</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                                                                            jointype,</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                                                                            outerpath,</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                                                                            inner_cheapest_total,</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                                                                            restrictlist,</span>
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :                                                                            merge_pathkeys,</span>
+<span class="lineNum">     588 </span>                :<span class="lineNoCov">          0 :                                                                            mergeclauses,</span>
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :                                        mergeclause_list,    /*CDB*/</span>
+<span class="lineNum">     590 </span>                :            :                                                                            NIL,
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 :                                                                            innersortkeys));</span>
+<span class="lineNum">     592 </span>                :            : 
+<span class="lineNum">     593 </span>                :            :                 /* Can't do anything else if inner path needs to be unique'd */
+<span class="lineNum">     594 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IsA(inner_cheapest_total, UniquePath))  /* CDB - still need this? */</span>
+<span class="lineNum">     595 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>                :            :                 /*
+<span class="lineNum">     598 </span>                :            :                  * Look for presorted inner paths that satisfy the innersortkey list
+<span class="lineNum">     599 </span>                :            :                  * --- or any truncation thereof, if we are allowed to build a
+<span class="lineNum">     600 </span>                :            :                  * mergejoin using a subset of the merge clauses.  Here, we consider
+<span class="lineNum">     601 </span>                :            :                  * both cheap startup cost and cheap total cost.  We can ignore
+<span class="lineNum">     602 </span>                :            :                  * inner_cheapest_total on the first iteration, since we already made
+<span class="lineNum">     603 </span>                :            :                  * a path with it --- but not on later iterations with shorter sort
+<span class="lineNum">     604 </span>                :            :                  * keys, because then we are considering a different situation, viz
+<span class="lineNum">     605 </span>                :            :                  * using a simpler mergejoin to avoid a sort of the inner rel.
+<span class="lineNum">     606 </span>                :            :                  */
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :                 num_sortkeys = list_length(innersortkeys);</span>
+<span class="lineNum">     608 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (num_sortkeys &gt; 1 &amp;&amp; !useallclauses)</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                         trialsortkeys = list_copy(innersortkeys);       /* need modifiable copy */</span>
+<span class="lineNum">     610 </span>                :            :                 else
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :                         trialsortkeys = innersortkeys;          /* won't really truncate */</span>
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :                 cheapest_startup_inner = NULL;</span>
+<span class="lineNum">     613 </span>                :<span class="lineNoCov">          0 :                 cheapest_total_inner = NULL;</span>
+<span class="lineNum">     614 </span>                :            : 
+<span class="lineNum">     615 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (sortkeycnt = num_sortkeys; sortkeycnt &gt; 0; sortkeycnt--)</span>
+<span class="lineNum">     616 </span>                :            :                 {
+<span class="lineNum">     617 </span>                :            :                         Path       *innerpath;
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :                         List       *newclauses = NIL;</span>
+<span class="lineNum">     619 </span>                :            : 
+<span class="lineNum">     620 </span>                :            :                         /*
+<span class="lineNum">     621 </span>                :            :                          * Look for an inner path ordered well enough for the first
+<span class="lineNum">     622 </span>                :            :                          * 'sortkeycnt' innersortkeys.  NB: trialsortkeys list is modified
+<span class="lineNum">     623 </span>                :            :                          * destructively, which is why we made a copy...
+<span class="lineNum">     624 </span>                :            :                          */
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :                         trialsortkeys = list_truncate(trialsortkeys, sortkeycnt);</span>
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :                         innerpath = get_cheapest_path_for_pathkeys(innerrel-&gt;pathlist,</span>
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :                                                                                                            trialsortkeys,</span>
+<span class="lineNum">     628 </span>                :            :                                                                                                            TOTAL_COST);
+<span class="lineNum">     629 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (innerpath != NULL &amp;&amp;</span>
+<span class="lineNum">     630 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (innerpath != inner_cheapest_total ||</span>
+<span class="lineNum">     631 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                  sortkeycnt &lt; num_sortkeys) &amp;&amp;</span>
+<span class="lineNum">     632 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (cheapest_total_inner == NULL ||</span>
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :                                  compare_path_costs(innerpath, cheapest_total_inner,</span>
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :                                                                         TOTAL_COST) &lt; 0))</span>
+<span class="lineNum">     635 </span>                :            :                         {
+<span class="lineNum">     636 </span>                :            :                                 /* Found a cheap (or even-cheaper) sorted path */
+<span class="lineNum">     637 </span>                :            :                                 /* Select the right mergeclauses, if we didn't already */
+<span class="lineNum">     638 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (sortkeycnt &lt; num_sortkeys)</span>
+<span class="lineNum">     639 </span>                :            :                                 {
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :                                         newclauses =</span>
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                                                 find_mergeclauses_for_pathkeys(root,</span>
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :                                                                                                            trialsortkeys,</span>
+<span class="lineNum">     643 </span>                :            :                                                                                                            false,
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :                                                                                                            mergeclauses);</span>
+<span class="lineNum">     645 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(newclauses != NIL);</span>
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     647 </span>                :            :                                 else
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :                                         newclauses = mergeclauses;</span>
+<span class="lineNum">     649 </span>                :            : 
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :                                 add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     651 </span>                :<span class="lineNoCov">          0 :                                                  create_mergejoin_path(root,</span>
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :                                                                                            joinrel,</span>
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :                                                                                            jointype,</span>
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 :                                                                                            outerpath,</span>
+<span class="lineNum">     655 </span>                :<span class="lineNoCov">          0 :                                                                                            innerpath,</span>
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :                                                                                            restrictlist,</span>
+<span class="lineNum">     657 </span>                :<span class="lineNoCov">          0 :                                                                                            merge_pathkeys,</span>
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 :                                                                                            newclauses,</span>
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :                                                mergeclause_list,    /*CDB*/</span>
+<span class="lineNum">     660 </span>                :            :                                                                                            NIL,
+<span class="lineNum">     661 </span>                :            :                                                                                            NIL));
+<span class="lineNum">     662 </span>                :<span class="lineNoCov">          0 :                                 cheapest_total_inner = innerpath;</span>
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     664 </span>                :            :                         /* Same on the basis of cheapest startup cost ... */
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :                         innerpath = get_cheapest_path_for_pathkeys(innerrel-&gt;pathlist,</span>
+<span class="lineNum">     666 </span>                :<span class="lineNoCov">          0 :                                                                                                            trialsortkeys,</span>
+<span class="lineNum">     667 </span>                :            :                                                                                                            STARTUP_COST);
+<span class="lineNum">     668 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (innerpath != NULL &amp;&amp;</span>
+<span class="lineNum">     669 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (innerpath != inner_cheapest_total ||</span>
+<span class="lineNum">     670 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                  sortkeycnt &lt; num_sortkeys) &amp;&amp;</span>
+<span class="lineNum">     671 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (cheapest_startup_inner == NULL ||</span>
+<span class="lineNum">     672 </span>                :<span class="lineNoCov">          0 :                                  compare_path_costs(innerpath, cheapest_startup_inner,</span>
+<span class="lineNum">     673 </span>                :<span class="lineNoCov">          0 :                                                                         STARTUP_COST) &lt; 0))</span>
+<span class="lineNum">     674 </span>                :            :                         {
+<span class="lineNum">     675 </span>                :            :                                 /* Found a cheap (or even-cheaper) sorted path */
+<span class="lineNum">     676 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (innerpath != cheapest_total_inner)</span>
+<span class="lineNum">     677 </span>                :            :                                 {
+<span class="lineNum">     678 </span>                :            :                                         /*
+<span class="lineNum">     679 </span>                :            :                                          * Avoid rebuilding clause list if we already made one;
+<span class="lineNum">     680 </span>                :            :                                          * saves memory in big join trees...
+<span class="lineNum">     681 </span>                :            :                                          */
+<span class="lineNum">     682 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         if (newclauses == NIL)</span>
+<span class="lineNum">     683 </span>                :            :                                         {
+<span class="lineNum">     684 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                 if (sortkeycnt &lt; num_sortkeys)</span>
+<span class="lineNum">     685 </span>                :            :                                                 {
+<span class="lineNum">     686 </span>                :<span class="lineNoCov">          0 :                                                         newclauses =</span>
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :                                                                 find_mergeclauses_for_pathkeys(root,</span>
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 :                                                                                                                            trialsortkeys,</span>
+<span class="lineNum">     689 </span>                :            :                                                                                                                            false,
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :                                                                                                                            mergeclauses);</span>
+<span class="lineNum">     691 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                                         Assert(newclauses != NIL);</span>
+<span class="lineNum">     692 </span>                :<span class="lineNoCov">          0 :                                                 }</span>
+<span class="lineNum">     693 </span>                :            :                                                 else
+<span class="lineNum">     694 </span>                :<span class="lineNoCov">          0 :                                                         newclauses = mergeclauses;</span>
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 :                                         }</span>
+<span class="lineNum">     696 </span>                :            : 
+<span class="lineNum">     697 </span>                :<span class="lineNoCov">          0 :                                         add_path(root, joinrel, (Path *)</span>
+<span class="lineNum">     698 </span>                :<span class="lineNoCov">          0 :                                                          create_mergejoin_path(root,</span>
+<span class="lineNum">     699 </span>                :<span class="lineNoCov">          0 :                                                                                                    joinrel,</span>
+<span class="lineNum">     700 </span>                :<span class="lineNoCov">          0 :                                                                                                    jointype,</span>
+<span class="lineNum">     701 </span>                :<span class="lineNoCov">          0 :                                                                                                    outerpath,</span>
+<span class="lineNum">     702 </span>                :<span class="lineNoCov">          0 :                                                                                                    innerpath,</span>
+<span class="lineNum">     703 </span>                :<span class="lineNoCov">          0 :                                                                                                    restrictlist,</span>
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :                                                                                                    merge_pathkeys,</span>
+<span class="lineNum">     705 </span>                :<span class="lineNoCov">          0 :                                                                                                    newclauses,</span>
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :                                                    mergeclause_list,    /*CDB*/</span>
+<span class="lineNum">     707 </span>                :            :                                                                                                    NIL,
+<span class="lineNum">     708 </span>                :            :                                                                                                    NIL));
+<span class="lineNum">     709 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     710 </span>                :<span class="lineNoCov">          0 :                                 cheapest_startup_inner = innerpath;</span>
+<span class="lineNum">     711 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     712 </span>                :            : 
+<span class="lineNum">     713 </span>                :            :                         /*
+<span class="lineNum">     714 </span>                :            :                          * Don't consider truncated sortkeys if we need all clauses.
+<span class="lineNum">     715 </span>                :            :                          */
+<span class="lineNum">     716 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (useallclauses)</span>
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     718 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     719 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     720 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="721"><span class="lineNum">     721 </span>                :            : </a>
+<span class="lineNum">     722 </span>                :            : static List *
+<span class="lineNum">     723 </span>                :            : hashclauses_for_join(List *restrictlist,
+<span class="lineNum">     724 </span>                :            :                                          RelOptInfo *outerrel,
+<span class="lineNum">     725 </span>                :            :                                          RelOptInfo *innerrel,
+<span class="lineNum">     726 </span>                :            :                                          JoinType jointype)
+<span class="lineNum">     727 </span>                :            : {
+<span class="lineNum">     728 </span>                :            :         bool            isouterjoin;
+<span class="lineNum">     729 </span>                :            :         ListCell   *l;
+<span class="lineNum">     730 </span>                :<span class="lineNoCov">          0 :         List       *clauses = NIL;</span>
+<span class="lineNum">     731 </span>                :            : 
+<span class="lineNum">     732 </span>                :            :         /*
+<span class="lineNum">     733 </span>                :            :          * Hash only supports inner and left joins.
+<span class="lineNum">     734 </span>                :            :          */
+<span class="lineNum">     735 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (jointype)</span>
+<span class="lineNum">         </span>            <span class="branchNoExec" title="Branch 4 was not executed"> # </span>]
+<span class="lineNum">     736 </span>                :            :         {
+<span class="lineNum">     737 </span>                :            :                 case JOIN_INNER:
+<span class="lineNum">     738 </span>                :<span class="lineNoCov">          0 :                         isouterjoin = false;</span>
+<span class="lineNum">     739 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     740 </span>                :            :                 case JOIN_LEFT:
+<span class="lineNum">     741 </span>                :            :                 case JOIN_LASJ:
+<span class="lineNum">     742 </span>                :            :                 case JOIN_LASJ_NOTIN:
+<span class="lineNum">     743 </span>                :<span class="lineNoCov">          0 :                         isouterjoin = true;</span>
+<span class="lineNum">     744 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     745 </span>                :            :                 default:
+<span class="lineNum">     746 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     747 </span>                :            :         }
+<span class="lineNum">     748 </span>                :            : 
+<span class="lineNum">     749 </span>                :            :         /*
+<span class="lineNum">     750 </span>                :            :          * We need to build only one hashpath for any given pair of outer and
+<span class="lineNum">     751 </span>                :            :          * inner relations; all of the hashable clauses will be used as keys.
+<span class="lineNum">     752 </span>                :            :          *
+<span class="lineNum">     753 </span>                :            :          * Scan the join's restrictinfo list to find hashjoinable clauses that are
+<span class="lineNum">     754 </span>                :            :          * usable with this pair of sub-relations.
+<span class="lineNum">     755 </span>                :            :          */
+<span class="lineNum">     756 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, restrictlist)</span>
+<span class="lineNum">     757 </span>                :            :         {
+<span class="lineNum">     758 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *restrictinfo = (RestrictInfo *) lfirst(l);</span>
+<span class="lineNum">     759 </span>                :            : 
+<span class="lineNum">     760 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!restrictinfo-&gt;can_join ||</span>
+<span class="lineNum">     761 </span>                :<span class="lineNoCov">          0 :                         restrictinfo-&gt;hashjoinoperator == InvalidOid)</span>
+<span class="lineNum">     762 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* not hashjoinable */</span>
+<span class="lineNum">     763 </span>                :            : 
+<span class="lineNum">     764 </span>                :            :                 /*
+<span class="lineNum">     765 </span>                :            :                  * A qual like &quot;(a = b) IS NOT FALSE&quot; is treated as hashable in
+<span class="lineNum">     766 </span>                :            :                  * check_hashjoinable(), for the benefit of LASJ joins. It will be
+<span class="lineNum">     767 </span>                :            :                  * hashed like &quot;a = b&quot;, but the special LASJ handlng in the hash join
+<span class="lineNum">     768 </span>                :            :                  * executor node will ensure that NULLs are treated correctly. For
+<span class="lineNum">     769 </span>                :            :                  * other kinds of joins, we cannot use &quot;(a = b) IS NOT FALSE&quot; as a
+<span class="lineNum">     770 </span>                :            :                  * hash qual.
+<span class="lineNum">     771 </span>                :            :                  */
+<span class="lineNum">     772 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (jointype != JOIN_LASJ_NOTIN &amp;&amp; IsA(restrictinfo-&gt;clause, BooleanTest))</span>
+<span class="lineNum">     773 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     774 </span>                :            : 
+<span class="lineNum">     775 </span>                :            :                 /*
+<span class="lineNum">     776 </span>                :            :                  * If processing an outer join, only use its own join clauses for
+<span class="lineNum">     777 </span>                :            :                  * hashing.  For inner joins we need not be so picky.
+<span class="lineNum">     778 </span>                :            :                  */
+<span class="lineNum">     779 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (isouterjoin &amp;&amp; restrictinfo-&gt;is_pushed_down)</span>
+<span class="lineNum">     780 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     781 </span>                :            : 
+<span class="lineNum">     782 </span>                :            :                 /*
+<span class="lineNum">     783 </span>                :            :                  * Check if clause is usable with these input rels.
+<span class="lineNum">     784 </span>                :            :                  */
+<span class="lineNum">     785 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bms_is_subset(restrictinfo-&gt;left_relids, outerrel-&gt;relids) &amp;&amp;</span>
+<span class="lineNum">     786 </span>                :<span class="lineNoCov">          0 :                         bms_is_subset(restrictinfo-&gt;right_relids, innerrel-&gt;relids))</span>
+<span class="lineNum">     787 </span>                :            :                 {
+<span class="lineNum">     788 </span>                :            :                         /* righthand side is inner */
+<span class="lineNum">     789 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     790 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (bms_is_subset(restrictinfo-&gt;left_relids, innerrel-&gt;relids) &amp;&amp;</span>
+<span class="lineNum">     791 </span>                :<span class="lineNoCov">          0 :                                  bms_is_subset(restrictinfo-&gt;right_relids, outerrel-&gt;relids))</span>
+<span class="lineNum">     792 </span>                :            :                 {
+<span class="lineNum">     793 </span>                :            :                         /* lefthand side is inner */
+<span class="lineNum">     794 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     795 </span>                :            :                 else
+<span class="lineNum">     796 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* no good for these input relations */</span>
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>                :<span class="lineNoCov">          0 :                 clauses = lappend(clauses, restrictinfo);</span>
+<span class="lineNum">     799 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     800 </span>                :            : 
+<span class="lineNum">     801 </span>                :<span class="lineNoCov">          0 :         return clauses;</span>
+<span class="lineNum">     802 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>                :            : /*
+<span class="lineNum">     805 </span>                :            :  * hash_inner_and_outer
+<span class="lineNum">     806 </span>                :            :  *        Create hashjoin join paths by explicitly hashing both the outer and
+<span class="lineNum">     807 </span>                :            :  *        inner keys of each available hash clause.
+<span class="lineNum">     808 </span>                :            :  *
+<span class="lineNum">     809 </span>                :            :  * 'joinrel' is the join relation
+<span class="lineNum">     810 </span>                :            :  * 'restrictlist' contains all of the RestrictInfo nodes for restriction
+<span class="lineNum">     811 </span>                :            :  *              clauses that apply to this join
+<span class="lineNum">     812 </span>                :            :  * 'jointype' is the type of join to do
+<a name="813"><span class="lineNum">     813 </span>                :            :  */</a>
+<span class="lineNum">     814 </span>                :            : static void
+<span class="lineNum">     815 </span>                :            : hash_inner_and_outer(PlannerInfo *root,
+<span class="lineNum">     816 </span>                :            :                                          RelOptInfo *joinrel,
+<span class="lineNum">     817 </span>                :            :                      Path *outerpath,
+<span class="lineNum">     818 </span>                :            :                      Path *innerpath,
+<span class="lineNum">     819 </span>                :            :                                          List *restrictlist,
+<span class="lineNum">     820 </span>                :            :                      List *mergeclause_list,    /*CDB*/
+<span class="lineNum">     821 </span>                :            :                      List *hashclause_list,     /*CDB*/
+<span class="lineNum">     822 </span>                :            :                                          JoinType jointype)
+<span class="lineNum">     823 </span>                :            : {
+<span class="lineNum">     824 </span>                :            :     HashPath   *hjpath;
+<span class="lineNum">     825 </span>                :            : 
+<span class="lineNum">     826 </span>                :            :         /*
+<span class="lineNum">     827 </span>                :            :          * Hashjoin only supports inner, left  and anti joins.
+<span class="lineNum">     828 </span>                :            :          */
+<span class="lineNum">     829 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(jointype == JOIN_INNER || jointype == JOIN_LEFT || jointype == JOIN_LASJ || jointype == JOIN_LASJ_NOTIN);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     830 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(hashclause_list);</span>
+<span class="lineNum">     831 </span>                :            : 
+<span class="lineNum">     832 </span>                :            :     /*
+<span class="lineNum">     833 </span>                :            :      * Consider hash join between the given outer path and inner path.
+<span class="lineNum">     834 </span>                :            :      */
+<span class="lineNum">     835 </span>                :<span class="lineNoCov">          0 :     hjpath = create_hashjoin_path(root,</span>
+<span class="lineNum">     836 </span>                :<span class="lineNoCov">          0 :                                                                   joinrel,</span>
+<span class="lineNum">     837 </span>                :<span class="lineNoCov">          0 :                                                                   jointype,</span>
+<span class="lineNum">     838 </span>                :<span class="lineNoCov">          0 :                                                                   outerpath,</span>
+<span class="lineNum">     839 </span>                :<span class="lineNoCov">          0 :                                                                   innerpath,</span>
+<span class="lineNum">     840 </span>                :<span class="lineNoCov">          0 :                                                                   restrictlist,</span>
+<span class="lineNum">     841 </span>                :<span class="lineNoCov">          0 :                                   mergeclause_list,</span>
+<span class="lineNum">     842 </span>                :<span class="lineNoCov">          0 :                                                                   hashclause_list);</span>
+<span class="lineNum">     843 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (!hjpath)</span>
+<span class="lineNum">     844 </span>                :<span class="lineNoCov">          0 :         return;</span>
+<span class="lineNum">     845 </span>                :            : 
+<span class="lineNum">     846 </span>                :            :     /*
+<span class="lineNum">     847 </span>                :            :      * CDB: If gp_enable_hashjoin_size_heuristic is set, disallow inner
+<span class="lineNum">     848 </span>                :            :      * joins where the inner rel is the larger of the two inputs.
+<span class="lineNum">     849 </span>                :            :      *
+<span class="lineNum">     850 </span>                :            :      * Note create_hashjoin_path() has to precede this so we can get
+<span class="lineNum">     851 </span>                :            :      * the right jointype (in case of subquery dedup) and row count
+<span class="lineNum">     852 </span>                :            :      * (in case Broadcast Motion is inserted above an input path).
+<span class="lineNum">     853 </span>                :            :      */
+<span class="lineNum">     854 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (hjpath-&gt;jpath.jointype == JOIN_INNER &amp;&amp;</span>
+<span class="lineNum">     855 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 root-&gt;config-&gt;gp_enable_hashjoin_size_heuristic &amp;&amp;</span>
+<span class="lineNum">     856 </span>                :<span class="lineNoCov">          0 :         !root-&gt;config-&gt;mpp_trying_fallback_plan)</span>
+<span class="lineNum">     857 </span>                :            :     {
+<span class="lineNum">     858 </span>                :<span class="lineNoCov">          0 :         double  outersize = ExecHashRowSize(outerpath-&gt;parent-&gt;width) *</span>
+<span class="lineNum">     859 </span>                :<span class="lineNoCov">          0 :                                 cdbpath_rows(root, hjpath-&gt;jpath.outerjoinpath);</span>
+<span class="lineNum">     860 </span>                :<span class="lineNoCov">          0 :         double  innersize = ExecHashRowSize(innerpath-&gt;parent-&gt;width) *</span>
+<span class="lineNum">     861 </span>                :<span class="lineNoCov">          0 :                                 cdbpath_rows(root, hjpath-&gt;jpath.innerjoinpath);</span>
+<span class="lineNum">     862 </span>                :            : 
+<span class="lineNum">     863 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (outersize &gt;= innersize)</span>
+<span class="lineNum">     864 </span>                :<span class="lineNoCov">          0 :             add_path(root, joinrel, (Path *)hjpath);</span>
+<span class="lineNum">     865 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     866 </span>                :            :     else
+<span class="lineNum">     867 </span>                :<span class="lineNoCov">          0 :         add_path(root, joinrel, (Path *)hjpath);</span>
+<span class="lineNum">     868 </span>                :<span class="lineNoCov">          0 : }                               /* hash_inner_and_outer */</span>
+<span class="lineNum">     869 </span>                :            : 
+<span class="lineNum">     870 </span>                :            : /*
+<span class="lineNum">     871 </span>                :            :  * best_appendrel_indexscan
+<span class="lineNum">     872 </span>                :            :  *        Finds the best available set of inner indexscans for a nestloop join
+<span class="lineNum">     873 </span>                :            :  *        with the given append relation on the inside and the given outer_rel
+<span class="lineNum">     874 </span>                :            :  *        outside.      Returns an AppendPath comprising the best inner scans, or
+<span class="lineNum">     875 </span>                :            :  *        NULL if there are no possible inner indexscans.
+<span class="lineNum">     876 </span>                :            :  *
+<span class="lineNum">     877 </span>                :            :  * Note that we currently consider only cheapest-total-cost.  It's not
+<span class="lineNum">     878 </span>                :            :  * very clear what cheapest-startup-cost might mean for an AppendPath.
+<a name="879"><span class="lineNum">     879 </span>                :            :  */</a>
+<span class="lineNum">     880 </span>                :            : static Path *
+<span class="lineNum">     881 </span>                :            : best_appendrel_indexscan(PlannerInfo *root, RelOptInfo *rel,
+<span class="lineNum">     882 </span>                :            :                                                  RelOptInfo *outer_rel, JoinType jointype)
+<span class="lineNum">     883 </span>                :            : {
+<span class="lineNum">     884 </span>                :<span class="lineNoCov">          0 :         int                     parentRTindex = rel-&gt;relid;</span>
+<span class="lineNum">     885 </span>                :<span class="lineNoCov">          0 :         List       *append_paths = NIL;</span>
+<span class="lineNum">     886 </span>                :<span class="lineNoCov">          0 :         bool            found_indexscan = false;</span>
+<span class="lineNum">     887 </span>                :            :         ListCell   *l;
+<span class="lineNum">     888 </span>                :            : 
+<span class="lineNum">     889 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, root-&gt;append_rel_list)</span>
+<span class="lineNum">     890 </span>                :            :         {
+<span class="lineNum">     891 </span>                :<span class="lineNoCov">          0 :                 AppendRelInfo *appinfo = (AppendRelInfo *) lfirst(l);</span>
+<span class="lineNum">     892 </span>                :            :                 int                     childRTindex;
+<span class="lineNum">     893 </span>                :            :                 RelOptInfo *childrel;
+<span class="lineNum">     894 </span>                :            :                 Path       *index_cheapest_startup;
+<span class="lineNum">     895 </span>                :            :                 Path       *index_cheapest_total;
+<span class="lineNum">     896 </span>                :            : 
+<span class="lineNum">     897 </span>                :            :                 /* append_rel_list contains all append rels; ignore others */
+<span class="lineNum">     898 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (appinfo-&gt;parent_relid != parentRTindex)</span>
+<span class="lineNum">     899 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     900 </span>                :            : 
+<span class="lineNum">     901 </span>                :<span class="lineNoCov">          0 :                 childRTindex = appinfo-&gt;child_relid;</span>
+<span class="lineNum">     902 </span>                :<span class="lineNoCov">          0 :                 childrel = find_base_rel(root, childRTindex);</span>
+<span class="lineNum">     903 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(childrel-&gt;reloptkind == RELOPT_OTHER_MEMBER_REL);</span>
+<span class="lineNum">     904 </span>                :            : 
+<span class="lineNum">     905 </span>                :            :                 /*
+<span class="lineNum">     906 </span>                :            :                  * Check to see if child was rejected by constraint exclusion. If so,
+<span class="lineNum">     907 </span>                :            :                  * it will have a cheapest_total_path that's a &quot;dummy&quot; path.
+<span class="lineNum">     908 </span>                :            :                  */
+<span class="lineNum">     909 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (IS_DUMMY_PATH(childrel-&gt;cheapest_total_path))</span>
+<span class="lineNum">     910 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* OK, we can ignore it */</span>
+<span class="lineNum">     911 </span>                :            : 
+<span class="lineNum">     912 </span>                :            :                 /*
+<span class="lineNum">     913 </span>                :            :                  * Get the best innerjoin indexpaths (if any) for this child rel.
+<span class="lineNum">     914 </span>                :            :                  */
+<span class="lineNum">     915 </span>                :<span class="lineNoCov">          0 :                 best_inner_indexscan(root, childrel, outer_rel, jointype,</span>
+<span class="lineNum">     916 </span>                :            :                                                          &amp;index_cheapest_startup, &amp;index_cheapest_total);
+<span class="lineNum">     917 </span>                :            : 
+<span class="lineNum">     918 </span>                :            :                 /*
+<span class="lineNum">     919 </span>                :            :                  * If no luck on an indexpath for this rel, we'll still consider an
+<span class="lineNum">     920 </span>                :            :                  * Append substituting the cheapest-total inner path.  However we must
+<span class="lineNum">     921 </span>                :            :                  * find at least one indexpath, else there's not going to be any
+<span class="lineNum">     922 </span>                :            :                  * improvement over the base path for the appendrel.
+<span class="lineNum">     923 </span>                :            :                  */
+<span class="lineNum">     924 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (index_cheapest_total)</span>
+<span class="lineNum">     925 </span>                :<span class="lineNoCov">          0 :                         found_indexscan = true;</span>
+<span class="lineNum">     926 </span>                :            :                 else
+<span class="lineNum">     927 </span>                :<span class="lineNoCov">          0 :                         index_cheapest_total = childrel-&gt;cheapest_total_path;</span>
+<span class="lineNum">     928 </span>                :            : 
+<span class="lineNum">     929 </span>                :<span class="lineNoCov">          0 :                 append_paths = lappend(append_paths, index_cheapest_total);</span>
+<span class="lineNum">     930 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     931 </span>                :            : 
+<span class="lineNum">     932 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!found_indexscan)</span>
+<span class="lineNum">     933 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     934 </span>                :            : 
+<span class="lineNum">     935 </span>                :            :         /* Form and return the completed Append path. */
+<span class="lineNum">     936 </span>                :<span class="lineNoCov">          0 :         return (Path *) create_append_path(root, rel, append_paths);</span>
+<span class="lineNum">     937 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>                :            : /*
+<span class="lineNum">     940 </span>                :            :  * select_mergejoin_clauses
+<span class="lineNum">     941 </span>                :            :  *        Select mergejoin clauses that are usable for a particular join.
+<span class="lineNum">     942 </span>                :            :  *        Returns a list of RestrictInfo nodes for those clauses.
+<span class="lineNum">     943 </span>                :            :  *
+<span class="lineNum">     944 </span>                :            :  * We also mark each selected RestrictInfo to show which side is currently
+<span class="lineNum">     945 </span>                :            :  * being considered as outer.  These are transient markings that are only
+<span class="lineNum">     946 </span>                :            :  * good for the duration of the current add_paths_to_joinrel() call!
+<span class="lineNum">     947 </span>                :            :  *
+<span class="lineNum">     948 </span>                :            :  * We examine each restrictinfo clause known for the join to see
+<span class="lineNum">     949 </span>                :            :  * if it is mergejoinable and involves vars from the two sub-relations
+<span class="lineNum">     950 </span>                :            :  * currently of interest.
+<a name="951"><span class="lineNum">     951 </span>                :            :  */</a>
+<span class="lineNum">     952 </span>                :            : static List *
+<span class="lineNum">     953 </span>                :            : select_mergejoin_clauses(PlannerInfo *root,
+<span class="lineNum">     954 </span>                :            :                                                  RelOptInfo *joinrel,
+<span class="lineNum">     955 </span>                :            :                                                  RelOptInfo *outerrel,
+<span class="lineNum">     956 </span>                :            :                                                  RelOptInfo *innerrel,
+<span class="lineNum">     957 </span>                :            :                                                  List *restrictlist,
+<span class="lineNum">     958 </span>                :            :                                                  JoinType jointype)
+<span class="lineNum">     959 </span>                :            : {
+<span class="lineNum">     960 </span>                :<span class="lineNoCov">          0 :         List       *result_list = NIL;</span>
+<span class="lineNum">     961 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         bool            isouterjoin = IS_OUTER_JOIN(jointype);</span>
+<span class="lineNum">     962 </span>                :<span class="lineNoCov">          0 :         bool            have_nonmergeable_joinclause = false;</span>
+<span class="lineNum">     963 </span>                :            :         ListCell   *l;
+<span class="lineNum">     964 </span>                :            : 
+<span class="lineNum">     965 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, restrictlist)</span>
+<span class="lineNum">     966 </span>                :            :         {
+<span class="lineNum">     967 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *restrictinfo = (RestrictInfo *) lfirst(l);</span>
+<span class="lineNum">     968 </span>                :            : 
+<span class="lineNum">     969 </span>                :            :                 /*
+<span class="lineNum">     970 </span>                :            :                  * If processing an outer join, only use its own join clauses in the
+<span class="lineNum">     971 </span>                :            :                  * merge.  For inner joins we can use pushed-down clauses too. (Note:
+<span class="lineNum">     972 </span>                :            :                  * we don't set have_nonmergeable_joinclause here because pushed-down
+<span class="lineNum">     973 </span>                :            :                  * clauses will become otherquals not joinquals.)
+<span class="lineNum">     974 </span>                :            :                  */
+<span class="lineNum">     975 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (isouterjoin &amp;&amp; restrictinfo-&gt;is_pushed_down)</span>
+<span class="lineNum">     976 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     977 </span>                :            : 
+<span class="lineNum">     978 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!restrictinfo-&gt;can_join ||</span>
+<span class="lineNum">     979 </span>                :<span class="lineNoCov">          0 :                         restrictinfo-&gt;mergeopfamilies == NIL)</span>
+<span class="lineNum">     980 </span>                :            :                 {
+<span class="lineNum">     981 </span>                :<span class="lineNoCov">          0 :                         have_nonmergeable_joinclause = true;</span>
+<span class="lineNum">     982 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* not mergejoinable */</span>
+<span class="lineNum">     983 </span>                :            :                 }
+<span class="lineNum">     984 </span>                :            : 
+<span class="lineNum">     985 </span>                :            :                 /*
+<span class="lineNum">     986 </span>                :            :                  * Check if clause is usable with these input rels.  All the vars
+<span class="lineNum">     987 </span>                :            :                  * needed on each side of the clause must be available from one or the
+<span class="lineNum">     988 </span>                :            :                  * other of the input rels.
+<span class="lineNum">     989 </span>                :            :                  */
+<span class="lineNum">     990 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bms_is_subset(restrictinfo-&gt;left_relids, outerrel-&gt;relids) &amp;&amp;</span>
+<span class="lineNum">     991 </span>                :<span class="lineNoCov">          0 :                         bms_is_subset(restrictinfo-&gt;right_relids, innerrel-&gt;relids))</span>
+<span class="lineNum">     992 </span>                :            :                 {
+<span class="lineNum">     993 </span>                :            :                         /* righthand side is inner */
+<span class="lineNum">     994 </span>                :<span class="lineNoCov">          0 :                         restrictinfo-&gt;outer_is_left = true;</span>
+<span class="lineNum">     995 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     996 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (bms_is_subset(restrictinfo-&gt;left_relids, innerrel-&gt;relids) &amp;&amp;</span>
+<span class="lineNum">     997 </span>                :<span class="lineNoCov">          0 :                                  bms_is_subset(restrictinfo-&gt;right_relids, outerrel-&gt;relids))</span>
+<span class="lineNum">     998 </span>                :            :                 {
+<span class="lineNum">     999 </span>                :            :                         /* lefthand side is inner */
+<span class="lineNum">    1000 </span>                :<span class="lineNoCov">          0 :                         restrictinfo-&gt;outer_is_left = false;</span>
+<span class="lineNum">    1001 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">    1002 </span>                :            :                 else
+<span class="lineNum">    1003 </span>                :            :                 {
+<span class="lineNum">    1004 </span>                :<span class="lineNoCov">          0 :                         have_nonmergeable_joinclause = true;</span>
+<span class="lineNum">    1005 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* no good for these input relations */</span>
+<span class="lineNum">    1006 </span>                :            :                 }
+<span class="lineNum">    1007 </span>                :            : 
+<span class="lineNum">    1008 </span>                :            :                 /*
+<span class="lineNum">    1009 </span>                :            :                  * Insist that each side have a non-redundant eclass.  This
+<span class="lineNum">    1010 </span>                :            :                  * restriction is needed because various bits of the planner expect
+<span class="lineNum">    1011 </span>                :            :                  * that each clause in a merge be associatable with some pathkey in a
+<span class="lineNum">    1012 </span>                :            :                  * canonical pathkey list, but redundant eclasses can't appear in
+<span class="lineNum">    1013 </span>                :            :                  * canonical sort orderings.  (XXX it might be worth relaxing this,
+<span class="lineNum">    1014 </span>                :            :                  * but not enough time to address it for 8.3.)
+<span class="lineNum">    1015 </span>                :            :                  *
+<span class="lineNum">    1016 </span>                :            :                  * Note: it would be bad if this condition failed for an otherwise
+<span class="lineNum">    1017 </span>                :            :                  * mergejoinable FULL JOIN clause, since that would result in
+<span class="lineNum">    1018 </span>                :            :                  * undesirable planner failure.  I believe that is not possible
+<span class="lineNum">    1019 </span>                :            :                  * however; a variable involved in a full join could only appear
+<span class="lineNum">    1020 </span>                :            :                  * in below_outer_join eclasses, which aren't considered redundant.
+<span class="lineNum">    1021 </span>                :            :                  *
+<span class="lineNum">    1022 </span>                :            :                  * This case *can* happen for left/right join clauses: the
+<span class="lineNum">    1023 </span>                :            :                  * outer-side variable could be equated to a constant.  Because we
+<span class="lineNum">    1024 </span>                :            :                  * will propagate that constant across the join clause, the loss of
+<span class="lineNum">    1025 </span>                :            :                  * ability to do a mergejoin is not really all that big a deal, and
+<span class="lineNum">    1026 </span>                :            :                  * so it's not clear that improving this is important.
+<span class="lineNum">    1027 </span>                :            :                  */
+<span class="lineNum">    1028 </span>                :<span class="lineNoCov">          0 :                 cache_mergeclause_eclasses(root, restrictinfo);</span>
+<span class="lineNum">    1029 </span>                :            : 
+<span class="lineNum">    1030 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (EC_MUST_BE_REDUNDANT(restrictinfo-&gt;left_ec) ||</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">    1031 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         EC_MUST_BE_REDUNDANT(restrictinfo-&gt;right_ec))</span>
+<span class="lineNum">    1032 </span>                :            :                 {
+<span class="lineNum">    1033 </span>                :<span class="lineNoCov">          0 :                         have_nonmergeable_joinclause = true;</span>
+<span class="lineNum">    1034 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* can't handle redundant eclasses */</span>
+<span class="lineNum">    1035 </span>                :            :                 }
+<span class="lineNum">    1036 </span>                :            : 
+<span class="lineNum">    1037 </span>                :<span class="lineNoCov">          0 :                 result_list = lappend(result_list, restrictinfo);</span>
+<span class="lineNum">    1038 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1039 </span>                :            : 
+<span class="lineNum">    1040 </span>                :            :         /*
+<span class="lineNum">    1041 </span>                :            :          * If it is a right/full join then *all* the explicit join clauses must be
+<span class="lineNum">    1042 </span>                :            :          * mergejoinable, else the executor will fail. If we are asked for a right
+<span class="lineNum">    1043 </span>                :            :          * join then just return NIL to indicate no mergejoin is possible (we can
+<span class="lineNum">    1044 </span>                :            :          * handle it as a left join instead). If we are asked for a full join then
+<span class="lineNum">    1045 </span>                :            :          * emit an error, because there is no fallback.
+<span class="lineNum">    1046 </span>                :            :          */
+<span class="lineNum">    1047 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (have_nonmergeable_joinclause)</span>
+<span class="lineNum">    1048 </span>                :            :         {
+<span class="lineNum">    1049 </span>     [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 switch (jointype)</span>
+<span class="lineNum">    1050 </span>                :            :                 {
+<span class="lineNum">    1051 </span>                :            :                         case JOIN_RIGHT:
+<span class="lineNum">    1052 </span>                :<span class="lineNoCov">          0 :                                 return NIL;             /* not mergejoinable */</span>
+<span class="lineNum">    1053 </span>                :            :                         case JOIN_FULL:
+<span class="lineNum">    1054 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 ereport(ERROR,</span>
+<span class="lineNum">    1055 </span>                :            :                                                 (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+<span class="lineNum">    1056 </span>                :            :                                                  errmsg(&quot;FULL JOIN is only supported with merge-joinable join conditions&quot;)));
+<span class="lineNum">    1057 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">    1058 </span>                :            :                         default:
+<span class="lineNum">    1059 </span>                :            :                                 /* otherwise, it's OK to have nonmergeable join quals */
+<span class="lineNum">    1060 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">    1061 </span>                :            :                 }
+<span class="lineNum">    1062 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">    1063 </span>                :            : 
+<span class="lineNum">    1064 </span>                :<span class="lineNoCov">          0 :         return result_list;</span>
+<span class="lineNum">    1065 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

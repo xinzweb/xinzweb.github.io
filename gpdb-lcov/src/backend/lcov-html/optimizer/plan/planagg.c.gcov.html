@@ -1,0 +1,721 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - optimizer/plan/planagg.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">optimizer/plan</a> - planagg.c<span style="font-size: 80%;"> (source / <a href="planagg.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">215</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">138</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * planagg.c
+<span class="lineNum">       4 </span>                :            :  *        Special planning for aggregate queries.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2006-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/optimizer/plan/planagg.c,v 1.41 2008/07/10 02:14:03 tgl Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      17 </span>                :            : 
+<span class="lineNum">      18 </span>                :            : #include &quot;catalog/pg_aggregate.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;nodes/makefuncs.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;optimizer/cost.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;optimizer/pathnode.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;optimizer/paths.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;optimizer/planmain.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;optimizer/predtest.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;optimizer/subselect.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;parser/parse_clause.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;parser/parse_expr.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;parser/parsetree.h&quot;
+<span class="lineNum">      31 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      32 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      33 </span>                :            : 
+<span class="lineNum">      34 </span>                :            : #include &quot;cdb/cdbllize.h&quot;                   /* pull_up_Flow() */
+<span class="lineNum">      35 </span>                :            : 
+<span class="lineNum">      36 </span>                :            : 
+<span class="lineNum">      37 </span>                :            : typedef struct
+<span class="lineNum">      38 </span>                :            : {
+<span class="lineNum">      39 </span>                :            :         Oid                     aggfnoid;               /* pg_proc Oid of the aggregate */
+<span class="lineNum">      40 </span>                :            :         Oid                     aggsortop;              /* Oid of its sort operator */
+<span class="lineNum">      41 </span>                :            :         Expr       *target;                     /* expression we are aggregating on */
+<span class="lineNum">      42 </span>                :            :         Expr       *notnulltest;        /* expression for &quot;target IS NOT NULL&quot; */
+<span class="lineNum">      43 </span>                :            :         IndexPath  *path;                       /* access path for index scan */
+<span class="lineNum">      44 </span>                :            :         Cost            pathcost;               /* estimated cost to fetch first row */
+<span class="lineNum">      45 </span>                :            :         bool            nulls_first;    /* null ordering direction matching index */
+<span class="lineNum">      46 </span>                :            :         Param      *param;                      /* param for subplan's output */
+<span class="lineNum">      47 </span>                :            : } MinMaxAggInfo;
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : static bool find_minmax_aggs_walker(Node *node, List **context);
+<span class="lineNum">      50 </span>                :            : static bool build_minmax_path(PlannerInfo *root, RelOptInfo *rel,
+<span class="lineNum">      51 </span>                :            :                                   MinMaxAggInfo *info);
+<span class="lineNum">      52 </span>                :            : static ScanDirection match_agg_to_index_col(MinMaxAggInfo *info,
+<span class="lineNum">      53 </span>                :            :                                            IndexOptInfo *index, int indexcol);
+<span class="lineNum">      54 </span>                :            : static void make_agg_subplan(PlannerInfo *root, MinMaxAggInfo *info);
+<span class="lineNum">      55 </span>                :            : static Node *replace_aggs_with_params_mutator(Node *node, List **context);
+<span class="lineNum">      56 </span>                :            : static Oid      fetch_agg_sort_op(Oid aggfnoid);
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            : 
+<span class="lineNum">      59 </span>                :            : /*
+<span class="lineNum">      60 </span>                :            :  * optimize_minmax_aggregates - check for optimizing MIN/MAX via indexes
+<span class="lineNum">      61 </span>                :            :  *
+<span class="lineNum">      62 </span>                :            :  * This checks to see if we can replace MIN/MAX aggregate functions by
+<span class="lineNum">      63 </span>                :            :  * subqueries of the form
+<span class="lineNum">      64 </span>                :            :  *              (SELECT col FROM tab WHERE ... ORDER BY col ASC/DESC LIMIT 1)
+<span class="lineNum">      65 </span>                :            :  * Given a suitable index on tab.col, this can be much faster than the
+<span class="lineNum">      66 </span>                :            :  * generic scan-all-the-rows plan.
+<span class="lineNum">      67 </span>                :            :  *
+<span class="lineNum">      68 </span>                :            :  * We are passed the preprocessed tlist, and the best path
+<span class="lineNum">      69 </span>                :            :  * devised for computing the input of a standard Agg node.      If we are able
+<span class="lineNum">      70 </span>                :            :  * to optimize all the aggregates, and the result is estimated to be cheaper
+<span class="lineNum">      71 </span>                :            :  * than the generic aggregate method, then generate and return a Plan that
+<span class="lineNum">      72 </span>                :            :  * does it that way.  Otherwise, return NULL.
+<a name="73"><span class="lineNum">      73 </span>                :            :  */</a>
+<span class="lineNum">      74 </span>                :            : Plan *
+<span class="lineNum">      75 </span>                :            : optimize_minmax_aggregates(PlannerInfo *root, List *tlist, Path *best_path)
+<span class="lineNum">      76 </span>                :            : {
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :         Query      *parse = root-&gt;parse;</span>
+<span class="lineNum">      78 </span>                :            :         FromExpr   *jtnode;
+<span class="lineNum">      79 </span>                :            :         RangeTblRef *rtr;
+<span class="lineNum">      80 </span>                :            :         RangeTblEntry *rte;
+<span class="lineNum">      81 </span>                :            :         RelOptInfo *rel;
+<span class="lineNum">      82 </span>                :            :         List       *aggs_list;
+<span class="lineNum">      83 </span>                :            :         ListCell   *l;
+<span class="lineNum">      84 </span>                :            :         Cost            total_cost;
+<span class="lineNum">      85 </span>                :            :         Path            agg_p;
+<span class="lineNum">      86 </span>                :            :         Plan       *plan;
+<span class="lineNum">      87 </span>                :            :         Node       *hqual;
+<span class="lineNum">      88 </span>                :            :         QualCost        tlist_cost;
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            :         /* Nothing to do if query has no aggregates */
+<span class="lineNum">      91 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!parse-&gt;hasAggs)</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">      93 </span>                :            : 
+<span class="lineNum">      94 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!parse-&gt;setOperations);               /* shouldn't get here if a setop */</span>
+<span class="lineNum">      95 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(parse-&gt;rowMarks == NIL);              /* nor if FOR UPDATE */</span>
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :            :         /*
+<span class="lineNum">      98 </span>                :            :          * Reject unoptimizable cases.
+<span class="lineNum">      99 </span>                :            :          *
+<span class="lineNum">     100 </span>                :            :          * We don't handle GROUP BY, because our current implementations of
+<span class="lineNum">     101 </span>                :            :          * grouping require looking at all the rows anyway, and so there's not
+<span class="lineNum">     102 </span>                :            :          * much point in optimizing MIN/MAX.
+<span class="lineNum">     103 </span>                :            :          */
+<span class="lineNum">     104 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (parse-&gt;groupClause)</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     106 </span>                :            : 
+<span class="lineNum">     107 </span>                :            :         /*
+<span class="lineNum">     108 </span>                :            :          * We also restrict the query to reference exactly one table, since join
+<span class="lineNum">     109 </span>                :            :          * conditions can't be handled reasonably.  (We could perhaps handle a
+<span class="lineNum">     110 </span>                :            :          * query containing cartesian-product joins, but it hardly seems worth the
+<span class="lineNum">     111 </span>                :            :          * trouble.)  However, the single real table could be buried in several
+<span class="lineNum">     112 </span>                :            :          * levels of FromExpr.
+<span class="lineNum">     113 </span>                :            :          */
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :         jtnode = parse-&gt;jointree;</span>
+<span class="lineNum">     115 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (IsA(jtnode, FromExpr))</span>
+<span class="lineNum">     116 </span>                :            :         {
+<span class="lineNum">     117 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (list_length(jtnode-&gt;fromlist) != 1)</span>
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                 jtnode = linitial(jtnode-&gt;fromlist);</span>
+<span class="lineNum">     120 </span>                :            :         }
+<span class="lineNum">     121 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!IsA(jtnode, RangeTblRef))</span>
+<span class="lineNum">     122 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :         rtr = (RangeTblRef *) jtnode;</span>
+<span class="lineNum">     124 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         rte = planner_rt_fetch(rtr-&gt;rtindex, root);</span>
+<span class="lineNum">     125 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (rte-&gt;rtekind != RTE_RELATION || rte-&gt;inh)</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :         rel = find_base_rel(root, rtr-&gt;rtindex);</span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :            :         /*
+<span class="lineNum">     130 </span>                :            :          * Since this optimization is not applicable all that often, we want to
+<span class="lineNum">     131 </span>                :            :          * fall out before doing very much work if possible.  Therefore we do the
+<span class="lineNum">     132 </span>                :            :          * work in several passes.      The first pass scans the tlist and HAVING qual
+<span class="lineNum">     133 </span>                :            :          * to find all the aggregates and verify that each of them is a MIN/MAX
+<span class="lineNum">     134 </span>                :            :          * aggregate.  If that succeeds, the second pass looks at each aggregate
+<span class="lineNum">     135 </span>                :            :          * to see if it is optimizable; if so we make an IndexPath describing how
+<span class="lineNum">     136 </span>                :            :          * we would scan it.  (We do not try to optimize if only some aggs are
+<span class="lineNum">     137 </span>                :            :          * optimizable, since that means we'll have to scan all the rows anyway.)
+<span class="lineNum">     138 </span>                :            :          * If that succeeds, we have enough info to compare costs against the
+<span class="lineNum">     139 </span>                :            :          * generic implementation. Only if that test passes do we build a Plan.
+<span class="lineNum">     140 </span>                :            :          */
+<span class="lineNum">     141 </span>                :            : 
+<span class="lineNum">     142 </span>                :            :         /* Pass 1: find all the aggregates */
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         aggs_list = NIL;</span>
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (find_minmax_aggs_walker((Node *) tlist, &amp;aggs_list))</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     146 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (find_minmax_aggs_walker(parse-&gt;havingQual, &amp;aggs_list))</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>                :            :         /* Pass 2: see if each one is optimizable */
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :         total_cost = 0;</span>
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, aggs_list)</span>
+<span class="lineNum">     152 </span>                :            :         {
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 MinMaxAggInfo *info = (MinMaxAggInfo *) lfirst(l);</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!build_minmax_path(root, rel, info))</span>
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                 total_cost += info-&gt;pathcost;</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            :         /*
+<span class="lineNum">     161 </span>                :            :          * Make the cost comparison.
+<span class="lineNum">     162 </span>                :            :          *
+<span class="lineNum">     163 </span>                :            :          * Note that we don't include evaluation cost of the tlist here; this is
+<span class="lineNum">     164 </span>                :            :          * OK since it isn't included in best_path's cost either, and should be
+<span class="lineNum">     165 </span>                :            :          * the same in either case.
+<span class="lineNum">     166 </span>                :            :          */
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         cost_agg(&amp;agg_p, root, AGG_PLAIN, list_length(aggs_list),</span>
+<span class="lineNum">     168 </span>                :            :                          0, 0,
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                          best_path-&gt;startup_cost, best_path-&gt;total_cost,</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                          best_path-&gt;parent-&gt;rows, 0.0, 0.0, 0.0, false);</span>
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (total_cost &gt; agg_p.total_cost)</span>
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :                 return NULL;                    /* too expensive */</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :            :         /*
+<span class="lineNum">     176 </span>                :            :          * OK, we are going to generate an optimized plan.
+<span class="lineNum">     177 </span>                :            :          */
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :            :         /* Pass 3: generate subplans and output Param nodes */
+<span class="lineNum">     180 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, aggs_list)</span>
+<span class="lineNum">     181 </span>                :            :         {
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                 make_agg_subplan(root, (MinMaxAggInfo *) lfirst(l));</span>
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     184 </span>                :            : 
+<span class="lineNum">     185 </span>                :            :         /*
+<span class="lineNum">     186 </span>                :            :          * Modify the targetlist and HAVING qual to reference subquery outputs
+<span class="lineNum">     187 </span>                :            :          */
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :         tlist = (List *) replace_aggs_with_params_mutator((Node *) tlist,</span>
+<span class="lineNum">     189 </span>                :            :                                                                                                           &amp;aggs_list);
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         hqual = replace_aggs_with_params_mutator(parse-&gt;havingQual,</span>
+<span class="lineNum">     191 </span>                :            :                                                                                          &amp;aggs_list);
+<span class="lineNum">     192 </span>                :            : 
+<span class="lineNum">     193 </span>                :            :         /*
+<span class="lineNum">     194 </span>                :            :          * We have to replace Aggrefs with Params in equivalence classes too,
+<span class="lineNum">     195 </span>                :            :          * else ORDER BY or DISTINCT on an optimized aggregate will fail.
+<span class="lineNum">     196 </span>                :            :          *
+<span class="lineNum">     197 </span>                :            :          * Note: at some point it might become necessary to mutate other
+<span class="lineNum">     198 </span>                :            :          * data structures too, such as the query's sortClause or distinctClause.
+<span class="lineNum">     199 </span>                :            :          * Right now, those won't be examined after this point.
+<span class="lineNum">     200 </span>                :            :          */
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :         mutate_eclass_expressions(root,</span>
+<span class="lineNum">     202 </span>                :            :                                                           replace_aggs_with_params_mutator,
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                                                           &amp;aggs_list);</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :            :         /*
+<span class="lineNum">     206 </span>                :            :          * Generate the output plan --- basically just a Result
+<span class="lineNum">     207 </span>                :            :          */
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         plan = (Plan *) make_result(root, tlist, hqual, NULL);</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :            :         /* Account for evaluation cost of the tlist (make_result did the rest) */
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :         cost_qual_eval(&amp;tlist_cost, tlist, root);</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :         plan-&gt;startup_cost += tlist_cost.startup;</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :         plan-&gt;total_cost += tlist_cost.startup + tlist_cost.per_tuple;</span>
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :         return plan;</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     217 </span>                :            : 
+<span class="lineNum">     218 </span>                :            : /*
+<span class="lineNum">     219 </span>                :            :  * find_minmax_aggs_walker
+<span class="lineNum">     220 </span>                :            :  *              Recursively scan the Aggref nodes in an expression tree, and check
+<span class="lineNum">     221 </span>                :            :  *              that each one is a MIN/MAX aggregate.  If so, build a list of the
+<span class="lineNum">     222 </span>                :            :  *              distinct aggregate calls in the tree.
+<span class="lineNum">     223 </span>                :            :  *
+<span class="lineNum">     224 </span>                :            :  * Returns TRUE if a non-MIN/MAX aggregate is found, FALSE otherwise.
+<span class="lineNum">     225 </span>                :            :  * (This seemingly-backward definition is used because expression_tree_walker
+<span class="lineNum">     226 </span>                :            :  * aborts the scan on TRUE return, which is what we want.)
+<span class="lineNum">     227 </span>                :            :  *
+<span class="lineNum">     228 </span>                :            :  * Found aggregates are added to the list at *context; it's up to the caller
+<span class="lineNum">     229 </span>                :            :  * to initialize the list to NIL.
+<span class="lineNum">     230 </span>                :            :  *
+<span class="lineNum">     231 </span>                :            :  * This does not descend into subqueries, and so should be used only after
+<span class="lineNum">     232 </span>                :            :  * reduction of sublinks to subplans.  There mustn't be outer-aggregate
+<span class="lineNum">     233 </span>                :            :  * references either.
+<a name="234"><span class="lineNum">     234 </span>                :            :  */</a>
+<span class="lineNum">     235 </span>                :            : static bool
+<span class="lineNum">     236 </span>                :            : find_minmax_aggs_walker(Node *node, List **context)
+<span class="lineNum">     237 </span>                :            : {
+<span class="lineNum">     238 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     240 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Aggref))</span>
+<span class="lineNum">     241 </span>                :            :         {
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                 Aggref     *aggref = (Aggref *) node;</span>
+<span class="lineNum">     243 </span>                :            :                 Oid                     aggsortop;
+<span class="lineNum">     244 </span>                :            :                 Expr       *curTarget;
+<span class="lineNum">     245 </span>                :            :                 MinMaxAggInfo *info;
+<span class="lineNum">     246 </span>                :            :                 ListCell   *l;
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(aggref-&gt;agglevelsup == 0);</span>
+<span class="lineNum">     249 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (list_length(aggref-&gt;args) != 1)</span>
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                         return true;            /* it couldn't be MIN/MAX */</span>
+<span class="lineNum">     251 </span>                :            :                 /* note: we do not care if DISTINCT is mentioned ... */
+<span class="lineNum">     252 </span>                :            : 
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :                 aggsortop = fetch_agg_sort_op(aggref-&gt;aggfnoid);</span>
+<span class="lineNum">     254 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!OidIsValid(aggsortop))</span>
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                         return true;            /* not a MIN/MAX aggregate */</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>                :            :                 /*
+<span class="lineNum">     258 </span>                :            :                  * Check whether it's already in the list, and add it if not.
+<span class="lineNum">     259 </span>                :            :                  */
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :                 curTarget = linitial(aggref-&gt;args);</span>
+<span class="lineNum">     261 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(l, *context)</span>
+<span class="lineNum">     262 </span>                :            :                 {
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :                         info = (MinMaxAggInfo *) lfirst(l);</span>
+<span class="lineNum">     264 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (info-&gt;aggfnoid == aggref-&gt;aggfnoid &amp;&amp;</span>
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :                                 equal(info-&gt;target, curTarget))</span>
+<span class="lineNum">     266 </span>                :<span class="lineNoCov">          0 :                                 return false;</span>
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     268 </span>                :            : 
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :                 info = (MinMaxAggInfo *) palloc0(sizeof(MinMaxAggInfo));</span>
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :                 info-&gt;aggfnoid = aggref-&gt;aggfnoid;</span>
+<span class="lineNum">     271 </span>                :<span class="lineNoCov">          0 :                 info-&gt;aggsortop = aggsortop;</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                 info-&gt;target = curTarget;</span>
+<span class="lineNum">     273 </span>                :            : 
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                 *context = lappend(*context, info);</span>
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :            :                 /*
+<span class="lineNum">     277 </span>                :            :                  * We need not recurse into the argument, since it can't contain any
+<span class="lineNum">     278 </span>                :            :                  * aggregates.
+<span class="lineNum">     279 </span>                :            :                  */
+<span class="lineNum">     280 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     281 </span>                :            :         }
+<span class="lineNum">     282 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!IsA(node, SubLink));</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         return expression_tree_walker(node, find_minmax_aggs_walker,</span>
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :                                                                   (void *) context);</span>
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            : /*
+<span class="lineNum">     288 </span>                :            :  * build_minmax_path
+<span class="lineNum">     289 </span>                :            :  *              Given a MIN/MAX aggregate, try to find an index it can be optimized
+<span class="lineNum">     290 </span>                :            :  *              with.  Build a Path describing the best such index path.
+<span class="lineNum">     291 </span>                :            :  *
+<span class="lineNum">     292 </span>                :            :  * Returns TRUE if successful, FALSE if not.  In the TRUE case, info-&gt;path
+<span class="lineNum">     293 </span>                :            :  * is filled in.
+<span class="lineNum">     294 </span>                :            :  *
+<span class="lineNum">     295 </span>                :            :  * XXX look at sharing more code with indxpath.c.
+<span class="lineNum">     296 </span>                :            :  *
+<span class="lineNum">     297 </span>                :            :  * Note: check_partial_indexes() must have been run previously.
+<a name="298"><span class="lineNum">     298 </span>                :            :  */</a>
+<span class="lineNum">     299 </span>                :            : static bool
+<span class="lineNum">     300 </span>                :            : build_minmax_path(PlannerInfo *root, RelOptInfo *rel, MinMaxAggInfo *info)
+<span class="lineNum">     301 </span>                :            : {
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         IndexPath  *best_path = NULL;</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :         Cost            best_cost = 0;</span>
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         bool            best_nulls_first = false;</span>
+<span class="lineNum">     305 </span>                :            :         NullTest   *ntest;
+<span class="lineNum">     306 </span>                :            :         List       *allquals;
+<span class="lineNum">     307 </span>                :            :         ListCell   *l;
+<span class="lineNum">     308 </span>                :            : 
+<span class="lineNum">     309 </span>                :            :         /* Build &quot;target IS NOT NULL&quot; expression for use below */
+<span class="lineNum">     310 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         ntest = makeNode(NullTest);</span>
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :         ntest-&gt;nulltesttype = IS_NOT_NULL;</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :         ntest-&gt;arg = copyObject(info-&gt;target);</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :         info-&gt;notnulltest = (Expr *) ntest;</span>
+<span class="lineNum">     314 </span>                :            : 
+<span class="lineNum">     315 </span>                :            :         /*
+<span class="lineNum">     316 </span>                :            :          * Build list of existing restriction clauses plus the notnull test. We
+<span class="lineNum">     317 </span>                :            :          * cheat a bit by not bothering with a RestrictInfo node for the notnull
+<span class="lineNum">     318 </span>                :            :          * test --- predicate_implied_by() won't care.
+<span class="lineNum">     319 </span>                :            :          */
+<span class="lineNum">     320 </span>                :<span class="lineNoCov">          0 :         allquals = list_concat(list_make1(ntest), rel-&gt;baserestrictinfo);</span>
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, rel-&gt;indexlist)</span>
+<span class="lineNum">     323 </span>                :            :         {
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                 IndexOptInfo *index = (IndexOptInfo *) lfirst(l);</span>
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :                 ScanDirection indexscandir = NoMovementScanDirection;</span>
+<span class="lineNum">     326 </span>                :            :                 int                     indexcol;
+<span class="lineNum">     327 </span>                :            :                 int                     prevcol;
+<span class="lineNum">     328 </span>                :            :                 List       *restrictclauses;
+<span class="lineNum">     329 </span>                :            :                 IndexPath  *new_path;
+<span class="lineNum">     330 </span>                :            :                 Cost            new_cost;
+<span class="lineNum">     331 </span>                :            :                 bool            found_clause;
+<span class="lineNum">     332 </span>                :            : 
+<span class="lineNum">     333 </span>                :            :                 /* Ignore non-btree indexes */
+<span class="lineNum">     334 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (index-&gt;relam != BTREE_AM_OID)</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     336 </span>                :            : 
+<span class="lineNum">     337 </span>                :            :                 /*
+<span class="lineNum">     338 </span>                :            :                  * Ignore partial indexes that do not match the query --- unless their
+<span class="lineNum">     339 </span>                :            :                  * predicates can be proven from the baserestrict list plus the IS NOT
+<span class="lineNum">     340 </span>                :            :                  * NULL test.  In that case we can use them.
+<span class="lineNum">     341 </span>                :            :                  */
+<span class="lineNum">     342 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (index-&gt;indpred != NIL &amp;&amp; !index-&gt;predOK &amp;&amp;</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                         !predicate_implied_by(index-&gt;indpred, allquals))</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     345 </span>                :            : 
+<span class="lineNum">     346 </span>                :            :                 /*
+<span class="lineNum">     347 </span>                :            :                  * Look for a match to one of the index columns.  (In a stupidly
+<span class="lineNum">     348 </span>                :            :                  * designed index, there could be multiple matches, but we only care
+<span class="lineNum">     349 </span>                :            :                  * about the first one.)
+<span class="lineNum">     350 </span>                :            :                  */
+<span class="lineNum">     351 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (indexcol = 0; indexcol &lt; index-&gt;ncolumns; indexcol++)</span>
+<span class="lineNum">     352 </span>                :            :                 {
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                         indexscandir = match_agg_to_index_col(info, index, indexcol);</span>
+<span class="lineNum">     354 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!ScanDirectionIsNoMovement(indexscandir))</span>
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     357 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ScanDirectionIsNoMovement(indexscandir))</span>
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     359 </span>                :            : 
+<span class="lineNum">     360 </span>                :            :                 /*
+<span class="lineNum">     361 </span>                :            :                  * If the match is not at the first index column, we have to verify
+<span class="lineNum">     362 </span>                :            :                  * that there are &quot;x = something&quot; restrictions on all the earlier
+<span class="lineNum">     363 </span>                :            :                  * index columns.  Since we'll need the restrictclauses list anyway to
+<span class="lineNum">     364 </span>                :            :                  * build the path, it's convenient to extract that first and then look
+<span class="lineNum">     365 </span>                :            :                  * through it for the equality restrictions.
+<span class="lineNum">     366 </span>                :            :                  */
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :                 restrictclauses = group_clauses_by_indexkey(index,</span>
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :                                                                                                 index-&gt;rel-&gt;baserestrictinfo,</span>
+<span class="lineNum">     369 </span>                :            :                                                                                                         NIL,
+<span class="lineNum">     370 </span>                :            :                                                                                                         NULL,
+<span class="lineNum">     371 </span>                :            :                                                                                                         SAOP_FORBID,
+<span class="lineNum">     372 </span>                :            :                                                                                                         &amp;found_clause);
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (list_length(restrictclauses) &lt; indexcol)</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* definitely haven't got enough */</span>
+<span class="lineNum">     376 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for (prevcol = 0; prevcol &lt; indexcol; prevcol++)</span>
+<span class="lineNum">     377 </span>                :            :                 {
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :                         List       *rinfos = (List *) list_nth(restrictclauses, prevcol);</span>
+<span class="lineNum">     379 </span>                :            :                         ListCell   *ll;
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(ll, rinfos)</span>
+<span class="lineNum">     382 </span>                :            :                         {
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :                                 RestrictInfo *rinfo = (RestrictInfo *) lfirst(ll);</span>
+<span class="lineNum">     384 </span>                :            :                                 int                     strategy;
+<span class="lineNum">     385 </span>                :            : 
+<span class="lineNum">     386 </span>                :            :                                 /* Could be an IS_NULL test, if so ignore */
+<span class="lineNum">     387 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!is_opclause(rinfo-&gt;clause))</span>
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :                                         continue;</span>
+<span class="lineNum">     389 </span>                :<span class="lineNoCov">          0 :                                 strategy =</span>
+<span class="lineNum">     390 </span>                :<span class="lineNoCov">          0 :                                         get_op_opfamily_strategy(((OpExpr *) rinfo-&gt;clause)-&gt;opno,</span>
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :                                                                                          index-&gt;opfamily[prevcol]);</span>
+<span class="lineNum">     392 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (strategy == BTEqualStrategyNumber)</span>
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :                                         break;</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     395 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (ll == NULL)</span>
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :                                 break;                  /* none are Equal for this index col */</span>
+<span class="lineNum">     397 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     398 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (prevcol &lt; indexcol)</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 :                         continue;                       /* didn't find all Equal clauses */</span>
+<span class="lineNum">     400 </span>                :            : 
+<span class="lineNum">     401 </span>                :            :                 /*
+<span class="lineNum">     402 </span>                :            :                  * Build the access path.  We don't bother marking it with pathkeys.
+<span class="lineNum">     403 </span>                :            :                  */
+<span class="lineNum">     404 </span>                :<span class="lineNoCov">          0 :                 new_path = create_index_path(root, index,</span>
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                                                                          restrictclauses,</span>
+<span class="lineNum">     406 </span>                :            :                                                                          NIL,
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :                                                                          indexscandir,</span>
+<span class="lineNum">     408 </span>                :            :                                                                          NULL);
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :            :                 /*
+<span class="lineNum">     411 </span>                :            :                  * Estimate actual cost of fetching just one row.
+<span class="lineNum">     412 </span>                :            :                  */
+<span class="lineNum">     413 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (new_path-&gt;rows &gt; 1.0)</span>
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :                         new_cost = new_path-&gt;path.startup_cost +</span>
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :                                 (new_path-&gt;path.total_cost - new_path-&gt;path.startup_cost)</span>
+<span class="lineNum">     416 </span>                :<span class="lineNoCov">          0 :                                 * 1.0 / new_path-&gt;rows;</span>
+<span class="lineNum">     417 </span>                :            :                 else
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                         new_cost = new_path-&gt;path.total_cost;</span>
+<span class="lineNum">     419 </span>                :            : 
+<span class="lineNum">     420 </span>                :            :                 /*
+<span class="lineNum">     421 </span>                :            :                  * Keep if first or if cheaper than previous best.
+<span class="lineNum">     422 </span>                :            :                  */
+<span class="lineNum">     423 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (best_path == NULL || new_cost &lt; best_cost)</span>
+<span class="lineNum">     424 </span>                :            :                 {
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                         best_path = new_path;</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                         best_cost = new_cost;</span>
+<span class="lineNum">     427 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (ScanDirectionIsForward(indexscandir))</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                                 best_nulls_first = index-&gt;nulls_first[indexcol];</span>
+<span class="lineNum">     429 </span>                :            :                         else
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 :                                 best_nulls_first = !index-&gt;nulls_first[indexcol];</span>
+<span class="lineNum">     431 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     433 </span>                :            : 
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :         info-&gt;path = best_path;</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :         info-&gt;pathcost = best_cost;</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :         info-&gt;nulls_first = best_nulls_first;</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :         return (best_path != NULL);</span>
+<span class="lineNum">     438 </span>                :            : }
+<span class="lineNum">     439 </span>                :            : 
+<span class="lineNum">     440 </span>                :            : /*
+<span class="lineNum">     441 </span>                :            :  * match_agg_to_index_col
+<span class="lineNum">     442 </span>                :            :  *              Does an aggregate match an index column?
+<span class="lineNum">     443 </span>                :            :  *
+<span class="lineNum">     444 </span>                :            :  * It matches if its argument is equal to the index column's data and its
+<span class="lineNum">     445 </span>                :            :  * sortop is either the forward or reverse sort operator for the column.
+<span class="lineNum">     446 </span>                :            :  *
+<span class="lineNum">     447 </span>                :            :  * We return ForwardScanDirection if match the forward sort operator,
+<span class="lineNum">     448 </span>                :            :  * BackwardScanDirection if match the reverse sort operator,
+<span class="lineNum">     449 </span>                :            :  * and NoMovementScanDirection if there's no match.
+<a name="450"><span class="lineNum">     450 </span>                :            :  */</a>
+<span class="lineNum">     451 </span>                :            : static ScanDirection
+<span class="lineNum">     452 </span>                :            : match_agg_to_index_col(MinMaxAggInfo *info, IndexOptInfo *index, int indexcol)
+<span class="lineNum">     453 </span>                :            : {
+<span class="lineNum">     454 </span>                :            :         ScanDirection result;
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            :         /* Check for operator match first (cheaper) */
+<span class="lineNum">     457 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (info-&gt;aggsortop == index-&gt;fwdsortop[indexcol])</span>
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :                 result = ForwardScanDirection;</span>
+<span class="lineNum">     459 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (info-&gt;aggsortop == index-&gt;revsortop[indexcol])</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                 result = BackwardScanDirection;</span>
+<span class="lineNum">     461 </span>                :            :         else
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :                 return NoMovementScanDirection;</span>
+<span class="lineNum">     463 </span>                :            : 
+<span class="lineNum">     464 </span>                :            :         /* Check for data match */
+<span class="lineNum">     465 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!match_index_to_operand((Node *) info-&gt;target, indexcol, index))</span>
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 :                 return NoMovementScanDirection;</span>
+<span class="lineNum">     467 </span>                :            : 
+<span class="lineNum">     468 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     470 </span>                :            : 
+<span class="lineNum">     471 </span>                :            : /*
+<span class="lineNum">     472 </span>                :            :  * Construct a suitable plan for a converted aggregate query
+<a name="473"><span class="lineNum">     473 </span>                :            :  */</a>
+<span class="lineNum">     474 </span>                :            : static void
+<span class="lineNum">     475 </span>                :            : make_agg_subplan(PlannerInfo *root, MinMaxAggInfo *info)
+<span class="lineNum">     476 </span>                :            : {
+<span class="lineNum">     477 </span>                :            :         PlannerInfo subroot;
+<span class="lineNum">     478 </span>                :            :         Query      *subparse;
+<span class="lineNum">     479 </span>                :            :         Plan       *plan;
+<span class="lineNum">     480 </span>                :            :         Plan       *iplan;
+<span class="lineNum">     481 </span>                :            :         TargetEntry *tle;
+<span class="lineNum">     482 </span>                :            :         SortClause *sortcl;
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>                :            :         /*
+<span class="lineNum">     485 </span>                :            :          * Generate a suitably modified query.  Much of the work here is probably
+<span class="lineNum">     486 </span>                :            :          * unnecessary in the normal case, but we want to make it look good if
+<span class="lineNum">     487 </span>                :            :          * someone tries to EXPLAIN the result.
+<span class="lineNum">     488 </span>                :            :          */
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 :         memcpy(&amp;subroot, root, sizeof(PlannerInfo));</span>
+<span class="lineNum">     490 </span>                :<span class="lineNoCov">          0 :         subroot.parse = subparse = (Query *) copyObject(root-&gt;parse);</span>
+<span class="lineNum">     491 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;commandType = CMD_SELECT;</span>
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;resultRelation = 0;</span>
+<span class="lineNum">     493 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;returningList = NIL;</span>
+<span class="lineNum">     494 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;utilityStmt = NULL;</span>
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;intoClause = NULL;</span>
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;hasAggs = false;</span>
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;groupClause = NIL;</span>
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;havingQual = NULL;</span>
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;distinctClause = NIL;</span>
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :         subroot.hasHavingQual = false;</span>
+<span class="lineNum">     501 </span>                :            : 
+<span class="lineNum">     502 </span>                :            :         /* single tlist entry that is the aggregate target */
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :         tle = makeTargetEntry(copyObject(info-&gt;target),</span>
+<span class="lineNum">     504 </span>                :            :                                                   1,
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :                                                   pstrdup(&quot;agg_target&quot;),</span>
+<span class="lineNum">     506 </span>                :            :                                                   false);
+<span class="lineNum">     507 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;targetList = list_make1(tle);</span>
+<span class="lineNum">     508 </span>                :            : 
+<span class="lineNum">     509 </span>                :            :         /* set up the appropriate ORDER BY entry */
+<span class="lineNum">     510 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         sortcl = makeNode(SortClause);</span>
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :         sortcl-&gt;tleSortGroupRef = assignSortGroupRef(tle, subparse-&gt;targetList);</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :         sortcl-&gt;sortop = info-&gt;aggsortop;</span>
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         sortcl-&gt;nulls_first = info-&gt;nulls_first;</span>
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;sortClause = list_make1(sortcl);</span>
+<span class="lineNum">     515 </span>                :            : 
+<span class="lineNum">     516 </span>                :            :         /* set up LIMIT 1 */
+<span class="lineNum">     517 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;limitOffset = NULL;</span>
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :         subparse-&gt;limitCount = (Node *) makeConst(INT8OID, -1, sizeof(int64),</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :                                                                                           Int64GetDatum(1),</span>
+<span class="lineNum">     520 </span>                :            :                                                                                           false, true /* not by val */ );
+<span class="lineNum">     521 </span>                :            : 
+<span class="lineNum">     522 </span>                :            :         /*
+<span class="lineNum">     523 </span>                :            :          * Generate the plan for the subquery.  We already have a Path for the
+<span class="lineNum">     524 </span>                :            :          * basic indexscan, but we have to convert it to a Plan and attach a LIMIT
+<span class="lineNum">     525 </span>                :            :          * node above it.
+<span class="lineNum">     526 </span>                :            :          *
+<span class="lineNum">     527 </span>                :            :          * Also we must add a &quot;WHERE target IS NOT NULL&quot; restriction to the
+<span class="lineNum">     528 </span>                :            :          * indexscan, to be sure we don't return a NULL, which'd be contrary to
+<span class="lineNum">     529 </span>                :            :          * the standard behavior of MIN/MAX.  XXX ideally this should be done
+<span class="lineNum">     530 </span>                :            :          * earlier, so that the selectivity of the restriction could be included
+<span class="lineNum">     531 </span>                :            :          * in our cost estimates.  But that looks painful, and in most cases the
+<span class="lineNum">     532 </span>                :            :          * fraction of NULLs isn't high enough to change the decision.
+<span class="lineNum">     533 </span>                :            :          *
+<span class="lineNum">     534 </span>                :            :          * The NOT NULL qual has to go on the actual indexscan; create_plan might
+<span class="lineNum">     535 </span>                :            :          * have stuck a gating Result atop that, if there were any pseudoconstant
+<span class="lineNum">     536 </span>                :            :          * quals.
+<span class="lineNum">     537 </span>                :            :          *
+<span class="lineNum">     538 </span>                :            :          * We can skip adding the NOT NULL qual if it's redundant with either an
+<span class="lineNum">     539 </span>                :            :          * already-given WHERE condition, or a clause of the index predicate.
+<span class="lineNum">     540 </span>                :            :          */
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :         plan = create_plan(&amp;subroot, (Path *) info-&gt;path);</span>
+<span class="lineNum">     542 </span>                :            : 
+<span class="lineNum">     543 </span>                :            :     /* Replace the plan's tlist with a copy of the one we built above. */
+<span class="lineNum">     544 </span>                :<span class="lineNoCov">          0 :     plan = plan_pushdown_tlist(root, plan, copyObject(subparse-&gt;targetList));</span>
+<span class="lineNum">     545 </span>                :            : 
+<span class="lineNum">     546 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(plan, Result))</span>
+<span class="lineNum">     547 </span>                :<span class="lineNoCov">          0 :                 iplan = plan-&gt;lefttree;</span>
+<span class="lineNum">     548 </span>                :            :         else
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :                 iplan = plan;</span>
+<span class="lineNum">     550 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(IsA(iplan, IndexScan));</span>
+<span class="lineNum">     551 </span>                :            : 
+<span class="lineNum">     552 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!list_member(iplan-&gt;qual, info-&gt;notnulltest) &amp;&amp;</span>
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :                 !list_member(info-&gt;path-&gt;indexinfo-&gt;indpred, info-&gt;notnulltest))</span>
+<span class="lineNum">     554 </span>                :<span class="lineNoCov">          0 :                 iplan-&gt;qual = lcons(info-&gt;notnulltest, iplan-&gt;qual);</span>
+<span class="lineNum">     555 </span>                :            : 
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 :         plan = (Plan *) make_limit(plan,</span>
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 :                                                            subparse-&gt;limitOffset,</span>
+<span class="lineNum">     558 </span>                :<span class="lineNoCov">          0 :                                                            subparse-&gt;limitCount,</span>
+<span class="lineNum">     559 </span>                :            :                                                            0, 1);
+<span class="lineNum">     560 </span>                :            : 
+<span class="lineNum">     561 </span>                :            :     /* Decorate the Limit node with a Flow node. */
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :     plan-&gt;flow = pull_up_Flow(plan, plan-&gt;lefttree, false);</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :            :         /*
+<span class="lineNum">     565 </span>                :            :          * Convert the plan into an InitPlan, and make a Param for its result.
+<span class="lineNum">     566 </span>                :            :          */
+<span class="lineNum">     567 </span>                :<span class="lineNoCov">          0 :         info-&gt;param = SS_make_initplan_from_plan(&amp;subroot, plan,</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                                                                                          exprType((Node *) tle-&gt;expr),</span>
+<span class="lineNum">     569 </span>                :            :                                                                                          -1);
+<span class="lineNum">     570 </span>                :            : 
+<span class="lineNum">     571 </span>                :            :         /*
+<span class="lineNum">     572 </span>                :            :          * Put the updated list of InitPlans back into the outer PlannerInfo.
+<span class="lineNum">     573 </span>                :            :          */
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :         root-&gt;init_plans = subroot.init_plans;</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>                :            : /*
+<span class="lineNum">     578 </span>                :            :  * Replace original aggregate calls with subplan output Params
+<a name="579"><span class="lineNum">     579 </span>                :            :  */</a>
+<span class="lineNum">     580 </span>                :            : static Node *
+<span class="lineNum">     581 </span>                :            : replace_aggs_with_params_mutator(Node *node, List **context)
+<span class="lineNum">     582 </span>                :            : {
+<span class="lineNum">     583 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node == NULL)</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     585 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(node, Aggref))</span>
+<span class="lineNum">     586 </span>                :            :         {
+<span class="lineNum">     587 </span>                :<span class="lineNoCov">          0 :                 Aggref     *aggref = (Aggref *) node;</span>
+<span class="lineNum">     588 </span>                :            :                 ListCell   *l;
+<span class="lineNum">     589 </span>                :<span class="lineNoCov">          0 :                 Expr       *curTarget = linitial(aggref-&gt;args);</span>
+<span class="lineNum">     590 </span>                :            : 
+<span class="lineNum">     591 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(l, *context)</span>
+<span class="lineNum">     592 </span>                :            :                 {
+<span class="lineNum">     593 </span>                :<span class="lineNoCov">          0 :                         MinMaxAggInfo *info = (MinMaxAggInfo *) lfirst(l);</span>
+<span class="lineNum">     594 </span>                :            : 
+<span class="lineNum">     595 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (info-&gt;aggfnoid == aggref-&gt;aggfnoid &amp;&amp;</span>
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :                                 equal(info-&gt;target, curTarget))</span>
+<span class="lineNum">     597 </span>                :<span class="lineNoCov">          0 :                                 return (Node *) info-&gt;param;</span>
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;failed to re-find aggregate info record&quot;);</span>
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     601 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!IsA(node, SubLink));</span>
+<span class="lineNum">     602 </span>                :<span class="lineNoCov">          0 :         return expression_tree_mutator(node, replace_aggs_with_params_mutator,</span>
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                                                                    (void *) context);</span>
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     605 </span>                :            : 
+<span class="lineNum">     606 </span>                :            : /*
+<span class="lineNum">     607 </span>                :            :  * Get the OID of the sort operator, if any, associated with an aggregate.
+<span class="lineNum">     608 </span>                :            :  * Returns InvalidOid if there is no such operator.
+<a name="609"><span class="lineNum">     609 </span>                :            :  */</a>
+<span class="lineNum">     610 </span>                :            : static Oid
+<span class="lineNum">     611 </span>                :            : fetch_agg_sort_op(Oid aggfnoid)
+<span class="lineNum">     612 </span>                :            : {
+<span class="lineNum">     613 </span>                :            :         HeapTuple       aggTuple;
+<span class="lineNum">     614 </span>                :            :         Form_pg_aggregate aggform;
+<span class="lineNum">     615 </span>                :            :         Oid                     aggsortop;
+<span class="lineNum">     616 </span>                :            : 
+<span class="lineNum">     617 </span>                :            :         /* fetch aggregate entry from pg_aggregate */
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :         aggTuple = SearchSysCache(AGGFNOID,</span>
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :                                                           ObjectIdGetDatum(aggfnoid),</span>
+<span class="lineNum">     620 </span>                :            :                                                           0, 0, 0);
+<span class="lineNum">     621 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(aggTuple))</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                 return InvalidOid;</span>
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :         aggform = (Form_pg_aggregate) GETSTRUCT(aggTuple);</span>
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :         aggsortop = aggform-&gt;aggsortop;</span>
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :         ReleaseSysCache(aggTuple);</span>
+<span class="lineNum">     626 </span>                :            : 
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :         return aggsortop;</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

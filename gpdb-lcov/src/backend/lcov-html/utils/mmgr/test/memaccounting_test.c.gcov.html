@@ -1,0 +1,1499 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mmgr/test/memaccounting_test.c</title>
+  <link rel="stylesheet" type="text/css" href="../../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../../index.html">top level</a> - <a href="index.html">utils/mmgr/test</a> - memaccounting_test.c<span style="font-size: 80%;"> (source / <a href="memaccounting_test.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">495</td>
+            <td class="headerCovTableEntry">498</td>
+            <td class="headerCovTableEntryHi">99.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">37</td>
+            <td class="headerCovTableEntry">38</td>
+            <td class="headerCovTableEntryHi">97.4 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">77</td>
+            <td class="headerCovTableEntry">112</td>
+            <td class="headerCovTableEntryLo">68.8 %</td>
+          </tr>
+          <tr><td><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : #include &lt;stdarg.h&gt;</a>
+<span class="lineNum">       2 </span>                :            : #include &lt;stddef.h&gt;
+<span class="lineNum">       3 </span>                :            : #include &lt;setjmp.h&gt;
+<span class="lineNum">       4 </span>                :            : #include &quot;cmockery.h&quot;
+<span class="lineNum">       5 </span>                :            : 
+<span class="lineNum">       6 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">       7 </span>                :            : 
+<span class="lineNum">       8 </span>                :            : /*
+<span class="lineNum">       9 </span>                :            :  * We assume the maximum output size from any memory accounting output
+<span class="lineNum">      10 </span>                :            :  * generation functions will be 2K bytes. That way we reserve that much
+<span class="lineNum">      11 </span>                :            :  * during initStringInfoOfSize so that we don't allocate any
+<span class="lineNum">      12 </span>                :            :  * additional memory (and as a side effect change the memory accounting
+<span class="lineNum">      13 </span>                :            :  * tree) during the output generation process.
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #define MAX_OUTPUT_BUFFER_SIZE 2048
+<span class="lineNum">      16 </span>                :            : #define NEW_ALLOC_SIZE 1024
+<span class="lineNum">      17 </span>                :            : #define ALLOC_CHUNKHDRSZ        MAXALIGN(sizeof(StandardChunkHeader))
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : #define AllocPointerGetChunk(ptr)       \
+<span class="lineNum">      20 </span>                :            :                                         ((StandardChunkHeader *)(((char *)(ptr)) - ALLOC_CHUNKHDRSZ))
+<span class="lineNum">      21 </span>                :            : 
+<span class="lineNum">      22 </span>                :            : static StringInfoData outputBuffer;
+<span class="lineNum">      23 </span>                :            : int elevel;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : static void elog_mock(int elevel, const char *fmt,...);
+<span class="lineNum">      26 </span>                :            : static void write_stderr_mock(const char *fmt,...);
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :            : /* We will capture write_stderr output using write_stderr_mock */
+<span class="lineNum">      29 </span>                :            : #define write_stderr write_stderr_mock
+<span class="lineNum">      30 </span>                :            : 
+<span class="lineNum">      31 </span>                :            : #define elog elog_mock
+<span class="lineNum">      32 </span>                :            : 
+<span class="lineNum">      33 </span>                :            : /* We will capture fwrite output using fwrite_mock */
+<span class="lineNum">      34 </span>                :            : #undef fwrite
+<span class="lineNum">      35 </span>                :            : #define fwrite fwrite_mock
+<span class="lineNum">      36 </span>                :            : 
+<span class="lineNum">      37 </span>                :            : /*
+<span class="lineNum">      38 </span>                :            :  * We need to override fopen and fclose to ensure that we don't attempt to write
+<span class="lineNum">      39 </span>                :            :  * anything to the disk. This might fail on the pulse as pg_log directory is not
+<span class="lineNum">      40 </span>                :            :  * set and there might be a permission issue
+<span class="lineNum">      41 </span>                :            :  */
+<span class="lineNum">      42 </span>                :            : #undef fopen
+<span class="lineNum">      43 </span>                :            : /* Return arbitrary pointer so that we don't bypass fwrite completely */
+<span class="lineNum">      44 </span>                :            : #define fopen(fileName, mode) 0xabcdef;
+<span class="lineNum">      45 </span>                :            : 
+<span class="lineNum">      46 </span>                :            : #undef fclose
+<span class="lineNum">      47 </span>                :            : #define fclose(fileHandle)
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : void write_stderr_mock(const char *fmt,...);
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : #include &quot;../memaccounting.c&quot;
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>                :            : #include &quot;utils/memaccounting_private.h&quot;
+<span class="lineNum">      54 </span>                :            : 
+<span class="lineNum">      55 </span>                :            : #define EXPECT_EXCEPTION()     \
+<span class="lineNum">      56 </span>                :            :         expect_any(ExceptionalCondition,conditionName); \
+<span class="lineNum">      57 </span>                :            :         expect_any(ExceptionalCondition,errorType); \
+<span class="lineNum">      58 </span>                :            :         expect_any(ExceptionalCondition,fileName); \
+<span class="lineNum">      59 </span>                :            :         expect_any(ExceptionalCondition,lineNumber); \
+<span class="lineNum">      60 </span>                :            :     will_be_called_with_sideeffect(ExceptionalCondition, &amp;_ExceptionalCondition, NULL);\
+<a name="61"><span class="lineNum">      61 </span>                :            : </a>
+<span class="lineNum">      62 </span>                :            : static void
+<span class="lineNum">      63 </span>                :            : elog_mock(int passed_elevel, const char *fmt, ...)
+<span class="lineNum">      64 </span>                :            : {
+<span class="lineNum">      65 </span>                :            :     va_list             ap;
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :<span class="lineCov">          4 :     fmt = _(fmt);</span>
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :<span class="lineCov">          4 :     va_start(ap, fmt);</span>
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>                :            :         char            buf[2048];
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :<span class="lineCov">          4 :         vsnprintf(buf, sizeof(buf), fmt, ap);</span>
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :<span class="lineCov">          4 :         appendStringInfo(&amp;outputBuffer, buf);</span>
+<span class="lineNum">      76 </span>                :            : 
+<span class="lineNum">      77 </span>                :<span class="lineCov">          4 :         elevel = passed_elevel;</span>
+<span class="lineNum">      78 </span>                :            : 
+<span class="lineNum">      79 </span>                :<span class="lineCov">          4 :         va_end(ap);</span>
+<span class="lineNum">      80 </span>                :<span class="lineCov">          4 : }</span>
+<span class="lineNum">      81 </span>                :            : 
+<span class="lineNum">      82 </span>                :            : /*
+<span class="lineNum">      83 </span>                :            :  * Mocks the function write_stderr and captures the output in
+<span class="lineNum">      84 </span>                :            :  * the global outputBuffer
+<a name="85"><span class="lineNum">      85 </span>                :            :  */</a>
+<span class="lineNum">      86 </span>                :            : static void
+<span class="lineNum">      87 </span>                :            : write_stderr_mock(const char *fmt, ...)
+<span class="lineNum">      88 </span>                :            : {
+<span class="lineNum">      89 </span>                :            :     va_list             ap;
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>                :<span class="lineCov">         20 :     fmt = _(fmt);</span>
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :<span class="lineCov">         20 :     va_start(ap, fmt);</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            :         char            buf[2048];
+<span class="lineNum">      96 </span>                :            : 
+<span class="lineNum">      97 </span>                :<span class="lineCov">         20 :         vsnprintf(buf, sizeof(buf), fmt, ap);</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :<span class="lineCov">         20 :         appendStringInfo(&amp;outputBuffer, buf);</span>
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :<span class="lineCov">         20 :         va_end(ap);</span>
+<span class="lineNum">     102 </span>                :<span class="lineCov">         20 : }</span>
+<span class="lineNum">     103 </span>                :            : 
+<span class="lineNum">     104 </span>                :            : /*
+<span class="lineNum">     105 </span>                :            :  * Mocks the function fwrite and captures the output in
+<span class="lineNum">     106 </span>                :            :  * the global outputBuffer
+<a name="107"><span class="lineNum">     107 </span>                :            :  */</a>
+<span class="lineNum">     108 </span>                :            : int
+<span class="lineNum">     109 </span>                :            : fwrite_mock(const char *data, Size size, Size count, FILE *file)
+<span class="lineNum">     110 </span>                :            : {
+<span class="lineNum">     111 </span>                :<span class="lineCov">          2 :         appendStringInfo(&amp;outputBuffer, data);</span>
+<span class="lineNum">     112 </span>                :            : 
+<span class="lineNum">     113 </span>                :<span class="lineCov">          2 :         return count;</span>
+<span class="lineNum">     114 </span>                :            : }
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>                :            : #define PG_RE_THROW() siglongjmp(*PG_exception_stack, 1)
+<span class="lineNum">     117 </span>                :            : /*
+<span class="lineNum">     118 </span>                :            :  * This method will emulate the real ExceptionalCondition
+<span class="lineNum">     119 </span>                :            :  * function by re-throwing the exception, essentially falling
+<span class="lineNum">     120 </span>                :            :  * back to the next available PG_CATCH();
+<a name="121"><span class="lineNum">     121 </span>                :            :  */</a>
+<span class="lineNum">     122 </span>                :            : void
+<span class="lineNum">     123 </span>                :            : _ExceptionalCondition()
+<span class="lineNum">     124 </span>                :            : {
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :      PG_RE_THROW();</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>                :            : /*
+<span class="lineNum">     129 </span>                :            :  * This method sets up MemoryContext tree as well as
+<a name="130"><span class="lineNum">     130 </span>                :            :  * the basic MemoryAccount data structures.</a>
+<span class="lineNum">     131 </span>                :            :  */
+<span class="lineNum">     132 </span>                :            : void SetupMemoryDataStructures(void **state)
+<span class="lineNum">     133 </span>                :            : {
+<span class="lineNum">     134 </span>                :<span class="lineCov">         60 :         MemoryContextInit();</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :<span class="lineCov">         60 :         initStringInfoOfSize(&amp;outputBuffer, MAX_OUTPUT_BUFFER_SIZE);</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>                :<span class="lineCov">         60 :         elevel = INT_MAX;</span>
+<span class="lineNum">     139 </span>                :<span class="lineCov">         60 : }</span>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :            : /*
+<span class="lineNum">     142 </span>                :            :  * This method cleans up MemoryContext tree and
+<span class="lineNum">     143 </span>                :            :  * the MemoryAccount data structures.
+<a name="144"><span class="lineNum">     144 </span>                :            :  */</a>
+<span class="lineNum">     145 </span>                :            : void
+<span class="lineNum">     146 </span>                :            : TeardownMemoryDataStructures(void **state)
+<span class="lineNum">     147 </span>                :            : {
+<span class="lineNum">     148 </span>                :            :         /*
+<span class="lineNum">     149 </span>                :            :          * Ensure that no existing allocation refers to any short-living accounts. All
+<span class="lineNum">     150 </span>                :            :          * short living accounts live in MemoryAccountMemoryAccount which is soon going
+<span class="lineNum">     151 </span>                :            :          * to be reset via TopMemoryContext reset.
+<span class="lineNum">     152 </span>                :            :          */
+<span class="lineNum">     153 </span>                :<span class="lineCov">         60 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     154 </span>                :<span class="lineCov">         60 :         MemoryAccounting_SwitchAccount(MEMORY_OWNER_TYPE_Rollover);</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineCov">         60 :         MemoryContextReset(TopMemoryContext); /* TopMemoryContext deletion is not supported */</span>
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :            :         /* These are needed to be NULL for calling MemoryContextInit() */
+<span class="lineNum">     159 </span>                :<span class="lineCov">         60 :         TopMemoryContext = NULL;</span>
+<span class="lineNum">     160 </span>                :<span class="lineCov">         60 :         CurrentMemoryContext = NULL;</span>
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>                :            :         /*
+<span class="lineNum">     163 </span>                :            :          * Memory accounts related variables need to be NULL before we
+<span class="lineNum">     164 </span>                :            :          * try to setup memory account data structure again during the
+<span class="lineNum">     165 </span>                :            :          * execution of the next test.
+<span class="lineNum">     166 </span>                :            :          */
+<span class="lineNum">     167 </span>                :<span class="lineCov">         60 :         MemoryAccountMemoryAccount = NULL;</span>
+<span class="lineNum">     168 </span>                :<span class="lineCov">         60 :         RolloverMemoryAccount = NULL;</span>
+<span class="lineNum">     169 </span>                :<span class="lineCov">         60 :         SharedChunkHeadersMemoryAccount = NULL;</span>
+<span class="lineNum">     170 </span>                :<span class="lineCov">         60 :         AlienExecutorMemoryAccount = NULL;</span>
+<span class="lineNum">     171 </span>                :<span class="lineCov">         60 :         MemoryAccountMemoryContext = NULL;</span>
+<span class="lineNum">     172 </span>                :            : 
+<span class="lineNum">     173 </span>                :<span class="lineCov">         60 :         ActiveMemoryAccountId = MEMORY_OWNER_TYPE_Undefined;</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>        [<span class="branchCov" title="Branch 0 was taken 300 times"> + </span><span class="branchCov" title="Branch 1 was taken 60 times"> + </span>]:<span class="lineCov">        360 :         for (int longLivingIdx = MEMORY_OWNER_TYPE_LogicalRoot; longLivingIdx &lt;= MEMORY_OWNER_TYPE_END_LONG_LIVING; longLivingIdx++)</span>
+<span class="lineNum">     176 </span>                :            :         {
+<span class="lineNum">     177 </span>                :<span class="lineCov">        300 :                 longLivingMemoryAccountArray[longLivingIdx] = NULL;</span>
+<span class="lineNum">     178 </span>                :<span class="lineCov">        300 :         }</span>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>                :<span class="lineCov">         60 :         shortLivingMemoryAccountArray = NULL;</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineCov">         60 :         liveAccountStartId = MEMORY_OWNER_TYPE_START_SHORT_LIVING;</span>
+<span class="lineNum">     183 </span>                :<span class="lineCov">         60 :         nextAccountId = MEMORY_OWNER_TYPE_START_SHORT_LIVING;</span>
+<span class="lineNum">     184 </span>                :<span class="lineCov">         60 : }</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :            : /*
+<span class="lineNum">     187 </span>                :            :  * Checks if the created account has correct owner type and quota set.
+<a name="188"><span class="lineNum">     188 </span>                :            :  */</a>
+<span class="lineNum">     189 </span>                :            : void
+<span class="lineNum">     190 </span>                :            : test__CreateMemoryAccountImpl__AccountProperties(void **state)
+<span class="lineNum">     191 </span>                :            : {
+<span class="lineNum">     192 </span>                :<span class="lineCov">          2 :         uint64 limits[] = {0, 2048, ULONG_LONG_MAX};</span>
+<span class="lineNum">     193 </span>                :<span class="lineCov">          2 :         MemoryOwnerType memoryOwnerTypes[] = {MEMORY_OWNER_TYPE_Planner, MEMORY_OWNER_TYPE_Exec_Hash};</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          8 :         for (int i = 0; i &lt; sizeof(limits)/sizeof(uint64); i++)</span>
+<span class="lineNum">     196 </span>                :            :         {
+<span class="lineNum">     197 </span>                :<span class="lineCov">          6 :                 uint64 curLimit = limits[i];</span>
+<span class="lineNum">     198 </span>                :            : 
+<span class="lineNum">     199 </span>        [<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchCov" title="Branch 1 was taken 6 times"> + </span>]:<span class="lineCov">         18 :                 for (int j = 0; j &lt; sizeof(memoryOwnerTypes)/sizeof(MemoryOwnerType); j++)</span>
+<span class="lineNum">     200 </span>                :            :                 {
+<span class="lineNum">     201 </span>                :<span class="lineCov">         12 :                         MemoryOwnerType curOwnerType = memoryOwnerTypes[j];</span>
+<span class="lineNum">     202 </span>                :            : 
+<span class="lineNum">     203 </span>                :<span class="lineCov">         12 :                         MemoryAccountIdType newAccountId = CreateMemoryAccountImpl(curLimit, curOwnerType, ActiveMemoryAccountId);</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :<span class="lineCov">         12 :                         MemoryAccount* newAccount = MemoryAccounting_ConvertIdToAccount(newAccountId);</span>
+<span class="lineNum">     206 </span>                :            :                         /*
+<span class="lineNum">     207 </span>                :            :                          * Make sure we create account with valid tag, desired
+<span class="lineNum">     208 </span>                :            :                          * ownerType and provided quota limit
+<span class="lineNum">     209 </span>                :            :                          */
+<span class="lineNum">     210 </span>                :<span class="lineCov">         12 :                         assert_true(MemoryAccounting_IsLiveAccount(newAccountId));</span>
+<span class="lineNum">     211 </span>                :<span class="lineCov">         12 :                         assert_true(newAccount-&gt;ownerType == curOwnerType);</span>
+<span class="lineNum">     212 </span>                :<span class="lineCov">         12 :                         assert_true(newAccount-&gt;maxLimit == curLimit);</span>
+<span class="lineNum">     213 </span>                :            :                         /*
+<span class="lineNum">     214 </span>                :            :                          * We did not create any of the basic accounts (e.g., TopMemoryAccount,
+<span class="lineNum">     215 </span>                :            :                          * RolloverMemoryAccount etc.). Therefore, the parent should be the
+<span class="lineNum">     216 </span>                :            :                          * one we provided.
+<span class="lineNum">     217 </span>                :            :                          */
+<span class="lineNum">     218 </span>                :<span class="lineCov">         12 :                         assert_true(newAccount-&gt;parentId == ActiveMemoryAccountId);</span>
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>[<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 12 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">         12 :                         assert_true(0 == newAccount-&gt;allocated &amp;&amp; 0 == newAccount-&gt;freed &amp;&amp; 0 == newAccount-&gt;peak);</span>
+<span class="lineNum">     221 </span>                :<span class="lineCov">         12 :                 }</span>
+<span class="lineNum">     222 </span>                :<span class="lineCov">          6 :         }</span>
+<span class="lineNum">     223 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            : /*
+<span class="lineNum">     226 </span>                :            :  * Checks the separation between active and parent account. Typically
+<span class="lineNum">     227 </span>                :            :  * they are same, but we want to test the general case where they
+<span class="lineNum">     228 </span>                :            :  * are different.
+<a name="229"><span class="lineNum">     229 </span>                :            :  */</a>
+<span class="lineNum">     230 </span>                :            : void
+<span class="lineNum">     231 </span>                :            : test__CreateMemoryAccountImpl__ActiveVsParent(void **state)
+<span class="lineNum">     232 </span>                :            : {
+<span class="lineNum">     233 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType tempParentAccountId = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId);</span>
+<span class="lineNum">     234 </span>                :<span class="lineCov">          2 :         assert_true(tempParentAccountId != ActiveMemoryAccountId);</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType tempChildAccountId = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_SeqScan, tempParentAccountId);</span>
+<span class="lineNum">     237 </span>                :<span class="lineCov">          2 :         MemoryAccount *tempChildAccount = MemoryAccounting_ConvertIdToAccount(tempChildAccountId);</span>
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>                :            :         /* Make sure we are not blindly using ActiveMemoryAccount */
+<span class="lineNum">     240 </span>                :<span class="lineCov">          2 :         assert_true(tempChildAccount-&gt;parentId == tempParentAccountId);</span>
+<span class="lineNum">     241 </span>                :            :         /* And we still have a different ActiveMemoryAccountId */
+<span class="lineNum">     242 </span>                :<span class="lineCov">          2 :         assert_true(tempChildAccount-&gt;parentId != ActiveMemoryAccountId);</span>
+<span class="lineNum">     243 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>                :            : /*
+<span class="lineNum">     246 </span>                :            :  * Checks whether the regular account creation charges the overhead
+<span class="lineNum">     247 </span>                :            :  * in the MemoryAccountMemoryAccount and SharedChunkHeadersMemoryAccount.
+<a name="248"><span class="lineNum">     248 </span>                :            :  */</a>
+<span class="lineNum">     249 </span>                :            : void
+<span class="lineNum">     250 </span>                :            : test__CreateMemoryAccountImpl__TracksMemoryOverhead(void **state)
+<span class="lineNum">     251 </span>                :            : {
+<span class="lineNum">     252 </span>                :<span class="lineCov">          2 :         MemoryAccount *tempParentAccount = MemoryAccounting_ConvertIdToAccount(</span>
+<span class="lineNum">     253 </span>                :<span class="lineCov">          2 :                         CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId));</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>                :            : 
+<span class="lineNum">     256 </span>                :<span class="lineCov">          2 :         uint64 prevAllocated = MemoryAccountMemoryAccount-&gt;allocated;</span>
+<span class="lineNum">     257 </span>                :<span class="lineCov">          2 :         uint64 prevFreed = MemoryAccountMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     258 </span>                :<span class="lineCov">          2 :         uint64 prevOverallOutstanding = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :<span class="lineCov">          2 :         uint64 prevSharedAllocated = SharedChunkHeadersMemoryAccount-&gt;allocated;</span>
+<span class="lineNum">     261 </span>                :<span class="lineCov">          2 :         uint64 prevSharedFreed = SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     262 </span>                :            : 
+<span class="lineNum">     263 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType tempChildAccountId = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, tempParentAccount);</span>
+<span class="lineNum">     264 </span>                :            : 
+<span class="lineNum">     265 </span>                :            :         /* Only MemoryAccountMemoryAccount changed, and nothing else changed */
+<span class="lineNum">     266 </span>                :<span class="lineCov">          2 :         assert_true((MemoryAccountMemoryAccount-&gt;allocated - prevAllocated) +</span>
+<span class="lineNum">     267 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated - prevSharedAllocated) ==
+<span class="lineNum">     268 </span>                :            :                         (MemoryAccountingOutstandingBalance - prevOverallOutstanding));
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :         /* Make sure we saw an increase of balance in MemoryAccountMemoryAccount */
+<span class="lineNum">     271 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountMemoryAccount-&gt;allocated &gt; prevAllocated);</span>
+<span class="lineNum">     272 </span>                :            :         /*
+<span class="lineNum">     273 </span>                :            :          * All the accounts are created in MemoryAccountMemoryContext, with
+<span class="lineNum">     274 </span>                :            :          * MemoryAccountMemoryAccount as the ActiveMemoryAccount. So, they
+<span class="lineNum">     275 </span>                :            :          * should find a shared header, without increasing SharedChunkHeadersMemoryAccount
+<span class="lineNum">     276 </span>                :            :          * balance
+<span class="lineNum">     277 </span>                :            :          */
+<span class="lineNum">     278 </span>                :<span class="lineCov">          2 :         assert_true(SharedChunkHeadersMemoryAccount-&gt;allocated == prevSharedAllocated);</span>
+<span class="lineNum">     279 </span>                :            :         /* Nothing was freed from MemoryAccountMemoryAccount */
+<span class="lineNum">     280 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountMemoryAccount-&gt;freed == prevFreed);</span>
+<span class="lineNum">     281 </span>                :<span class="lineCov">          2 :         assert_true(SharedChunkHeadersMemoryAccount-&gt;freed == prevSharedFreed);</span>
+<span class="lineNum">     282 </span>                :            : 
+<span class="lineNum">     283 </span>                :            :         /*
+<span class="lineNum">     284 </span>                :            :          * Now check SharedChunkHeadersMemoryAccount balance increase by ensuring we
+<span class="lineNum">     285 </span>                :            :          * cannot reuse an existing sharedChunkHeader.
+<span class="lineNum">     286 </span>                :            :          */
+<span class="lineNum">     287 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(tempChildAccountId);</span>
+<span class="lineNum">     288 </span>                :<span class="lineCov">          2 :         void * dummy = palloc(1);</span>
+<span class="lineNum">     289 </span>                :            : 
+<span class="lineNum">     290 </span>                :            :         /*
+<span class="lineNum">     291 </span>                :            :          * The new allocation cannot share any previous header as we didn't have
+<span class="lineNum">     292 </span>                :            :          * any Hash account. So, we should have allocated new shared header, increasing
+<span class="lineNum">     293 </span>                :            :          * the balance of SharedChunkHeadersMemoryAccount
+<span class="lineNum">     294 </span>                :            :          */
+<span class="lineNum">     295 </span>                :<span class="lineCov">          2 :         assert_true(SharedChunkHeadersMemoryAccount-&gt;allocated &gt; prevSharedAllocated);</span>
+<span class="lineNum">     296 </span>                :<span class="lineCov">          2 :         assert_true(SharedChunkHeadersMemoryAccount-&gt;freed == prevSharedFreed);</span>
+<span class="lineNum">     297 </span>                :            : 
+<span class="lineNum">     298 </span>                :<span class="lineCov">          2 :         pfree(dummy);</span>
+<span class="lineNum">     299 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>                :            : /*
+<span class="lineNum">     302 </span>                :            :  * Checks whether the regular account creation charges the overhead
+<span class="lineNum">     303 </span>                :            :  * in the MemoryAccountMemoryContext.
+<a name="304"><span class="lineNum">     304 </span>                :            :  */</a>
+<span class="lineNum">     305 </span>                :            : void
+<span class="lineNum">     306 </span>                :            : test__CreateMemoryAccountImpl__AllocatesOnlyFromMemoryAccountMemoryContext(void **state)
+<span class="lineNum">     307 </span>                :            : {
+<span class="lineNum">     308 </span>                :<span class="lineCov">          2 :         uint64 MemoryAccountMemoryContextOldAlloc = MemoryAccountMemoryContext-&gt;allBytesAlloc;</span>
+<span class="lineNum">     309 </span>                :<span class="lineCov">          2 :         uint64 MemoryAccountMemoryContextOldFreed = MemoryAccountMemoryContext-&gt;allBytesFreed;</span>
+<span class="lineNum">     310 </span>                :            : 
+<span class="lineNum">     311 </span>                :<span class="lineCov">          2 :         uint64 TopMemoryContextOldAlloc = TopMemoryContext-&gt;allBytesAlloc;</span>
+<span class="lineNum">     312 </span>                :<span class="lineCov">          2 :         uint64 TopMemoryContextOldFreed = TopMemoryContext-&gt;allBytesFreed;</span>
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>                :            :         /*
+<span class="lineNum">     315 </span>                :            :          * Increase MemoryAccountMemoryContext balance by creating enough accounts
+<span class="lineNum">     316 </span>                :            :          * to trigger a new block reservation in allocation set. Note, creating
+<span class="lineNum">     317 </span>                :            :          * one account may not increase the balance, as the balance is in terms
+<span class="lineNum">     318 </span>                :            :          * of blocks reserved, and not in terms of actual usage.
+<span class="lineNum">     319 </span>                :            :          */
+<span class="lineNum">     320 </span>        [<span class="branchCov" title="Branch 0 was taken 294 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">        296 :         for (int i = 0; i &lt;= ALLOCSET_DEFAULT_INITSIZE / sizeof(MemoryAccount); i++)</span>
+<span class="lineNum">     321 </span>                :            :         {
+<span class="lineNum">     322 </span>                :<span class="lineCov">        294 :                 CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId);</span>
+<span class="lineNum">     323 </span>                :<span class="lineCov">        294 :         }</span>
+<span class="lineNum">     324 </span>                :            : 
+<span class="lineNum">     325 </span>                :            :         /* Make sure the TopMemoryContext is reflecting the new allocations */
+<span class="lineNum">     326 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(TopMemoryContextOldAlloc &gt; 0 &amp;&amp; TopMemoryContext-&gt;allBytesAlloc &gt; TopMemoryContextOldAlloc);</span>
+<span class="lineNum">     327 </span>                :            :         /* MemoryAccountMemoryContext should reflect a balance increase */
+<span class="lineNum">     328 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(MemoryAccountMemoryContextOldAlloc &gt; 0 &amp;&amp; MemoryAccountMemoryContext-&gt;allBytesAlloc &gt; MemoryAccountMemoryContextOldAlloc);</span>
+<span class="lineNum">     329 </span>                :            :         /*
+<span class="lineNum">     330 </span>                :            :          * The entire TopMemoryContext balance change should be due to
+<span class="lineNum">     331 </span>                :            :          * MemoryAccountMemoryContext balance change
+<span class="lineNum">     332 </span>                :            :          */
+<span class="lineNum">     333 </span>                :<span class="lineCov">          2 :         assert_true((MemoryAccountMemoryContext-&gt;allBytesAlloc - MemoryAccountMemoryContextOldAlloc) ==</span>
+<span class="lineNum">     334 </span>                :            :                         (TopMemoryContext-&gt;allBytesAlloc - TopMemoryContextOldAlloc));
+<span class="lineNum">     335 </span>                :            : 
+<span class="lineNum">     336 </span>                :            :         /* Nothing should be freed */
+<span class="lineNum">     337 </span>                :<span class="lineCov">          2 :         assert_true(TopMemoryContext-&gt;allBytesFreed == TopMemoryContextOldFreed);</span>
+<span class="lineNum">     338 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountMemoryContext-&gt;allBytesFreed == MemoryAccountMemoryContextOldFreed);</span>
+<span class="lineNum">     339 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     340 </span>                :            : 
+<span class="lineNum">     341 </span>                :            : /*
+<span class="lineNum">     342 </span>                :            :  * This method tests whether MemoryAccounting_SwitchAccount
+<span class="lineNum">     343 </span>                :            :  * actually switches the ActiveMemoryAccount to the correct
+<span class="lineNum">     344 </span>                :            :  * one.
+<a name="345"><span class="lineNum">     345 </span>                :            :  */</a>
+<span class="lineNum">     346 </span>                :            : void
+<span class="lineNum">     347 </span>                :            : test__MemoryAccounting_SwitchAccount__AccountIsSwitched(void **state)
+<span class="lineNum">     348 </span>                :            : {
+<span class="lineNum">     349 </span>                :<span class="lineCov">          2 :         MemoryAccount *newAccount = 0xabcdefab;</span>
+<span class="lineNum">     350 </span>                :            :         /*
+<span class="lineNum">     351 </span>                :            :          * ActiveMemoryAccountId should be set to Top, but we don't care. We only
+<span class="lineNum">     352 </span>                :            :          * want to make sure if switching to an account will work
+<span class="lineNum">     353 </span>                :            :          */
+<span class="lineNum">     354 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId != MEMORY_OWNER_TYPE_MemAccount);</span>
+<span class="lineNum">     355 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldAccountId = MemoryAccounting_SwitchAccount(MEMORY_OWNER_TYPE_MemAccount);</span>
+<span class="lineNum">     356 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId == MEMORY_OWNER_TYPE_MemAccount);</span>
+<span class="lineNum">     357 </span>                :<span class="lineCov">          2 :         assert_true(oldAccountId == MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     358 </span>                :            :         /* We are still in first gen. So, even for short-living account &quot;Top&quot; its id should equal to its enum */
+<span class="lineNum">     359 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     360 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId == MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     361 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     362 </span>                :            : 
+<span class="lineNum">     363 </span>                :            : /*
+<span class="lineNum">     364 </span>                :            :  * This method tests whether MemoryAccountIsValid correctly
+<span class="lineNum">     365 </span>                :            :  * determines the validity of the input account.
+<a name="366"><span class="lineNum">     366 </span>                :            :  */</a>
+<span class="lineNum">     367 </span>                :            : void
+<span class="lineNum">     368 </span>                :            : test__MemoryAccountIsValid__ProperValidation(void **state)
+<span class="lineNum">     369 </span>                :            : {
+<span class="lineNum">     370 </span>                :<span class="lineCov">          2 :         int shortLivingCount = shortLivingMemoryAccountArray-&gt;accountCount;</span>
+<span class="lineNum">     371 </span>                :            :         /* The initialization already should populate at least Top memory account */
+<span class="lineNum">     372 </span>                :<span class="lineCov">          2 :         assert_true(NULL != shortLivingMemoryAccountArray);</span>
+<span class="lineNum">     373 </span>                :<span class="lineCov">          2 :         assert_true(shortLivingMemoryAccountArray-&gt;accountCount &gt; 0);</span>
+<span class="lineNum">     374 </span>                :            : 
+<span class="lineNum">     375 </span>                :            :         /* Create some short accounts */
+<span class="lineNum">     376 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType extraShortAccountId1 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Append);</span>
+<span class="lineNum">     377 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType extraShortAccountId2 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     378 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType extraShortAccountId3 = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_SeqScan);</span>
+<span class="lineNum">     379 </span>                :            : 
+<span class="lineNum">     380 </span>                :<span class="lineCov">          2 :         MemoryAccountArray* accountArray = shortLivingMemoryAccountArray;</span>
+<span class="lineNum">     381 </span>                :            : 
+<span class="lineNum">     382 </span>                :            :         /* Test when no short living account exists */
+<span class="lineNum">     383 </span>                :<span class="lineCov">          2 :         shortLivingMemoryAccountArray = NULL;</span>
+<span class="lineNum">     384 </span>                :<span class="lineCov">          2 :         uint64 oldNext = nextAccountId;</span>
+<span class="lineNum">     385 </span>                :            :         /* Bypass the assertion that live is same as next if no short account */
+<span class="lineNum">     386 </span>                :<span class="lineCov">          2 :         nextAccountId = liveAccountStartId;</span>
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_END_LONG_LIVING));</span>
+<span class="lineNum">     389 </span>                :            :         /*
+<span class="lineNum">     390 </span>                :            :          * If shortLivingMemoryAccountArray is NULL, any ID beyond
+<span class="lineNum">     391 </span>                :            :          * MEMORY_OWNER_TYPE_END_LONG_LIVING will be considered invalid
+<span class="lineNum">     392 </span>                :            :          */
+<span class="lineNum">     393 </span>                :<span class="lineCov">          2 :         assert_false(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_END_LONG_LIVING + 1));</span>
+<span class="lineNum">     394 </span>                :            : 
+<span class="lineNum">     395 </span>                :            :         /* Restoring shortLivingAccountArray to check for valid accounts */
+<span class="lineNum">     396 </span>                :<span class="lineCov">          2 :         shortLivingMemoryAccountArray = accountArray;</span>
+<span class="lineNum">     397 </span>                :<span class="lineCov">          2 :         nextAccountId = oldNext;</span>
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_Rollover));</span>
+<span class="lineNum">     400 </span>                :            :         /* liveAccountStartId should be the id of Top account */
+<span class="lineNum">     401 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(liveAccountStartId));</span>
+<span class="lineNum">     402 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_END_LONG_LIVING + shortLivingMemoryAccountArray-&gt;accountCount - 1));</span>
+<span class="lineNum">     403 </span>                :            : 
+<span class="lineNum">     404 </span>                :            :         /* Check for a false return for boundary */
+<span class="lineNum">     405 </span>                :<span class="lineCov">          2 :         assert_false(MemoryAccounting_IsLiveAccount(</span>
+<span class="lineNum">     406 </span>                :            :                         MEMORY_OWNER_TYPE_END_LONG_LIVING + shortLivingMemoryAccountArray-&gt;accountCount +
+<span class="lineNum">     407 </span>                :            :                         1 /* Reserved 1 for invalid */));
+<span class="lineNum">     408 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     409 </span>                :            : 
+<span class="lineNum">     410 </span>                :            : /*
+<span class="lineNum">     411 </span>                :            :  * Tests if the MemoryAccounting_Reset() reuses the long living accounts
+<span class="lineNum">     412 </span>                :            :  * such as SharedChunkHeadersMemoryAccount, RolloverMemoryAccount,
+<span class="lineNum">     413 </span>                :            :  * MemoryAccountMemoryAccount and MemoryAccountTreeLogicalRoot
+<span class="lineNum">     414 </span>                :            :  * (i.e., they should not be recreated)
+<a name="415"><span class="lineNum">     415 </span>                :            :  */</a>
+<span class="lineNum">     416 </span>                :            : void
+<span class="lineNum">     417 </span>                :            : test__MemoryAccounting_Reset__ReusesLongLivingAccounts(void **state)
+<span class="lineNum">     418 </span>                :            : {
+<span class="lineNum">     419 </span>                :<span class="lineCov">          2 :         MemoryAccount *oldLogicalRoot = MemoryAccounting_ConvertIdToAccount(MEMORY_OWNER_TYPE_LogicalRoot);</span>
+<span class="lineNum">     420 </span>                :<span class="lineCov">          2 :         MemoryAccount *oldSharedChunkHeadersMemoryAccount = SharedChunkHeadersMemoryAccount;</span>
+<span class="lineNum">     421 </span>                :<span class="lineCov">          2 :         MemoryAccount *oldRollover = RolloverMemoryAccount;</span>
+<span class="lineNum">     422 </span>                :<span class="lineCov">          2 :         MemoryAccount *oldMemoryAccount = MemoryAccountMemoryAccount;</span>
+<span class="lineNum">     423 </span>                :            : 
+<span class="lineNum">     424 </span>                :            :         /*
+<span class="lineNum">     425 </span>                :            :          * We want to make sure that the reset process preserves
+<span class="lineNum">     426 </span>                :            :          * long-living accounts. A pointer comparison is not safe,
+<span class="lineNum">     427 </span>                :            :          * as pointers may be same, even for newly created accounts.
+<span class="lineNum">     428 </span>                :            :          * Therefore, we are marking old accounts with special
+<span class="lineNum">     429 </span>                :            :          * maxLimit, so that we can identify if we are reusing
+<span class="lineNum">     430 </span>                :            :          * existing accounts or creating new ones.
+<span class="lineNum">     431 </span>                :            :          */
+<span class="lineNum">     432 </span>                :<span class="lineCov">          2 :         oldLogicalRoot-&gt;maxLimit = ULONG_LONG_MAX;</span>
+<span class="lineNum">     433 </span>                :<span class="lineCov">          2 :         oldSharedChunkHeadersMemoryAccount-&gt;maxLimit = ULONG_LONG_MAX;</span>
+<span class="lineNum">     434 </span>                :<span class="lineCov">          2 :         oldRollover-&gt;maxLimit = ULONG_LONG_MAX;</span>
+<span class="lineNum">     435 </span>                :<span class="lineCov">          2 :         oldMemoryAccount-&gt;maxLimit = ULONG_LONG_MAX;</span>
+<span class="lineNum">     436 </span>                :            : 
+<span class="lineNum">     437 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     438 </span>                :            : 
+<span class="lineNum">     439 </span>                :            :         /* Make sure we have a valid set of accounts */
+<span class="lineNum">     440 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_LogicalRoot));</span>
+<span class="lineNum">     441 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_SharedChunkHeader));</span>
+<span class="lineNum">     442 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_Rollover));</span>
+<span class="lineNum">     443 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_IsLiveAccount(MEMORY_OWNER_TYPE_MemAccount));</span>
+<span class="lineNum">     444 </span>                :            : 
+<span class="lineNum">     445 </span>                :<span class="lineCov">          2 :         MemoryAccount *root = MemoryAccounting_ConvertIdToAccount(MEMORY_OWNER_TYPE_LogicalRoot);</span>
+<span class="lineNum">     446 </span>                :            :         /* MemoryAccountTreeLogicalRoot should be reused (i.e., MemoryAccountTreeLogicalRoot will survive the reset) */
+<span class="lineNum">     447 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(oldLogicalRoot &amp;&amp; root &amp;&amp;</span>
+<span class="lineNum">     448 </span>                :            :                         root-&gt;maxLimit == ULONG_LONG_MAX);
+<span class="lineNum">     449 </span>                :            : 
+<span class="lineNum">     450 </span>                :            :         /* SharedChunkHeadersMemoryAccount should be reused (i.e., SharedChunkHeadersMemoryAccount will survive the reset) */
+<span class="lineNum">     451 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(oldSharedChunkHeadersMemoryAccount &amp;&amp; SharedChunkHeadersMemoryAccount &amp;&amp;</span>
+<span class="lineNum">     452 </span>                :            :                         SharedChunkHeadersMemoryAccount-&gt;maxLimit == ULONG_LONG_MAX);
+<span class="lineNum">     453 </span>                :            : 
+<span class="lineNum">     454 </span>                :            :         /* RolloverMemoryAccount should be reused (i.e., rollover will survive the reset) */
+<span class="lineNum">     455 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(oldRollover &amp;&amp; RolloverMemoryAccount &amp;&amp; RolloverMemoryAccount-&gt;maxLimit == ULONG_LONG_MAX);</span>
+<span class="lineNum">     456 </span>                :            : 
+<span class="lineNum">     457 </span>                :            :         /* MemoryAccountMemoryAccount should be reused (i.e., MemoryAccountMemoryAccount will survive the reset) */
+<span class="lineNum">     458 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(oldMemoryAccount &amp;&amp; MemoryAccountMemoryAccount &amp;&amp; MemoryAccountMemoryAccount-&gt;maxLimit == ULONG_LONG_MAX);</span>
+<span class="lineNum">     459 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>                :            : /*
+<span class="lineNum">     462 </span>                :            :  * Tests if the MemoryAccounting_Reset() recreates all the short-living
+<span class="lineNum">     463 </span>                :            :  * basic accounts such as TopMemoryAccount
+<a name="464"><span class="lineNum">     464 </span>                :            :  */</a>
+<span class="lineNum">     465 </span>                :            : void
+<span class="lineNum">     466 </span>                :            : test__MemoryAccounting_Reset__RecreatesShortLivingAccounts(void **state)
+<span class="lineNum">     467 </span>                :            : {
+<span class="lineNum">     468 </span>                :<span class="lineCov">          2 :         MemoryAccount *topAccount = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">     469 </span>                :            :         /* The first account should be Top */
+<span class="lineNum">     470 </span>                :<span class="lineCov">          2 :         assert_true(topAccount-&gt;ownerType == MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     471 </span>                :<span class="lineCov">          2 :         MemoryAccount *oldTop = topAccount;</span>
+<span class="lineNum">     472 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType extraShortAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Append);</span>
+<span class="lineNum">     473 </span>                :<span class="lineCov">          2 :         assert_true(shortLivingMemoryAccountArray-&gt;accountCount == 2);</span>
+<span class="lineNum">     474 </span>                :            : 
+<span class="lineNum">     475 </span>                :            :         /*
+<span class="lineNum">     476 </span>                :            :          * We want to make sure that the reset process re-creates
+<span class="lineNum">     477 </span>                :            :          * short-living accounts. A pointer comparison is not safe,
+<span class="lineNum">     478 </span>                :            :          * as pointers may be same, even for newly created accounts.
+<span class="lineNum">     479 </span>                :            :          * Therefore, we are marking old accounts with special maxLimit,
+<span class="lineNum">     480 </span>                :            :          * so that we can identify if we are reusing existing accounts
+<span class="lineNum">     481 </span>                :            :          * or creating new ones.
+<span class="lineNum">     482 </span>                :            :          */
+<span class="lineNum">     483 </span>                :<span class="lineCov">          2 :         oldTop-&gt;maxLimit = ULONG_LONG_MAX;</span>
+<span class="lineNum">     484 </span>                :            : 
+<span class="lineNum">     485 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldLiveStart = liveAccountStartId;</span>
+<span class="lineNum">     486 </span>                :            : 
+<span class="lineNum">     487 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     488 </span>                :<span class="lineCov">          2 :         assert_true(oldLiveStart + 2 == liveAccountStartId);</span>
+<span class="lineNum">     489 </span>                :            : 
+<span class="lineNum">     490 </span>                :<span class="lineCov">          2 :         MemoryAccount *newTop = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">     491 </span>                :<span class="lineCov">          2 :         assert_true(newTop-&gt;ownerType == MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     492 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(oldTop != newTop || newTop-&gt;maxLimit != ULONG_LONG_MAX);</span>
+<span class="lineNum">     493 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     494 </span>                :            : 
+<span class="lineNum">     495 </span>                :            : /*
+<span class="lineNum">     496 </span>                :            :  * Tests if the MemoryAccounting_Reset() reuses MemoryAccountMemoryContext,
+<span class="lineNum">     497 </span>                :            :  * i.e., it does not recreate this account
+<a name="498"><span class="lineNum">     498 </span>                :            :  */</a>
+<span class="lineNum">     499 </span>                :            : void
+<span class="lineNum">     500 </span>                :            : test__MemoryAccounting_Reset__ReusesMemoryAccountMemoryContext(void **state)
+<span class="lineNum">     501 </span>                :            : {
+<span class="lineNum">     502 </span>                :            : #define CONTEXT_MARKER &quot;ABCDEFG&quot;
+<span class="lineNum">     503 </span>                :            : 
+<span class="lineNum">     504 </span>                :<span class="lineCov">          2 :         MemoryContext oldMemContext = MemoryAccountMemoryContext;</span>
+<span class="lineNum">     505 </span>                :            : 
+<span class="lineNum">     506 </span>                :            :         /*
+<span class="lineNum">     507 </span>                :            :          * For validation that we are reusing old MemoryAccountMemoryContext,
+<span class="lineNum">     508 </span>                :            :          * we set the name to CONTEXT_MARKER
+<span class="lineNum">     509 </span>                :            :          */
+<span class="lineNum">     510 </span>                :<span class="lineCov">          2 :         oldMemContext-&gt;name = CONTEXT_MARKER;</span>
+<span class="lineNum">     511 </span>                :            : 
+<span class="lineNum">     512 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     513 </span>                :            : 
+<span class="lineNum">     514 </span>                :            :         /* MemoryAccountMemoryContext should be reused (i.e., not dropped and recreated) */
+<span class="lineNum">     515 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(oldMemContext == MemoryAccountMemoryContext &amp;&amp;</span>
+<span class="lineNum">     516 </span>                :            :                         strlen(MemoryAccountMemoryContext-&gt;name) == strlen(CONTEXT_MARKER));
+<span class="lineNum">     517 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     518 </span>                :            : 
+<span class="lineNum">     519 </span>                :            : /*
+<span class="lineNum">     520 </span>                :            :  * Tests if the MemoryAccounting_Reset() resets MemoryAccountMemoryContext
+<span class="lineNum">     521 </span>                :            :  * to drop all the previous generation memory accounts
+<a name="522"><span class="lineNum">     522 </span>                :            :  */</a>
+<span class="lineNum">     523 </span>                :            : void
+<span class="lineNum">     524 </span>                :            : test__MemoryAccounting_Reset__ResetsMemoryAccountMemoryContext(void **state)
+<span class="lineNum">     525 </span>                :            : {
+<span class="lineNum">     526 </span>                :<span class="lineCov">          2 :         int64 oldMemContextBalance = MemoryAccountMemoryContext-&gt;allBytesAlloc - MemoryAccountMemoryContext-&gt;allBytesFreed;</span>
+<span class="lineNum">     527 </span>                :            : 
+<span class="lineNum">     528 </span>                :<span class="lineCov">          2 :         int numAccountsToCreate = (ALLOCSET_DEFAULT_INITSIZE / sizeof(MemoryAccount)) + 1;</span>
+<span class="lineNum">     529 </span>                :            :         /*
+<span class="lineNum">     530 </span>                :            :          * Increase MemoryAccountMemoryContext balance by creating enough accounts
+<span class="lineNum">     531 </span>                :            :          * to trigger a new block reservation in allocation set. Note, creating
+<span class="lineNum">     532 </span>                :            :          * one account may not increase the balance, as the balance is in terms
+<span class="lineNum">     533 </span>                :            :          * of blocks reserved, and not in terms of actual usage.
+<span class="lineNum">     534 </span>                :            :          */
+<span class="lineNum">     535 </span>        [<span class="branchCov" title="Branch 0 was taken 294 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">        296 :         for (int i = 0; i &lt; numAccountsToCreate; i++)</span>
+<span class="lineNum">     536 </span>                :            :         {
+<span class="lineNum">     537 </span>                :<span class="lineCov">        294 :                 MemoryAccount *tempAccount = MemoryAccounting_ConvertIdToAccount(CreateMemoryAccountImpl</span>
+<span class="lineNum">     538 </span>                :<span class="lineCov">        294 :                                 (0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId));</span>
+<span class="lineNum">     539 </span>                :<span class="lineCov">        294 :         }</span>
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :<span class="lineCov">          2 :         assert_true(oldMemContextBalance &lt;</span>
+<span class="lineNum">     542 </span>                :            :                 (MemoryAccountMemoryContext-&gt;allBytesAlloc - MemoryAccountMemoryContext-&gt;allBytesFreed));
+<span class="lineNum">     543 </span>                :            : 
+<span class="lineNum">     544 </span>                :            :         /* Record the extra balance for checking that the reset process will clear out this balance */
+<span class="lineNum">     545 </span>                :<span class="lineCov">          2 :         oldMemContextBalance = (MemoryAccountMemoryContext-&gt;allBytesAlloc - MemoryAccountMemoryContext-&gt;allBytesFreed);</span>
+<span class="lineNum">     546 </span>                :            : 
+<span class="lineNum">     547 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     548 </span>                :            : 
+<span class="lineNum">     549 </span>                :<span class="lineCov">          2 :         int64 newMemContextBalance = MemoryAccountMemoryContext-&gt;allBytesAlloc - MemoryAccountMemoryContext-&gt;allBytesFreed;</span>
+<span class="lineNum">     550 </span>                :            : 
+<span class="lineNum">     551 </span>                :            :         /* Reset process should at least free all the accounts that we have created (and overhead per-account) */
+<span class="lineNum">     552 </span>                :<span class="lineCov">          2 :         assert_true(newMemContextBalance &lt; (oldMemContextBalance - numAccountsToCreate * sizeof(MemoryAccount)));</span>
+<span class="lineNum">     553 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     554 </span>                :            : 
+<span class="lineNum">     555 </span>                :            : /*
+<span class="lineNum">     556 </span>                :            :  * Tests if the MemoryAccounting_Reset() sets TopMemoryAccount
+<span class="lineNum">     557 </span>                :            :  * as the ActiveMemoryAccount
+<a name="558"><span class="lineNum">     558 </span>                :            :  */</a>
+<span class="lineNum">     559 </span>                :            : void
+<span class="lineNum">     560 </span>                :            : test__MemoryAccounting_Reset__TopIsActive(void **state)
+<span class="lineNum">     561 </span>                :            : {
+<span class="lineNum">     562 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newActiveAccountId = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId);</span>
+<span class="lineNum">     563 </span>                :            : 
+<span class="lineNum">     564 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldActiveAccountId = MemoryAccounting_SwitchAccount(newActiveAccountId);</span>
+<span class="lineNum">     565 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId == newActiveAccountId);</span>
+<span class="lineNum">     566 </span>                :            : 
+<span class="lineNum">     567 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     568 </span>                :<span class="lineCov">          2 :         MemoryAccount* top = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">     569 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(MEMORY_OWNER_TYPE_Top == top-&gt;ownerType &amp;&amp; ActiveMemoryAccountId == top-&gt;id);</span>
+<span class="lineNum">     570 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     571 </span>                :            : 
+<span class="lineNum">     572 </span>                :            : /*
+<span class="lineNum">     573 </span>                :            :  * Tests if the MemoryAccounting_Reset() advances memory account
+<span class="lineNum">     574 </span>                :            :  * generation
+<a name="575"><span class="lineNum">     575 </span>                :            :  */</a>
+<span class="lineNum">     576 </span>                :            : void
+<span class="lineNum">     577 </span>                :            : test__MemoryAccounting_Reset__AdvancesGeneration(void **state)
+<span class="lineNum">     578 </span>                :            : {
+<span class="lineNum">     579 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType liveStart = liveAccountStartId;</span>
+<span class="lineNum">     580 </span>                :            : 
+<span class="lineNum">     581 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType extraShortAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Append);</span>
+<span class="lineNum">     582 </span>                :<span class="lineCov">          2 :         MemoryAccounting_IsLiveAccount(extraShortAccountId);</span>
+<span class="lineNum">     583 </span>                :            : 
+<span class="lineNum">     584 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType nextId = nextAccountId;</span>
+<span class="lineNum">     585 </span>                :<span class="lineCov">          2 :         assert_true(liveStart + 1 &lt; nextId);</span>
+<span class="lineNum">     586 </span>                :            : 
+<span class="lineNum">     587 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     588 </span>                :            : 
+<span class="lineNum">     589 </span>                :            :         /* We already created top */
+<span class="lineNum">     590 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(liveAccountStartId == nextId &amp;&amp; liveAccountStartId + 1 == nextAccountId);</span>
+<span class="lineNum">     591 </span>                :            :         /* Previous short account is no longer valid */
+<span class="lineNum">     592 </span>                :<span class="lineCov">          2 :         assert_false(MemoryAccounting_IsLiveAccount(extraShortAccountId));</span>
+<span class="lineNum">     593 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     594 </span>                :            : 
+<span class="lineNum">     595 </span>                :            : /*
+<span class="lineNum">     596 </span>                :            :  * Tests if the MemoryAccounting_Reset() transfers any remaining
+<span class="lineNum">     597 </span>                :            :  * memory account balance into a dedicated rollover account
+<a name="598"><span class="lineNum">     598 </span>                :            :  */</a>
+<span class="lineNum">     599 </span>                :            : void
+<span class="lineNum">     600 </span>                :            : test__MemoryAccounting_Reset__TransferRemainingToRollover(void **state)
+<span class="lineNum">     601 </span>                :            : {
+<span class="lineNum">     602 </span>                :            : 
+<span class="lineNum">     603 </span>                :<span class="lineCov">          2 :         uint64 oldOutstandingBal = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     604 </span>                :            : 
+<span class="lineNum">     605 </span>                :<span class="lineCov">          2 :         int * tempAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     606 </span>                :            : 
+<span class="lineNum">     607 </span>                :            :         /* There will be header overhead */
+<span class="lineNum">     608 </span>                :<span class="lineCov">          2 :         assert_true(oldOutstandingBal + NEW_ALLOC_SIZE &lt; MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     609 </span>                :            : 
+<span class="lineNum">     610 </span>                :<span class="lineCov">          2 :         uint64 newOutstandingBalance = MemoryAccountingOutstandingBalance;</span>
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>                :            :         /* The amount of memory used to create all the memory accounts */
+<span class="lineNum">     613 </span>                :<span class="lineCov">          2 :         uint64 oldMemoryAccountBalance = MemoryAccountMemoryAccount-&gt;allocated - MemoryAccountMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     614 </span>                :            : 
+<span class="lineNum">     615 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     616 </span>                :            : 
+<span class="lineNum">     617 </span>                :            :         /*
+<span class="lineNum">     618 </span>                :            :          * Memory accounts will be dropped, and their memory will be released. So, everything
+<span class="lineNum">     619 </span>                :            :          * but that should go into RolloverMemoryAccount
+<span class="lineNum">     620 </span>                :            :          */
+<span class="lineNum">     621 </span>                :<span class="lineCov">          2 :         assert_true((newOutstandingBalance - oldMemoryAccountBalance -</span>
+<span class="lineNum">     622 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed)) ==
+<span class="lineNum">     623 </span>                :            :                                         (RolloverMemoryAccount-&gt;allocated - RolloverMemoryAccount-&gt;freed));
+<span class="lineNum">     624 </span>                :            : 
+<span class="lineNum">     625 </span>                :<span class="lineCov">          2 :         pfree(tempAlloc);</span>
+<span class="lineNum">     626 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     627 </span>                :            : 
+<span class="lineNum">     628 </span>                :            : /*
+<span class="lineNum">     629 </span>                :            :  * Tests if the MemoryAccounting_GetAccountCurrentBalance() returns the current
+<span class="lineNum">     630 </span>                :            :  * balance of an account
+<a name="631"><span class="lineNum">     631 </span>                :            :  */</a>
+<span class="lineNum">     632 </span>                :            : void
+<span class="lineNum">     633 </span>                :            : test__MemoryAccounting_GetAccountCurrentBalance__ResetPeakBalance(void **state)
+<span class="lineNum">     634 </span>                :            : {
+<span class="lineNum">     635 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     636 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldAccountId = MemoryAccounting_SwitchAccount(newAccountId);</span>
+<span class="lineNum">     637 </span>                :            : 
+<span class="lineNum">     638 </span>                :            :         /* Tiny alloc that requires a new SharedChunkHeader, due to a new ActiveMemoryAccount */
+<span class="lineNum">     639 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_GetAccountCurrentBalance(newAccountId) == 0);</span>
+<span class="lineNum">     640 </span>                :<span class="lineCov">          2 :         void *testAlloc = palloc(sizeof(int));</span>
+<span class="lineNum">     641 </span>                :<span class="lineCov">          2 :         MemoryAccount *memoryAccount = MemoryAccounting_ConvertIdToAccount(newAccountId);</span>
+<span class="lineNum">     642 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_GetAccountCurrentBalance(newAccountId) == memoryAccount-&gt;allocated - memoryAccount-&gt;freed);</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineCov">          2 :         pfree(testAlloc);</span>
+<span class="lineNum">     645 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_GetAccountCurrentBalance(newAccountId) == 0);</span>
+<span class="lineNum">     646 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldAccountId);</span>
+<span class="lineNum">     647 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     648 </span>                :            : 
+<span class="lineNum">     649 </span>                :            : /*
+<span class="lineNum">     650 </span>                :            :  * Tests if the MemoryAccounting_Reset() resets the high water
+<span class="lineNum">     651 </span>                :            :  * mark (i.e., peak balance)
+<a name="652"><span class="lineNum">     652 </span>                :            :  */</a>
+<span class="lineNum">     653 </span>                :            : void
+<span class="lineNum">     654 </span>                :            : test__MemoryAccounting_Reset__ResetPeakBalance(void **state)
+<span class="lineNum">     655 </span>                :            : {
+<span class="lineNum">     656 </span>                :            :         /* First allocate new memory to push the peak balance higher */
+<span class="lineNum">     657 </span>                :<span class="lineCov">          2 :         int * tempAlloc = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     658 </span>                :            : 
+<span class="lineNum">     659 </span>                :<span class="lineCov">          2 :         pfree(tempAlloc);</span>
+<span class="lineNum">     660 </span>                :            : 
+<span class="lineNum">     661 </span>                :            :         /* Peak balance should be bigger than outstanding due the pfree call */
+<span class="lineNum">     662 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingPeakBalance &gt; MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     663 </span>                :            : 
+<span class="lineNum">     664 </span>                :<span class="lineCov">          2 :         uint64 oldMemoryAccountingPeakBalance = MemoryAccountingPeakBalance;</span>
+<span class="lineNum">     665 </span>                :            : 
+<span class="lineNum">     666 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     667 </span>                :            : 
+<span class="lineNum">     668 </span>                :            :         /* After reset, peak balance should be back to outstanding balance */
+<span class="lineNum">     669 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccountingPeakBalance == MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     670 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     671 </span>                :            : 
+<span class="lineNum">     672 </span>                :            : /*
+<span class="lineNum">     673 </span>                :            :  * Tests if the MemoryAccounting_AdvanceMemoryAccountingGeneration()
+<span class="lineNum">     674 </span>                :            :  * transfers the entire outstanding balance to RolloverMemoryAccount
+<span class="lineNum">     675 </span>                :            :  * when there is no generation overflow, and so we don't need to
+<span class="lineNum">     676 </span>                :            :  * switch all shared headers' ownership to Rollover (i.e., no migration
+<span class="lineNum">     677 </span>                :            :  * of the shared headers's ownership to rollover happened)
+<a name="678"><span class="lineNum">     678 </span>                :            :  */</a>
+<span class="lineNum">     679 </span>                :            : void
+<span class="lineNum">     680 </span>                :            : test__MemoryAccounting_AdvanceMemoryAccountingGeneration__TransfersBalanceToRolloverWithoutMigration(void **state)
+<span class="lineNum">     681 </span>                :            : {
+<span class="lineNum">     682 </span>                :            :         /* First allocate some memory so that we have something to rollover (do not free) */
+<span class="lineNum">     683 </span>                :<span class="lineCov">          2 :         palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">     684 </span>                :            : 
+<span class="lineNum">     685 </span>                :<span class="lineCov">          2 :         uint64 oldRolloverBalance = RolloverMemoryAccount-&gt;allocated - RolloverMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     686 </span>                :            : 
+<span class="lineNum">     687 </span>                :            :         /* As we have new allocations, rollover must be smaller than outstanding */
+<span class="lineNum">     688 </span>                :<span class="lineCov">          2 :         assert_true(oldRolloverBalance &lt; MemoryAccountingOutstandingBalance);</span>
+<span class="lineNum">     689 </span>                :            : 
+<span class="lineNum">     690 </span>                :<span class="lineCov">          2 :         AdvanceMemoryAccountingGeneration();</span>
+<span class="lineNum">     691 </span>                :            : 
+<span class="lineNum">     692 </span>                :<span class="lineCov">          2 :         uint64 newRolloverBalance = RolloverMemoryAccount-&gt;allocated - RolloverMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     693 </span>                :            : 
+<span class="lineNum">     694 </span>                :            :         /* The entire outstanding balance except SharedChunkHeadersMemoryAccount balance should now be in rollover's bucket */
+<span class="lineNum">     695 </span>                :<span class="lineCov">          2 :         assert_true((newRolloverBalance + (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed)) ==</span>
+<span class="lineNum">     696 </span>                :            :                         MemoryAccountingOutstandingBalance);
+<span class="lineNum">     697 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     698 </span>                :            : 
+<span class="lineNum">     699 </span>                :            : /*
+<span class="lineNum">     700 </span>                :            :  * Tests if the MemoryAccounting_AdvanceMemoryAccountingGeneration()
+<span class="lineNum">     701 </span>                :            :  * sets RolloverMemoryAccount as the ActiveMemoryAccount
+<a name="702"><span class="lineNum">     702 </span>                :            :  */</a>
+<span class="lineNum">     703 </span>                :            : void
+<span class="lineNum">     704 </span>                :            : test__MemoryAccounting_AdvanceMemoryAccountingGeneration__SetsActiveToRollover(void **state)
+<span class="lineNum">     705 </span>                :            : {
+<span class="lineNum">     706 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(liveAccountStartId);</span>
+<span class="lineNum">     707 </span>                :<span class="lineCov">          2 :         assert_true(MemoryAccounting_ConvertIdToAccount(ActiveMemoryAccountId)-&gt;ownerType == MEMORY_OWNER_TYPE_Top);</span>
+<span class="lineNum">     708 </span>                :            : 
+<span class="lineNum">     709 </span>                :<span class="lineCov">          2 :         AdvanceMemoryAccountingGeneration();</span>
+<span class="lineNum">     710 </span>                :            : 
+<span class="lineNum">     711 </span>                :<span class="lineCov">          2 :         assert_true(ActiveMemoryAccountId == MEMORY_OWNER_TYPE_Rollover);</span>
+<span class="lineNum">     712 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     713 </span>                :            : 
+<span class="lineNum">     714 </span>                :            : /*
+<span class="lineNum">     715 </span>                :            :  * Tests if the MemoryContextReset() resets SharedChunkHeadersMemoryAccount balance
+<a name="716"><span class="lineNum">     716 </span>                :            :  */</a>
+<span class="lineNum">     717 </span>                :            : void
+<span class="lineNum">     718 </span>                :            : test__MemoryContextReset__ResetsSharedChunkHeadersMemoryAccountBalance(void **state)
+<span class="lineNum">     719 </span>                :            : {
+<span class="lineNum">     720 </span>                :            :         /*
+<span class="lineNum">     721 </span>                :            :          * Note: we are allocating the context itself in TopMemoryContext. This
+<span class="lineNum">     722 </span>                :            :          * will crash during the reset of TopMemoryContext, as before resetting
+<span class="lineNum">     723 </span>                :            :          * TopMemoryContext we will reset MemoryAccountMemoryContext which is a
+<span class="lineNum">     724 </span>                :            :          * child of TopMemoryContext, therefore making all the memory accounts
+<span class="lineNum">     725 </span>                :            :          * disappear. Now, normally we don't reset TopMemoryContext, but in unit
+<span class="lineNum">     726 </span>                :            :          * test teardown we will try to reset TopMemoryContext, which will try
+<span class="lineNum">     727 </span>                :            :          * to free this particular chunk which hosted the context struct itself.
+<span class="lineNum">     728 </span>                :            :          * The memory account of the sharedHeader is however long gone during
+<span class="lineNum">     729 </span>                :            :          * the MemoryAccountMemoryContext reset. So, we have to carefully set
+<span class="lineNum">     730 </span>                :            :          * to a long-living active memory account to prevent a crash in the teardown
+<span class="lineNum">     731 </span>                :            :          */
+<span class="lineNum">     732 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldAccountId = MemoryAccounting_SwitchAccount(MEMORY_OWNER_TYPE_Exec_AlienShared);</span>
+<span class="lineNum">     733 </span>                :<span class="lineCov">          2 :         MemoryContext newContext = AllocSetContextCreate(TopMemoryContext,</span>
+<span class="lineNum">     734 </span>                :            :                                                                                    &quot;TestContext&quot;,
+<span class="lineNum">     735 </span>                :            :                                                                                    ALLOCSET_DEFAULT_MINSIZE,
+<span class="lineNum">     736 </span>                :            :                                                                                    ALLOCSET_DEFAULT_INITSIZE,
+<span class="lineNum">     737 </span>                :            :                                                                                    ALLOCSET_DEFAULT_MAXSIZE);
+<span class="lineNum">     738 </span>                :            : 
+<span class="lineNum">     739 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldAccountId);</span>
+<span class="lineNum">     740 </span>                :            : 
+<span class="lineNum">     741 </span>                :<span class="lineCov">          2 :         MemoryContext oldContext = MemoryContextSwitchTo(newContext);</span>
+<span class="lineNum">     742 </span>                :            : 
+<span class="lineNum">     743 </span>                :            :         /*
+<span class="lineNum">     744 </span>                :            :          * Record the balance right after the new context creation. Note: the
+<span class="lineNum">     745 </span>                :            :          * context creation itself might increase the balance of the
+<span class="lineNum">     746 </span>                :            :          * SharedChunkHeadersMemoryAccount
+<span class="lineNum">     747 </span>                :            :          */
+<span class="lineNum">     748 </span>                :<span class="lineCov">          2 :         int64 initialSharedHeaderBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     749 </span>                :            : 
+<span class="lineNum">     750 </span>                :            :         /* This would trigger a new shared header with ActiveMemoryAccountId */
+<span class="lineNum">     751 </span>                :<span class="lineCov">          2 :         void *testAlloc1 = palloc(sizeof(int));</span>
+<span class="lineNum">     752 </span>                :            : 
+<span class="lineNum">     753 </span>                :<span class="lineCov">          2 :         SharedChunkHeader *sharedHeader = ((AllocSet)newContext)-&gt;sharedHeaderList;</span>
+<span class="lineNum">     754 </span>                :            : 
+<span class="lineNum">     755 </span>                :            :         /* Make sure we got the right memory account */
+<span class="lineNum">     756 </span>                :<span class="lineCov">          2 :         assert_true(sharedHeader-&gt;memoryAccountId == ActiveMemoryAccountId);</span>
+<span class="lineNum">     757 </span>                :            : 
+<span class="lineNum">     758 </span>                :            :         /* Make sure we did adjust SharedChunkHeadersMemoryAccount balance */
+<span class="lineNum">     759 </span>                :<span class="lineCov">          2 :         assert_true(initialSharedHeaderBalance &lt;</span>
+<span class="lineNum">     760 </span>                :            :                 (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed));
+<span class="lineNum">     761 </span>                :            : 
+<span class="lineNum">     762 </span>                :<span class="lineCov">          2 :         int64 prevSharedHeaderBalance = SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed;</span>
+<span class="lineNum">     763 </span>                :            : 
+<span class="lineNum">     764 </span>                :            :         /* This would *not* trigger a new shared         header (reuse header) */
+<span class="lineNum">     765 </span>                :<span class="lineCov">          2 :         void *testAlloc2 = palloc(sizeof(int));</span>
+<span class="lineNum">     766 </span>                :            : 
+<span class="lineNum">     767 </span>                :            :         /* Make sure no shared header balance is increased */
+<span class="lineNum">     768 </span>                :<span class="lineCov">          2 :         assert_true(prevSharedHeaderBalance ==</span>
+<span class="lineNum">     769 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed));
+<span class="lineNum">     770 </span>                :            : 
+<span class="lineNum">     771 </span>                :            :         /* We need a new active account to make sure that we are forcing a new SharedChunkHeader */
+<span class="lineNum">     772 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccountId = MemoryAccounting_CreateAccount(0, MEMORY_OWNER_TYPE_Exec_Hash);</span>
+<span class="lineNum">     773 </span>                :            : 
+<span class="lineNum">     774 </span>                :<span class="lineCov">          2 :         oldAccountId = MemoryAccounting_SwitchAccount(newAccountId);</span>
+<span class="lineNum">     775 </span>                :            : 
+<span class="lineNum">     776 </span>                :            :         /* Tiny alloc that requires a new SharedChunkHeader, due to a new ActiveMemoryAccount */
+<span class="lineNum">     777 </span>                :<span class="lineCov">          2 :         void *testAlloc3 = palloc(sizeof(int));</span>
+<span class="lineNum">     778 </span>                :            : 
+<span class="lineNum">     779 </span>                :            :         /* We should see an increase in SharedChunkHeadersMemoryAccount balance */
+<span class="lineNum">     780 </span>                :<span class="lineCov">          2 :         assert_true(prevSharedHeaderBalance &lt;</span>
+<span class="lineNum">     781 </span>                :            :                 (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed));
+<span class="lineNum">     782 </span>                :            : 
+<span class="lineNum">     783 </span>                :            :         /*
+<span class="lineNum">     784 </span>                :            :          * This should drop the SharedChunkHeadersMemoryAccount balance to the initial level
+<span class="lineNum">     785 </span>                :            :          * (right after the new context creation)
+<span class="lineNum">     786 </span>                :            :          */
+<span class="lineNum">     787 </span>                :<span class="lineCov">          2 :         MemoryContextReset(newContext);</span>
+<span class="lineNum">     788 </span>                :<span class="lineCov">          2 :         assert_true(initialSharedHeaderBalance ==</span>
+<span class="lineNum">     789 </span>                :            :                         (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed));
+<span class="lineNum">     790 </span>                :<span class="lineCov">          2 : }</span>
+<a name="791"><span class="lineNum">     791 </span>                :            : </a>
+<span class="lineNum">     792 </span>                :            : static void
+<span class="lineNum">     793 </span>                :            : ValidateSerializedAccountArray(const char* bytes, uint32 totalSerialized, uint32 expectedSerialized) {
+<span class="lineNum">     794 </span>                :<span class="lineCov">          8 :     assert_true(totalSerialized == expectedSerialized);</span>
+<span class="lineNum">     795 </span>                :            : 
+<span class="lineNum">     796 </span>                :<span class="lineCov">          8 :         MemoryAccount* combinedAccountArray = (MemoryAccount*) bytes;</span>
+<span class="lineNum">     797 </span>                :            : 
+<span class="lineNum">     798 </span>        [<span class="branchCov" title="Branch 0 was taken 40 times"> + </span><span class="branchCov" title="Branch 1 was taken 8 times"> + </span>]:<span class="lineCov">         48 :         for (int i = 0; i &lt; MEMORY_OWNER_TYPE_END_LONG_LIVING; i++)</span>
+<span class="lineNum">     799 </span>                :            :         {
+<span class="lineNum">     800 </span>                :<span class="lineCov">         40 :                 MemoryAccount serializedAccount = combinedAccountArray[i];</span>
+<span class="lineNum">     801 </span>                :            :                 /* Serialization throws out the reserved MEMORY_OWNER_TYPE_Undefined */
+<span class="lineNum">     802 </span>                :<span class="lineCov">         40 :                 assert_true(serializedAccount.id == (i + 1));</span>
+<span class="lineNum">     803 </span>                :            : 
+<span class="lineNum">     804 </span>                :<span class="lineCov">         40 :         }</span>
+<span class="lineNum">     805 </span>                :<span class="lineCov">          8 :         assert_true(totalSerialized == MEMORY_OWNER_TYPE_END_LONG_LIVING</span>
+<span class="lineNum">     806 </span>                :            :                                                         + (nextAccountId - liveAccountStartId));
+<span class="lineNum">     807 </span>                :            : 
+<span class="lineNum">     808 </span>                :            :         /* Make sure we can even verify if the liveAccountStartId is not contiguous (we already had some reset) */
+<span class="lineNum">     809 </span>                :<span class="lineCov">          8 :         assert_true(combinedAccountArray[MEMORY_OWNER_TYPE_END_LONG_LIVING].id == liveAccountStartId);</span>
+<span class="lineNum">     810 </span>                :            :         /* And verify that the end of the account Ids capture the entire set of accounts */
+<span class="lineNum">     811 </span>                :<span class="lineCov">          8 :         assert_true(combinedAccountArray[totalSerialized - 1].id == (nextAccountId - 1));</span>
+<span class="lineNum">     812 </span>                :            : 
+<span class="lineNum">     813 </span>                :<span class="lineCov">          8 :         MemoryAccountIdType prevAccountId = liveAccountStartId;</span>
+<span class="lineNum">     814 </span>        [<span class="branchCov" title="Branch 0 was taken 20 times"> + </span><span class="branchCov" title="Branch 1 was taken 8 times"> + </span>]:<span class="lineCov">         28 :         for (int i = MEMORY_OWNER_TYPE_END_LONG_LIVING; i &lt; totalSerialized; i++)</span>
+<span class="lineNum">     815 </span>                :            :         {
+<span class="lineNum">     816 </span>                :<span class="lineCov">         20 :                 MemoryAccount serializedAccount = combinedAccountArray[i];</span>
+<span class="lineNum">     817 </span>                :<span class="lineCov">         20 :                 assert_true(MemoryAccounting_IsLiveAccount(serializedAccount.id));</span>
+<span class="lineNum">     818 </span>                :            : 
+<span class="lineNum">     819 </span>                :            :                 /* Ensure a set of contiguous account IDs */
+<span class="lineNum">     820 </span>        [<span class="branchCov" title="Branch 0 was taken 12 times"> + </span><span class="branchCov" title="Branch 1 was taken 8 times"> + </span>]:<span class="lineCov">         20 :                 assert_true(i == MEMORY_OWNER_TYPE_END_LONG_LIVING || prevAccountId == (i - 1));</span>
+<span class="lineNum">     821 </span>                :<span class="lineCov">         20 :                 prevAccountId = i;</span>
+<span class="lineNum">     822 </span>                :<span class="lineCov">         20 :         }</span>
+<span class="lineNum">     823 </span>                :<span class="lineCov">          8 : }</span>
+<span class="lineNum">     824 </span>                :            : 
+<a name="825"><span class="lineNum">     825 </span>                :            : /* Tests if the serialization of the memory accounting tree is working */</a>
+<span class="lineNum">     826 </span>                :            : void
+<span class="lineNum">     827 </span>                :            : test__MemoryAccounting_Serialize__Validate(void **state)
+<span class="lineNum">     828 </span>                :            : {
+<span class="lineNum">     829 </span>                :            :         StringInfoData buffer;
+<span class="lineNum">     830 </span>                :<span class="lineCov">          2 :     initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     831 </span>                :            : 
+<span class="lineNum">     832 </span>                :<span class="lineCov">          2 :     uint32 totalSerialized = MemoryAccounting_Serialize(&amp;buffer);</span>
+<span class="lineNum">     833 </span>                :            : 
+<span class="lineNum">     834 </span>                :            :     /* Only top besides the long living accounts */
+<span class="lineNum">     835 </span>                :<span class="lineCov">          2 :         ValidateSerializedAccountArray(buffer.data, totalSerialized, MEMORY_OWNER_TYPE_END_LONG_LIVING + 1);</span>
+<span class="lineNum">     836 </span>                :            : 
+<span class="lineNum">     837 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount1 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, liveAccountStartId /* Top */);</span>
+<span class="lineNum">     838 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount2 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_SeqScan, newAccount1);</span>
+<span class="lineNum">     839 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount3 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Sort, newAccount1);</span>
+<span class="lineNum">     840 </span>                :            : 
+<span class="lineNum">     841 </span>                :<span class="lineCov">          2 :         pfree(buffer.data);</span>
+<span class="lineNum">     842 </span>                :<span class="lineCov">          2 :         initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     843 </span>                :            : 
+<span class="lineNum">     844 </span>                :<span class="lineCov">          2 :         totalSerialized = MemoryAccounting_Serialize(&amp;buffer);</span>
+<span class="lineNum">     845 </span>                :            :     /* Long living accounts + Top + 3 new accounts */
+<span class="lineNum">     846 </span>                :<span class="lineCov">          2 :         ValidateSerializedAccountArray(buffer.data, totalSerialized, MEMORY_OWNER_TYPE_END_LONG_LIVING + 1 + 3);</span>
+<span class="lineNum">     847 </span>                :            : 
+<span class="lineNum">     848 </span>                :<span class="lineCov">          2 :         uint64 prevLiveStart = liveAccountStartId;</span>
+<span class="lineNum">     849 </span>                :            :         /* Ensure gap of Ids between end of long living and start of short living */
+<span class="lineNum">     850 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">     851 </span>                :            : 
+<span class="lineNum">     852 </span>                :            :         /* Capture the fact that we have gap between start of short account Ids and end of long account Ids */
+<span class="lineNum">     853 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(prevLiveStart != liveAccountStartId &amp;&amp; liveAccountStartId - MEMORY_OWNER_TYPE_END_LONG_LIVING &gt; 1);</span>
+<span class="lineNum">     854 </span>                :            : 
+<span class="lineNum">     855 </span>                :<span class="lineCov">          2 :         pfree(buffer.data);</span>
+<span class="lineNum">     856 </span>                :<span class="lineCov">          2 :         initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     857 </span>                :<span class="lineCov">          2 :         totalSerialized = MemoryAccounting_Serialize(&amp;buffer);</span>
+<span class="lineNum">     858 </span>                :            : 
+<span class="lineNum">     859 </span>                :            :     /* Only top besides the long living accounts */
+<span class="lineNum">     860 </span>                :<span class="lineCov">          2 :         ValidateSerializedAccountArray(buffer.data, totalSerialized, MEMORY_OWNER_TYPE_END_LONG_LIVING + 1);</span>
+<span class="lineNum">     861 </span>                :            : 
+<span class="lineNum">     862 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount4 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, liveAccountStartId /* Top */);</span>
+<span class="lineNum">     863 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount5 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_SeqScan, newAccount1);</span>
+<span class="lineNum">     864 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount6 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Sort, newAccount1);</span>
+<span class="lineNum">     865 </span>                :            : 
+<span class="lineNum">     866 </span>                :<span class="lineCov">          2 :         pfree(buffer.data);</span>
+<span class="lineNum">     867 </span>                :<span class="lineCov">          2 :         initStringInfo(&amp;buffer);</span>
+<span class="lineNum">     868 </span>                :<span class="lineCov">          2 :         totalSerialized = MemoryAccounting_Serialize(&amp;buffer);</span>
+<span class="lineNum">     869 </span>                :            : 
+<span class="lineNum">     870 </span>                :            :     /* Long living accounts + Top + 3 new accounts */
+<span class="lineNum">     871 </span>                :<span class="lineCov">          2 :         ValidateSerializedAccountArray(buffer.data, totalSerialized, MEMORY_OWNER_TYPE_END_LONG_LIVING + 1 + 3);</span>
+<span class="lineNum">     872 </span>                :<span class="lineCov">          2 :         pfree(buffer.data);</span>
+<span class="lineNum">     873 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     874 </span>                :            : 
+<span class="lineNum">     875 </span>                :            : 
+<span class="lineNum">     876 </span>                :            : /*
+<span class="lineNum">     877 </span>                :            :  * Tests if the MemoryAccounting_CombinedAccountArrayToString of the memory accounting tree
+<span class="lineNum">     878 </span>                :            :  *  produces expected output
+<a name="879"><span class="lineNum">     879 </span>                :            :  */</a>
+<span class="lineNum">     880 </span>                :            : void
+<span class="lineNum">     881 </span>                :            : test__MemoryAccounting_CombinedAccountArrayToString__Validate(void **state)
+<span class="lineNum">     882 </span>                :            : {
+<span class="lineNum">     883 </span>                :            :         StringInfoData serializedBytes;
+<span class="lineNum">     884 </span>                :<span class="lineCov">          2 :         initStringInfoOfSize(&amp;serializedBytes, MAX_OUTPUT_BUFFER_SIZE);</span>
+<span class="lineNum">     885 </span>                :            : 
+<span class="lineNum">     886 </span>                :<span class="lineCov">          2 :         MemoryAccount *topAccount = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">     887 </span>                :            : 
+<span class="lineNum">     888 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount1 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, liveAccountStartId /* Top */);</span>
+<span class="lineNum">     889 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount2 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_SeqScan, newAccount1);</span>
+<span class="lineNum">     890 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType newAccount3 = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Sort, newAccount1);</span>
+<span class="lineNum">     891 </span>                :            : 
+<span class="lineNum">     892 </span>                :            :         StringInfoData str;
+<span class="lineNum">     893 </span>                :<span class="lineCov">          2 :         initStringInfoOfSize(&amp;str, MAX_OUTPUT_BUFFER_SIZE);</span>
+<span class="lineNum">     894 </span>                :            : 
+<span class="lineNum">     895 </span>                :<span class="lineCov">          2 :         size_t oldTopBalance = topAccount-&gt;allocated - topAccount-&gt;freed;</span>
+<span class="lineNum">     896 </span>                :<span class="lineCov">          2 :         size_t oldTopPeak = topAccount-&gt;peak;</span>
+<span class="lineNum">     897 </span>                :            : 
+<span class="lineNum">     898 </span>                :<span class="lineCov">          2 :         uint32 totalSerialized = MemoryAccounting_Serialize(&amp;serializedBytes);</span>
+<span class="lineNum">     899 </span>                :            : 
+<span class="lineNum">     900 </span>                :<span class="lineCov">          2 :         char *templateString = &quot;Root: Peak/Cur 0/0bytes. Quota: 0bytes.\n\</span>
+<span class="lineNum">     901 </span>                :            :   Top: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">     902 </span>                :            :     X_Hash: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">     903 </span>                :            :       X_Sort: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">     904 </span>                :            :       X_SeqScan: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">     905 </span>                :            :   X_Alien: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">     906 </span>                :            :   MemAcc: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">     907 </span>                :            :   Rollover: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">     908 </span>                :            :   SharedHeader: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n&quot;;
+<span class="lineNum">     909 </span>                :            : 
+<span class="lineNum">     910 </span>                :            :         char            buf[MAX_OUTPUT_BUFFER_SIZE];
+<span class="lineNum">     911 </span>                :            : 
+<span class="lineNum">     912 </span>                :<span class="lineCov">          2 :         snprintf(buf, sizeof(buf), templateString,</span>
+<span class="lineNum">     913 </span>                :            :                         topAccount-&gt;peak, topAccount-&gt;allocated - topAccount-&gt;freed,
+<span class="lineNum">     914 </span>                :            :                         MemoryAccountMemoryAccount-&gt;peak, MemoryAccountMemoryAccount-&gt;allocated - MemoryAccountMemoryAccount-&gt;freed,
+<span class="lineNum">     915 </span>                :            :                         SharedChunkHeadersMemoryAccount-&gt;peak, SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed);
+<span class="lineNum">     916 </span>                :            : 
+<span class="lineNum">     917 </span>                :<span class="lineCov">          2 :         MemoryAccounting_CombinedAccountArrayToString(serializedBytes.data, totalSerialized, &amp;str, 0);</span>
+<span class="lineNum">     918 </span>                :            : 
+<span class="lineNum">     919 </span>                :<span class="lineCov">          2 :         size_t newTopBalance = topAccount-&gt;allocated - topAccount-&gt;freed;</span>
+<span class="lineNum">     920 </span>                :<span class="lineCov">          2 :         size_t newTopPeak = topAccount-&gt;peak;</span>
+<span class="lineNum">     921 </span>                :            : 
+<span class="lineNum">     922 </span>                :<span class="lineCov">          2 :     assert_true(strcmp(str.data, buf) == 0);</span>
+<span class="lineNum">     923 </span>                :            : 
+<span class="lineNum">     924 </span>                :<span class="lineCov">          2 :     pfree(serializedBytes.data);</span>
+<span class="lineNum">     925 </span>                :<span class="lineCov">          2 :         pfree(str.data);</span>
+<span class="lineNum">     926 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     927 </span>                :            : 
+<span class="lineNum">     928 </span>                :            : 
+<a name="929"><span class="lineNum">     929 </span>                :            : /* Tests if the MemoryOwnerType enum to string conversion is working */</a>
+<span class="lineNum">     930 </span>                :            : void
+<span class="lineNum">     931 </span>                :            : test__MemoryAccounting_GetAccountName__Validate(void **state)
+<span class="lineNum">     932 </span>                :            : {
+<span class="lineNum">     933 </span>                :            : #define LONG_LIVING_START 10
+<span class="lineNum">     934 </span>                :            : #define SHORT_LIVING_NON_OPERATOR_START 101
+<span class="lineNum">     935 </span>                :            : #define SHORT_LIVING_OPERATOR_START 1000
+<span class="lineNum">     936 </span>                :            : 
+<span class="lineNum">     937 </span>                :<span class="lineCov">          2 :         char* longLivingNames[] = {&quot;Root&quot;, &quot;SharedHeader&quot;, &quot;Rollover&quot;, &quot;MemAcc&quot;, &quot;X_Alien&quot;};</span>
+<span class="lineNum">     938 </span>                :            : 
+<span class="lineNum">     939 </span>                :<span class="lineCov">          2 :         char* shortLivingNames[] = {&quot;Top&quot;, &quot;Main&quot;, &quot;Parser&quot;, &quot;Planner&quot;, &quot;Optimizer&quot;, &quot;Dispatcher&quot;, &quot;Serializer&quot;, &quot;Deserializer&quot;,</span>
+<span class="lineNum">     940 </span>                :            :                         &quot;Executor&quot;, &quot;X_Result&quot;, &quot;X_Append&quot;, &quot;X_Sequence&quot;, &quot;X_BitmapAnd&quot;, &quot;X_BitmapOr&quot;, &quot;X_SeqScan&quot;, &quot;X_ExternalScan&quot;,
+<span class="lineNum">     941 </span>                :            :                         &quot;X_AppendOnlyScan&quot;, &quot;X_AOCSCAN&quot;, &quot;X_TableScan&quot;, &quot;X_DynamicTableScan&quot;, &quot;X_IndexScan&quot;, &quot;X_DynamicIndexScan&quot;, &quot;X_BitmapIndexScan&quot;,
+<span class="lineNum">     942 </span>                :            :                         &quot;X_BitmapHeapScan&quot;, &quot;X_BitmapAppendOnlyScan&quot;, &quot;X_TidScan&quot;, &quot;X_SubqueryScan&quot;, &quot;X_FunctionScan&quot;, &quot;X_TableFunctionScan&quot;,
+<span class="lineNum">     943 </span>                :            :                         &quot;X_ValuesScan&quot;, &quot;X_NestLoop&quot;, &quot;X_MergeJoin&quot;, &quot;X_HashJoin&quot;, &quot;X_Material&quot;, &quot;X_Sort&quot;, &quot;X_Agg&quot;, &quot;X_Unique&quot;, &quot;X_Hash&quot;, &quot;X_SetOp&quot;,
+<span class="lineNum">     944 </span>                :            :                         &quot;X_Limit&quot;, &quot;X_Motion&quot;, &quot;X_ShareInputScan&quot;, &quot;X_Window&quot;, &quot;X_Repeat&quot;, &quot;X_DML&quot;, &quot;X_SplitUpdate&quot;, &quot;X_RowTrigger&quot;, &quot;X_AssertOp&quot;,
+<span class="lineNum">     945 </span>                :            :                         &quot;X_BitmapTableScan&quot;, &quot;X_PartitionSelector&quot;};
+<span class="lineNum">     946 </span>                :            : 
+<span class="lineNum">     947 </span>                :            :         /* Ensure we have all the long living accounts in the longLivingNames array */
+<span class="lineNum">     948 </span>                :<span class="lineCov">          2 :         assert_true(sizeof(longLivingNames) / sizeof(char*) == MEMORY_OWNER_TYPE_END_LONG_LIVING);</span>
+<span class="lineNum">     949 </span>        [<span class="branchCov" title="Branch 0 was taken 10 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">         12 :         for (int longLivingId = MEMORY_OWNER_TYPE_START_LONG_LIVING; longLivingId &lt;= MEMORY_OWNER_TYPE_END_LONG_LIVING; longLivingId++)</span>
+<span class="lineNum">     950 </span>                :            :         {
+<span class="lineNum">     951 </span>                :<span class="lineCov">         10 :                 MemoryOwnerType memoryOwnerType = (MemoryOwnerType) longLivingId;</span>
+<span class="lineNum">     952 </span>                :<span class="lineCov">         10 :                 assert_true(strcmp(MemoryAccounting_GetOwnerName(memoryOwnerType), longLivingNames[longLivingId - 1]) == 0);</span>
+<span class="lineNum">     953 </span>                :<span class="lineCov">         10 :         }</span>
+<span class="lineNum">     954 </span>                :            : 
+<span class="lineNum">     955 </span>                :<span class="lineCov">          2 :         assert_true(sizeof(shortLivingNames) / sizeof(char*) == MEMORY_OWNER_TYPE_END_SHORT_LIVING - MEMORY_OWNER_TYPE_START_SHORT_LIVING + 1);</span>
+<span class="lineNum">     956 </span>        [<span class="branchCov" title="Branch 0 was taken 100 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">        102 :         for (int shortLivingOwnerTypeId = MEMORY_OWNER_TYPE_START_SHORT_LIVING;</span>
+<span class="lineNum">     957 </span>                :<span class="lineCov">        102 :                         shortLivingOwnerTypeId &lt;= MEMORY_OWNER_TYPE_END_SHORT_LIVING; shortLivingOwnerTypeId++)</span>
+<span class="lineNum">     958 </span>                :            :         {
+<span class="lineNum">     959 </span>                :<span class="lineCov">        100 :                 MemoryOwnerType shortLivingOwnerType = (MemoryOwnerType) shortLivingOwnerTypeId;</span>
+<span class="lineNum">     960 </span>                :<span class="lineCov">        100 :                 char* name = MemoryAccounting_GetOwnerName(shortLivingOwnerType);</span>
+<span class="lineNum">     961 </span>                :<span class="lineCov">        100 :                 char* expected = shortLivingNames[shortLivingOwnerTypeId - MEMORY_OWNER_TYPE_START_SHORT_LIVING];</span>
+<span class="lineNum">     962 </span>                :<span class="lineCov">        100 :                 assert_true(strcmp(name, expected) == 0);</span>
+<span class="lineNum">     963 </span>                :<span class="lineCov">        100 :         }</span>
+<span class="lineNum">     964 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     965 </span>                :            : 
+<a name="966"><span class="lineNum">     966 </span>                :            : /* Tests if the MemoryAccounting_SizeOfAccountInBytes returns correct size */</a>
+<span class="lineNum">     967 </span>                :            : void
+<span class="lineNum">     968 </span>                :            : test__MemoryAccounting_SizeOfAccountInBytes__Validate(void **state)
+<span class="lineNum">     969 </span>                :            : {
+<span class="lineNum">     970 </span>                :<span class="lineCov">          2 :         size_t accountSize = MemoryAccounting_SizeOfAccountInBytes();</span>
+<span class="lineNum">     971 </span>                :<span class="lineCov">          2 :         assert_true(accountSize == sizeof(MemoryAccount));</span>
+<span class="lineNum">     972 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     973 </span>                :            : 
+<a name="974"><span class="lineNum">     974 </span>                :            : /* Tests if the MemoryAccounting_GetGlobalPeak returns correct global peak balance */</a>
+<span class="lineNum">     975 </span>                :            : void
+<span class="lineNum">     976 </span>                :            : test__MemoryAccounting_GetGlobalPeak__Validate(void **state)
+<span class="lineNum">     977 </span>                :            : {
+<span class="lineNum">     978 </span>                :<span class="lineCov">          2 :         uint64 peak = MemoryAccounting_GetGlobalPeak();</span>
+<span class="lineNum">     979 </span>                :<span class="lineCov">          2 :         assert_true(peak == MemoryAccountingPeakBalance);</span>
+<span class="lineNum">     980 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">     981 </span>                :            : 
+<a name="982"><span class="lineNum">     982 </span>                :            : /* Tests if the MemoryAccounting_GetAccountPeakBalance is returning the correct peak balance */</a>
+<span class="lineNum">     983 </span>                :            : void
+<span class="lineNum">     984 </span>                :            : test__MemoryAccounting_GetAccountPeakBalance__Validate(void **state)
+<span class="lineNum">     985 </span>                :            : {
+<span class="lineNum">     986 </span>                :<span class="lineCov">          2 :         uint64 peakBalances[] = {0, UINT32_MAX, UINT64_MAX};</span>
+<span class="lineNum">     987 </span>                :            : 
+<span class="lineNum">     988 </span>        [<span class="branchCov" title="Branch 0 was taken 6 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          8 :         for (int accountIndex = 0; accountIndex &lt; sizeof(peakBalances) / sizeof(uint64); accountIndex++)</span>
+<span class="lineNum">     989 </span>                :            :         {
+<span class="lineNum">     990 </span>                :<span class="lineCov">          6 :                 uint64 peakBalance = peakBalances[accountIndex];</span>
+<span class="lineNum">     991 </span>                :            : 
+<span class="lineNum">     992 </span>                :<span class="lineCov">          6 :                 MemoryAccount *newAccount = MemoryAccounting_ConvertIdToAccount(</span>
+<span class="lineNum">     993 </span>                :<span class="lineCov">          6 :                                 CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId));</span>
+<span class="lineNum">     994 </span>                :            : 
+<span class="lineNum">     995 </span>                :<span class="lineCov">          6 :                 newAccount-&gt;peak = peakBalance;</span>
+<span class="lineNum">     996 </span>                :            : 
+<span class="lineNum">     997 </span>                :<span class="lineCov">          6 :                 assert_true(MemoryAccounting_GetAccountPeakBalance(newAccount-&gt;id) == peakBalance);</span>
+<span class="lineNum">     998 </span>                :            : 
+<span class="lineNum">     999 </span>                :<span class="lineCov">          6 :                 pfree(newAccount);</span>
+<span class="lineNum">    1000 </span>                :<span class="lineCov">          6 :         }</span>
+<span class="lineNum">    1001 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">    1002 </span>                :            : 
+<a name="1003"><span class="lineNum">    1003 </span>                :            : /* Tests if the MemoryAccounting_GetBalance is returning the current balance */</a>
+<span class="lineNum">    1004 </span>                :            : void
+<span class="lineNum">    1005 </span>                :            : test__MemoryAccounting_GetBalance__Validate(void **state)
+<span class="lineNum">    1006 </span>                :            : {
+<span class="lineNum">    1007 </span>                :<span class="lineCov">          2 :         uint64 allAllocated[] = {0, UINT32_MAX, UINT64_MAX, UINT64_MAX};</span>
+<span class="lineNum">    1008 </span>                :<span class="lineCov">          2 :         uint64 allFreed[] = {0, UINT16_MAX, UINT64_MAX, 0};</span>
+<span class="lineNum">    1009 </span>                :            : 
+<span class="lineNum">    1010 </span>        [<span class="branchCov" title="Branch 0 was taken 8 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">         10 :         for (int accountIndex = 0; accountIndex &lt; sizeof(allAllocated) / sizeof(uint64); accountIndex++)</span>
+<span class="lineNum">    1011 </span>                :            :         {
+<span class="lineNum">    1012 </span>                :<span class="lineCov">          8 :                 uint64 allocated = allAllocated[accountIndex];</span>
+<span class="lineNum">    1013 </span>                :<span class="lineCov">          8 :                 uint64 freed = allFreed[accountIndex];</span>
+<span class="lineNum">    1014 </span>                :            : 
+<span class="lineNum">    1015 </span>                :<span class="lineCov">          8 :                 MemoryAccount *newAccount = MemoryAccounting_ConvertIdToAccount(</span>
+<span class="lineNum">    1016 </span>                :<span class="lineCov">          8 :                                 CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId));</span>
+<span class="lineNum">    1017 </span>                :            : 
+<span class="lineNum">    1018 </span>                :<span class="lineCov">          8 :                 newAccount-&gt;allocated = allocated;</span>
+<span class="lineNum">    1019 </span>                :<span class="lineCov">          8 :                 newAccount-&gt;freed = freed;</span>
+<span class="lineNum">    1020 </span>                :            : 
+<span class="lineNum">    1021 </span>                :<span class="lineCov">          8 :                 assert_true(MemoryAccounting_GetBalance(newAccount) == (allocated - freed));</span>
+<span class="lineNum">    1022 </span>                :            : 
+<span class="lineNum">    1023 </span>                :<span class="lineCov">          8 :                 pfree(newAccount);</span>
+<span class="lineNum">    1024 </span>                :<span class="lineCov">          8 :         }</span>
+<span class="lineNum">    1025 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">    1026 </span>                :            : 
+<span class="lineNum">    1027 </span>                :            : /*
+<span class="lineNum">    1028 </span>                :            :  * Tests if the MemoryAccounting_ToString is correctly converting
+<span class="lineNum">    1029 </span>                :            :  * a memory accounting tree to string
+<a name="1030"><span class="lineNum">    1030 </span>                :            :  */</a>
+<span class="lineNum">    1031 </span>                :            : void
+<span class="lineNum">    1032 </span>                :            : test__MemoryAccounting_ToString__Validate(void **state)
+<span class="lineNum">    1033 </span>                :            : {
+<span class="lineNum">    1034 </span>                :<span class="lineCov">          2 :         char *templateString =</span>
+<span class="lineNum">    1035 </span>                :            : &quot;Root: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1036 </span>                :            :   Top: Peak/Cur %&quot; PRIu64 &quot;/%&quot; PRIu64 &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1037 </span>                :            :     X_Agg: Peak/Cur %&quot; PRIu64 &quot;/%&quot; PRIu64 &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1038 </span>                :            :   X_Alien: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1039 </span>                :            :   MemAcc: Peak/Cur %&quot; PRIu64 &quot;/%&quot; PRIu64 &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1040 </span>                :            :   Rollover: Peak/Cur %&quot; PRIu64 &quot;/%&quot; PRIu64 &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1041 </span>                :            :     X_Hash: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1042 </span>                :            :   SharedHeader: Peak/Cur %&quot; PRIu64 &quot;/%&quot; PRIu64 &quot;bytes. Quota: 0bytes.\n&quot;;
+<span class="lineNum">    1043 </span>                :            : 
+<span class="lineNum">    1044 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldAccountId = CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId);</span>
+<span class="lineNum">    1045 </span>                :            :         /* Make oldAccountId obsolete */
+<span class="lineNum">    1046 </span>                :<span class="lineCov">          2 :         MemoryAccounting_Reset();</span>
+<span class="lineNum">    1047 </span>                :            : 
+<span class="lineNum">    1048 </span>                :<span class="lineCov">          2 :         MemoryAccount *rollover = MemoryAccounting_ConvertIdToAccount(MEMORY_OWNER_TYPE_Rollover);</span>
+<span class="lineNum">    1049 </span>                :<span class="lineCov">          2 :         MemoryAccount *newAccount1 = MemoryAccounting_ConvertIdToAccount(CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, oldAccountId));</span>
+<span class="lineNum">    1050 </span>                :            :         /* Although newAccount has the oldAccount as parent, the serializer will use Rollover as its parent */
+<span class="lineNum">    1051 </span>                :<span class="lineCov">          2 :         assert_true(newAccount1-&gt;parentId == oldAccountId);</span>
+<span class="lineNum">    1052 </span>                :            : 
+<span class="lineNum">    1053 </span>                :            :         /* ActiveMemoryAccount should be Top at this point */
+<span class="lineNum">    1054 </span>                :<span class="lineCov">          2 :         MemoryAccount *newAccount2 = MemoryAccounting_ConvertIdToAccount(CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Agg, ActiveMemoryAccountId));</span>
+<span class="lineNum">    1055 </span>                :            : 
+<span class="lineNum">    1056 </span>                :<span class="lineCov">          2 :         MemoryAccount *topAccount = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">    1057 </span>                :            : 
+<span class="lineNum">    1058 </span>                :<span class="lineCov">          2 :         void * dummy1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1059 </span>                :<span class="lineCov">          2 :         void * dummy2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1060 </span>                :            : 
+<span class="lineNum">    1061 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(newAccount2-&gt;id);</span>
+<span class="lineNum">    1062 </span>                :            : 
+<span class="lineNum">    1063 </span>                :<span class="lineCov">          2 :         void * dummy3 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1064 </span>                :            : 
+<span class="lineNum">    1065 </span>                :<span class="lineCov">          2 :         pfree(dummy1);</span>
+<span class="lineNum">    1066 </span>                :<span class="lineCov">          2 :         pfree(dummy2);</span>
+<span class="lineNum">    1067 </span>                :<span class="lineCov">          2 :         pfree(dummy3);</span>
+<span class="lineNum">    1068 </span>                :            : 
+<span class="lineNum">    1069 </span>                :            :         StringInfoData buffer;
+<span class="lineNum">    1070 </span>                :<span class="lineCov">          2 :         initStringInfoOfSize(&amp;buffer, MAX_OUTPUT_BUFFER_SIZE);</span>
+<span class="lineNum">    1071 </span>                :            : 
+<span class="lineNum">    1072 </span>                :<span class="lineCov">          2 :         MemoryAccountTree *tree = ConvertMemoryAccountArrayToTree(&amp;longLivingMemoryAccountArray[MEMORY_OWNER_TYPE_Undefined],</span>
+<span class="lineNum">    1073 </span>                :<span class="lineCov">          2 :                         shortLivingMemoryAccountArray-&gt;allAccounts, shortLivingMemoryAccountArray-&gt;accountCount);</span>
+<span class="lineNum">    1074 </span>                :            : 
+<span class="lineNum">    1075 </span>                :<span class="lineCov">          2 :         MemoryAccounting_ToString(&amp;tree[MEMORY_OWNER_TYPE_LogicalRoot], &amp;buffer, 0 /* Indentation */);</span>
+<span class="lineNum">    1076 </span>                :            : 
+<span class="lineNum">    1077 </span>                :            :         char            buf[MAX_OUTPUT_BUFFER_SIZE];
+<span class="lineNum">    1078 </span>                :<span class="lineCov">          2 :         snprintf(buf, sizeof(buf), templateString,</span>
+<span class="lineNum">    1079 </span>                :            :                         topAccount-&gt;peak, (topAccount-&gt;allocated - topAccount-&gt;freed), /* Top */
+<span class="lineNum">    1080 </span>                :            :                         newAccount2-&gt;peak, (newAccount2-&gt;allocated - newAccount2-&gt;freed), /* X_Agg */
+<span class="lineNum">    1081 </span>                :            :                         MemoryAccountMemoryAccount-&gt;peak, (MemoryAccountMemoryAccount-&gt;allocated - MemoryAccountMemoryAccount-&gt;freed), /* MemoryAccountMemoryAccount */
+<span class="lineNum">    1082 </span>                :            :                         rollover-&gt;peak, (rollover-&gt;allocated - rollover-&gt;freed), /* Rollover */
+<span class="lineNum">    1083 </span>                :            :                         SharedChunkHeadersMemoryAccount-&gt;peak, (SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed) /* SharedChunkHeadersMemoryAccount */);
+<span class="lineNum">    1084 </span>                :            : 
+<span class="lineNum">    1085 </span>                :<span class="lineCov">          2 :     assert_true(strcmp(buffer.data, buf) == 0);</span>
+<span class="lineNum">    1086 </span>                :            : 
+<span class="lineNum">    1087 </span>                :<span class="lineCov">          2 :     pfree(tree);</span>
+<span class="lineNum">    1088 </span>                :<span class="lineCov">          2 :     pfree(buffer.data);</span>
+<span class="lineNum">    1089 </span>                :<span class="lineCov">          2 :     pfree(newAccount1);</span>
+<span class="lineNum">    1090 </span>                :<span class="lineCov">          2 :     pfree(newAccount2);</span>
+<span class="lineNum">    1091 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">    1092 </span>                :            : 
+<span class="lineNum">    1093 </span>                :            : /*
+<span class="lineNum">    1094 </span>                :            :  * Tests if the MemoryAccounting_SaveToLog is generating the correct
+<span class="lineNum">    1095 </span>                :            :  * string representation of the memory accounting tree before saving
+<span class="lineNum">    1096 </span>                :            :  * it to log.
+<span class="lineNum">    1097 </span>                :            :  *
+<span class="lineNum">    1098 </span>                :            :  * Note: we don't test the exact log saving here.
+<a name="1099"><span class="lineNum">    1099 </span>                :            :  */</a>
+<span class="lineNum">    1100 </span>                :            : void
+<span class="lineNum">    1101 </span>                :            : test__MemoryAccounting_SaveToLog__GeneratesCorrectString(void **state)
+<span class="lineNum">    1102 </span>                :            : {
+<span class="lineNum">    1103 </span>                :<span class="lineCov">          2 :         char *templateString =</span>
+<span class="lineNum">    1104 </span>                :            : &quot;memory: account_name, account_id, parent_account_id, quota, peak, allocated, freed, current\n\
+<span class="lineNum">    1105 </span>                :            : memory: Vmem, -1, -1, 0, 0, 0, 0, 0\n\
+<span class="lineNum">    1106 </span>                :            : memory: Peak, -2, -2, 0, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, 0, %&quot; PRIu64 &quot;\n\
+<span class="lineNum">    1107 </span>                :            : memory: Root, 1, 1, 0, 0, 0, 0, 0\n\
+<span class="lineNum">    1108 </span>                :            : memory: SharedHeader, 2, 1, 0, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;\n\
+<span class="lineNum">    1109 </span>                :            : memory: Rollover, 3, 1, 0, 0, 0, 0, 0\n\
+<span class="lineNum">    1110 </span>                :            : memory: MemAcc, 4, 1, 0, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;\n\
+<span class="lineNum">    1111 </span>                :            : memory: X_Alien, 5, 1, 0, 0, 0, 0, 0\n\
+<span class="lineNum">    1112 </span>                :            : memory: Top, 6, 1, 0, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;\n\
+<span class="lineNum">    1113 </span>                :            : memory: X_Hash, 7, 6, 0, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;, %&quot; PRIu64 &quot;\n&quot;;
+<span class="lineNum">    1114 </span>                :            : 
+<span class="lineNum">    1115 </span>                :            :         /* ActiveMemoryAccount should be Top at this point */
+<span class="lineNum">    1116 </span>                :<span class="lineCov">          2 :         MemoryAccount *newAccount = MemoryAccounting_ConvertIdToAccount(</span>
+<span class="lineNum">    1117 </span>                :<span class="lineCov">          2 :                         CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId));</span>
+<span class="lineNum">    1118 </span>                :<span class="lineCov">          2 :         MemoryAccount *topAccount = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">    1119 </span>                :            : 
+<span class="lineNum">    1120 </span>                :<span class="lineCov">          2 :         void * dummy1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1121 </span>                :            : 
+<span class="lineNum">    1122 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldAccountId = MemoryAccounting_SwitchAccount(newAccount-&gt;id);</span>
+<span class="lineNum">    1123 </span>                :            : 
+<span class="lineNum">    1124 </span>                :<span class="lineCov">          2 :         void * dummy2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1125 </span>                :<span class="lineCov">          2 :         void * dummy3 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1126 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldAccountId);</span>
+<span class="lineNum">    1127 </span>                :            : 
+<span class="lineNum">    1128 </span>                :            :         /* Now free in Hash account, although Hash is no longer Active */
+<span class="lineNum">    1129 </span>                :<span class="lineCov">          2 :         pfree(dummy3);</span>
+<span class="lineNum">    1130 </span>                :            : 
+<span class="lineNum">    1131 </span>                :<span class="lineCov">          2 :     MemoryAccounting_SaveToLog();</span>
+<span class="lineNum">    1132 </span>                :            : 
+<span class="lineNum">    1133 </span>                :            :         char            buf[MAX_OUTPUT_BUFFER_SIZE];
+<span class="lineNum">    1134 </span>                :            :         /* Hack to discount &quot;tree&quot; free in MemoryAccounting_SaveToLog which we did not count when walked the tree */
+<span class="lineNum">    1135 </span>                :<span class="lineCov">          2 :         uint64 hackedFreed = topAccount-&gt;freed;</span>
+<span class="lineNum">    1136 </span>                :<span class="lineCov">          2 :         topAccount-&gt;freed = 0;</span>
+<span class="lineNum">    1137 </span>                :            : 
+<span class="lineNum">    1138 </span>                :<span class="lineCov">          2 :         snprintf(buf, sizeof(buf), templateString,</span>
+<span class="lineNum">    1139 </span>                :            :                         MemoryAccountingPeakBalance, MemoryAccountingPeakBalance, MemoryAccountingPeakBalance,
+<span class="lineNum">    1140 </span>                :            :                         SharedChunkHeadersMemoryAccount-&gt;peak, SharedChunkHeadersMemoryAccount-&gt;allocated, SharedChunkHeadersMemoryAccount-&gt;freed, SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed,
+<span class="lineNum">    1141 </span>                :            :                         MemoryAccountMemoryAccount-&gt;peak, MemoryAccountMemoryAccount-&gt;allocated, MemoryAccountMemoryAccount-&gt;freed, MemoryAccountMemoryAccount-&gt;allocated - MemoryAccountMemoryAccount-&gt;freed,
+<span class="lineNum">    1142 </span>                :            :                         topAccount-&gt;peak, topAccount-&gt;allocated, topAccount-&gt;freed, topAccount-&gt;allocated - topAccount-&gt;freed,
+<span class="lineNum">    1143 </span>                :            :                         newAccount-&gt;peak, newAccount-&gt;allocated, newAccount-&gt;freed, newAccount-&gt;allocated - newAccount-&gt;freed);
+<span class="lineNum">    1144 </span>                :            : 
+<span class="lineNum">    1145 </span>                :            :         /* Restore hacked counters */
+<span class="lineNum">    1146 </span>                :<span class="lineCov">          2 :         topAccount-&gt;freed = hackedFreed;</span>
+<span class="lineNum">    1147 </span>                :            : 
+<span class="lineNum">    1148 </span>                :<span class="lineCov">          2 :     assert_true(strcmp(outputBuffer.data, buf) == 0);</span>
+<span class="lineNum">    1149 </span>                :            : 
+<span class="lineNum">    1150 </span>                :<span class="lineCov">          2 :         pfree(dummy1);</span>
+<span class="lineNum">    1151 </span>                :<span class="lineCov">          2 :         pfree(dummy2);</span>
+<span class="lineNum">    1152 </span>                :<span class="lineCov">          2 :     pfree(newAccount);</span>
+<span class="lineNum">    1153 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">    1154 </span>                :            : 
+<span class="lineNum">    1155 </span>                :            : /*
+<span class="lineNum">    1156 </span>                :            :  * Tests if the MemoryAccounting_PrettyPrint is generating the correct
+<span class="lineNum">    1157 </span>                :            :  * string representation of the memory accounting tree before printing.
+<a name="1158"><span class="lineNum">    1158 </span>                :            :  */</a>
+<span class="lineNum">    1159 </span>                :            : void
+<span class="lineNum">    1160 </span>                :            : test__MemoryAccounting_PrettyPrint__GeneratesCorrectString(void **state)
+<span class="lineNum">    1161 </span>                :            : {
+<span class="lineNum">    1162 </span>                :            : 
+<span class="lineNum">    1163 </span>                :<span class="lineCov">          2 :         char *templateString = &quot;Root: Peak/Cur 0/0bytes. Quota: 0bytes.\n\</span>
+<span class="lineNum">    1164 </span>                :            :   Top: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1165 </span>                :            :     X_Hash: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1166 </span>                :            :   X_Alien: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1167 </span>                :            :   MemAcc: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1168 </span>                :            :   Rollover: Peak/Cur 0/0bytes. Quota: 0bytes.\n\
+<span class="lineNum">    1169 </span>                :            :   SharedHeader: Peak/Cur &quot; UINT64_FORMAT &quot;/&quot; UINT64_FORMAT &quot;bytes. Quota: 0bytes.\n\n&quot;;
+<span class="lineNum">    1170 </span>                :            : 
+<span class="lineNum">    1171 </span>                :            :         /* ActiveMemoryAccount should be Top at this point */
+<span class="lineNum">    1172 </span>                :<span class="lineCov">          2 :         MemoryAccount *newAccount = MemoryAccounting_ConvertIdToAccount(</span>
+<span class="lineNum">    1173 </span>                :<span class="lineCov">          2 :                         CreateMemoryAccountImpl(0, MEMORY_OWNER_TYPE_Exec_Hash, ActiveMemoryAccountId));</span>
+<span class="lineNum">    1174 </span>                :<span class="lineCov">          2 :         MemoryAccount *topAccount = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">    1175 </span>                :            : 
+<span class="lineNum">    1176 </span>                :<span class="lineCov">          2 :         void * dummy1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1177 </span>                :            : 
+<span class="lineNum">    1178 </span>                :<span class="lineCov">          2 :         MemoryAccountIdType oldAccountId = MemoryAccounting_SwitchAccount(newAccount-&gt;id);</span>
+<span class="lineNum">    1179 </span>                :            : 
+<span class="lineNum">    1180 </span>                :<span class="lineCov">          2 :         void * dummy2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1181 </span>                :<span class="lineCov">          2 :         void * dummy3 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1182 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(oldAccountId);</span>
+<span class="lineNum">    1183 </span>                :            : 
+<span class="lineNum">    1184 </span>                :            :         /* Now free in Hash account, although Hash is no longer Active */
+<span class="lineNum">    1185 </span>                :<span class="lineCov">          2 :         pfree(dummy3);</span>
+<span class="lineNum">    1186 </span>                :            : 
+<span class="lineNum">    1187 </span>                :<span class="lineCov">          2 :         MemoryAccounting_PrettyPrint();</span>
+<span class="lineNum">    1188 </span>                :            : 
+<span class="lineNum">    1189 </span>                :            :         char            buf[MAX_OUTPUT_BUFFER_SIZE];
+<span class="lineNum">    1190 </span>                :            :         /* Hack to discount &quot;tree&quot; free in MemoryAccounting_SaveToLog which we did not count when walked the tree */
+<span class="lineNum">    1191 </span>                :<span class="lineCov">          2 :         uint64 hackedFreed = topAccount-&gt;freed;</span>
+<span class="lineNum">    1192 </span>                :<span class="lineCov">          2 :         topAccount-&gt;freed = 0;</span>
+<span class="lineNum">    1193 </span>                :<span class="lineCov">          2 :         snprintf(buf, sizeof(buf), templateString,</span>
+<span class="lineNum">    1194 </span>                :            :                         topAccount-&gt;peak, topAccount-&gt;allocated - topAccount-&gt;freed,
+<span class="lineNum">    1195 </span>                :            :                         newAccount-&gt;peak, newAccount-&gt;allocated - newAccount-&gt;freed,
+<span class="lineNum">    1196 </span>                :            :                         MemoryAccountMemoryAccount-&gt;peak, MemoryAccountMemoryAccount-&gt;allocated - MemoryAccountMemoryAccount-&gt;freed,
+<span class="lineNum">    1197 </span>                :            :                         SharedChunkHeadersMemoryAccount-&gt;peak, SharedChunkHeadersMemoryAccount-&gt;allocated - SharedChunkHeadersMemoryAccount-&gt;freed);
+<span class="lineNum">    1198 </span>                :            : 
+<span class="lineNum">    1199 </span>                :            :         /* Restore hacked counters */
+<span class="lineNum">    1200 </span>                :<span class="lineCov">          2 :         topAccount-&gt;freed = hackedFreed;</span>
+<span class="lineNum">    1201 </span>                :            : 
+<span class="lineNum">    1202 </span>                :<span class="lineCov">          2 :     assert_true(strcmp(outputBuffer.data, buf) == 0);</span>
+<span class="lineNum">    1203 </span>                :            : 
+<span class="lineNum">    1204 </span>                :<span class="lineCov">          2 :         pfree(dummy1);</span>
+<span class="lineNum">    1205 </span>                :<span class="lineCov">          2 :         pfree(dummy2);</span>
+<span class="lineNum">    1206 </span>                :<span class="lineCov">          2 :     pfree(newAccount);</span>
+<span class="lineNum">    1207 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">    1208 </span>                :            : 
+<span class="lineNum">    1209 </span>                :            : /*
+<span class="lineNum">    1210 </span>                :            :  * Tests if the MemoryAccounting_SaveToFile is generating the correct
+<span class="lineNum">    1211 </span>                :            :  * string representation of memory accounting tree.
+<span class="lineNum">    1212 </span>                :            :  *
+<span class="lineNum">    1213 </span>                :            :  * Note: we don't test the exact file saving here.
+<a name="1214"><span class="lineNum">    1214 </span>                :            :  */</a>
+<span class="lineNum">    1215 </span>                :            : void
+<span class="lineNum">    1216 </span>                :            : test__MemoryAccounting_SaveToFile__GeneratesCorrectString(void **state)
+<span class="lineNum">    1217 </span>                :            : {
+<span class="lineNum">    1218 </span>                :<span class="lineCov">          2 :         MemoryOwnerType newAccountOwnerType = MEMORY_OWNER_TYPE_Exec_Hash;</span>
+<span class="lineNum">    1219 </span>                :            : 
+<span class="lineNum">    1220 </span>                :            :         /* ActiveMemoryAccount should be Top at this point */
+<span class="lineNum">    1221 </span>                :<span class="lineCov">          2 :         MemoryAccount *newAccount = MemoryAccounting_ConvertIdToAccount(</span>
+<span class="lineNum">    1222 </span>                :<span class="lineCov">          2 :                         CreateMemoryAccountImpl(0, newAccountOwnerType, ActiveMemoryAccountId));</span>
+<span class="lineNum">    1223 </span>                :<span class="lineCov">          2 :         MemoryAccount *topAccount = MemoryAccounting_ConvertIdToAccount(liveAccountStartId);</span>
+<span class="lineNum">    1224 </span>                :            : 
+<span class="lineNum">    1225 </span>                :<span class="lineCov">          2 :         void * dummy1 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1226 </span>                :<span class="lineCov">          2 :         void * dummy2 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1227 </span>                :            : 
+<span class="lineNum">    1228 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SwitchAccount(newAccount-&gt;id);</span>
+<span class="lineNum">    1229 </span>                :            : 
+<span class="lineNum">    1230 </span>                :<span class="lineCov">          2 :         void * dummy3 = palloc(NEW_ALLOC_SIZE);</span>
+<span class="lineNum">    1231 </span>                :            : 
+<span class="lineNum">    1232 </span>                :<span class="lineCov">          2 :         pfree(dummy1);</span>
+<span class="lineNum">    1233 </span>                :<span class="lineCov">          2 :         pfree(dummy2);</span>
+<span class="lineNum">    1234 </span>                :<span class="lineCov">          2 :         pfree(dummy3);</span>
+<span class="lineNum">    1235 </span>                :            : 
+<span class="lineNum">    1236 </span>                :<span class="lineCov">          2 :         will_return(GetCurrentStatementStartTimestamp, 999);</span>
+<span class="lineNum">    1237 </span>                :            : 
+<span class="lineNum">    1238 </span>                :<span class="lineCov">          2 :         memory_profiler_run_id = &quot;test&quot;;</span>
+<span class="lineNum">    1239 </span>                :<span class="lineCov">          2 :         memory_profiler_dataset_id = &quot;unittest&quot;;</span>
+<span class="lineNum">    1240 </span>                :<span class="lineCov">          2 :         memory_profiler_query_id = &quot;q&quot;;</span>
+<span class="lineNum">    1241 </span>                :<span class="lineCov">          2 :         memory_profiler_dataset_size = INT_MAX;</span>
+<span class="lineNum">    1242 </span>                :            : 
+<span class="lineNum">    1243 </span>                :<span class="lineCov">          2 :         GpIdentity.segindex = CHAR_MAX;</span>
+<span class="lineNum">    1244 </span>                :            : 
+<span class="lineNum">    1245 </span>                :<span class="lineCov">          2 :         MemoryAccounting_SaveToFile(10 /* Arbitrary slice id */);</span>
+<span class="lineNum">    1246 </span>                :            : 
+<span class="lineNum">    1247 </span>                :<span class="lineCov">          2 :         char *token = strtok(outputBuffer.data, &quot;\n&quot;);</span>
+<span class="lineNum">    1248 </span>                :<span class="lineCov">          2 :         int lineNo = 0;</span>
+<span class="lineNum">    1249 </span>                :            : 
+<span class="lineNum">    1250 </span>                :<span class="lineCov">          2 :         int memoryOwnerTypes[] = {MEMORY_STAT_TYPE_VMEM_RESERVED, MEMORY_STAT_TYPE_MEMORY_ACCOUNTING_PEAK,</span>
+<span class="lineNum">    1251 </span>                :            :                         MEMORY_OWNER_TYPE_LogicalRoot, MEMORY_OWNER_TYPE_Top, MEMORY_OWNER_TYPE_Exec_Hash ,
+<span class="lineNum">    1252 </span>                :            :                         MEMORY_OWNER_TYPE_Exec_AlienShared, MEMORY_OWNER_TYPE_MemAccount, MEMORY_OWNER_TYPE_Rollover,
+<span class="lineNum">    1253 </span>                :            :                         MEMORY_OWNER_TYPE_SharedChunkHeader};
+<span class="lineNum">    1254 </span>                :            : 
+<span class="lineNum">    1255 </span>                :            :         char runId[80];
+<span class="lineNum">    1256 </span>                :            :         char datasetId[80];
+<span class="lineNum">    1257 </span>                :            :         char queryId[80];
+<span class="lineNum">    1258 </span>                :<span class="lineCov">          2 :         int datasetSize = 0;</span>
+<span class="lineNum">    1259 </span>                :<span class="lineCov">          2 :         int stmtMem = 0;</span>
+<span class="lineNum">    1260 </span>                :<span class="lineCov">          2 :         int sessionId = 0;</span>
+<span class="lineNum">    1261 </span>                :<span class="lineCov">          2 :         int stmtTimestamp = 0;</span>
+<span class="lineNum">    1262 </span>                :<span class="lineCov">          2 :         int sliceId = 0;</span>
+<span class="lineNum">    1263 </span>                :<span class="lineCov">          2 :         int segIndex = 0;</span>
+<span class="lineNum">    1264 </span>                :<span class="lineCov">          2 :         int ownerType = 0;</span>
+<span class="lineNum">    1265 </span>                :<span class="lineCov">          2 :         int childSerial = 0;</span>
+<span class="lineNum">    1266 </span>                :<span class="lineCov">          2 :         int parentSerial = 0;</span>
+<span class="lineNum">    1267 </span>                :<span class="lineCov">          2 :         int quota = 0;</span>
+<span class="lineNum">    1268 </span>                :<span class="lineCov">          2 :         int peak = 0;</span>
+<span class="lineNum">    1269 </span>                :<span class="lineCov">          2 :         int allocated = 0;</span>
+<span class="lineNum">    1270 </span>                :<span class="lineCov">          2 :         int freed = 0;</span>
+<span class="lineNum">    1271 </span>                :            : 
+<span class="lineNum">    1272 </span>        [<span class="branchCov" title="Branch 0 was taken 18 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">         20 :         while (token)</span>
+<span class="lineNum">    1273 </span>                :            :         {
+<span class="lineNum">    1274 </span>                :<span class="lineCov">         18 :                 sscanf(token, &quot;%4s,%8s,%1s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d&quot;,</span>
+<span class="lineNum">    1275 </span>                :<span class="lineCov">         18 :                                 runId, datasetId, queryId, &amp;datasetSize, &amp;stmtMem, &amp;sessionId, &amp;stmtTimestamp,</span>
+<span class="lineNum">    1276 </span>                :            :                                 &amp;sliceId, &amp;segIndex, &amp;ownerType, &amp;childSerial, &amp;parentSerial, &amp;quota, &amp;peak, &amp;allocated, &amp;freed);
+<span class="lineNum">    1277 </span>                :            : 
+<span class="lineNum">    1278 </span>                :            :                 /* Ensure that prefix is correctly maintained */
+<span class="lineNum">    1279 </span>                :<span class="lineCov">         18 :                 assert_true(strcmp(runId, memory_profiler_run_id) == 0);</span>
+<span class="lineNum">    1280 </span>                :<span class="lineCov">         18 :                 assert_true(strcmp(datasetId, memory_profiler_dataset_id) == 0);</span>
+<span class="lineNum">    1281 </span>                :<span class="lineCov">         18 :                 assert_true(strcmp(queryId, memory_profiler_query_id) == 0);</span>
+<span class="lineNum">    1282 </span>                :            : 
+<span class="lineNum">    1283 </span>                :            :                 /* Ensure that proper serial of owners was maintained */
+<span class="lineNum">    1284 </span>                :<span class="lineCov">         18 :                 assert_true(ownerType == memoryOwnerTypes[lineNo]);</span>
+<span class="lineNum">    1285 </span>                :            : 
+<span class="lineNum">    1286 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 16 times"> + </span>]:<span class="lineCov">         18 :                 if (ownerType ==  MEMORY_STAT_TYPE_VMEM_RESERVED)</span>
+<span class="lineNum">    1287 </span>                :            :                 {
+<span class="lineNum">    1288 </span>                :<span class="lineCov">          2 :                         int64 vmem_reserved = VmemTracker_GetMaxReservedVmemBytes();</span>
+<span class="lineNum">    1289 </span>                :            : 
+<span class="lineNum">    1290 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == vmem_reserved &amp;&amp; allocated == vmem_reserved &amp;&amp; freed == 0);</span>
+<span class="lineNum">    1291 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1292 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 14 times"> + </span>]:<span class="lineCov">         16 :                 else if (ownerType == MEMORY_STAT_TYPE_MEMORY_ACCOUNTING_PEAK)</span>
+<span class="lineNum">    1293 </span>                :            :                 {
+<span class="lineNum">    1294 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == MemoryAccountingPeakBalance &amp;&amp; allocated == MemoryAccountingPeakBalance &amp;&amp; freed == 0);</span>
+<span class="lineNum">    1295 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1296 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 12 times"> + </span>]:<span class="lineCov">         14 :                 else if (ownerType == MEMORY_OWNER_TYPE_LogicalRoot)</span>
+<span class="lineNum">    1297 </span>                :            :                 {
+<span class="lineNum">    1298 </span>                :<span class="lineCov">          2 :                         MemoryAccount *root = MemoryAccounting_ConvertIdToAccount(MEMORY_OWNER_TYPE_LogicalRoot);</span>
+<span class="lineNum">    1299 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == root-&gt;peak &amp;&amp;</span>
+<span class="lineNum">    1300 </span>                :            :                                         allocated == root-&gt;allocated &amp;&amp; freed == root-&gt;freed);
+<span class="lineNum">    1301 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1302 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 10 times"> + </span>]:<span class="lineCov">         12 :                 else if (ownerType == MEMORY_OWNER_TYPE_Top)</span>
+<span class="lineNum">    1303 </span>                :            :                 {
+<span class="lineNum">    1304 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == topAccount-&gt;peak &amp;&amp; allocated == topAccount-&gt;allocated &amp;&amp; freed == topAccount-&gt;freed);</span>
+<span class="lineNum">    1305 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1306 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 8 times"> + </span>]:<span class="lineCov">         10 :                 else if (ownerType ==newAccountOwnerType)</span>
+<span class="lineNum">    1307 </span>                :            :                 {
+<span class="lineNum">    1308 </span>                :            :                         /* Verify allocated and peak, but don't verify freed, as freed will be after MemoryAccounting_SaveToFile is finished */
+<span class="lineNum">    1309 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == newAccount-&gt;peak &amp;&amp; allocated == newAccount-&gt;allocated);</span>
+<span class="lineNum">    1310 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1311 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 6 times"> + </span>]:<span class="lineCov">          8 :                 else if (ownerType == MEMORY_OWNER_TYPE_Exec_AlienShared)</span>
+<span class="lineNum">    1312 </span>                :            :                 {
+<span class="lineNum">    1313 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == AlienExecutorMemoryAccount-&gt;peak &amp;&amp;</span>
+<span class="lineNum">    1314 </span>                :            :                                         allocated == AlienExecutorMemoryAccount-&gt;allocated &amp;&amp; freed == AlienExecutorMemoryAccount-&gt;freed);
+<span class="lineNum">    1315 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1316 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 4 times"> + </span>]:<span class="lineCov">          6 :                 else if (ownerType == MEMORY_OWNER_TYPE_MemAccount)</span>
+<span class="lineNum">    1317 </span>                :            :                 {
+<span class="lineNum">    1318 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == MemoryAccountMemoryAccount-&gt;peak &amp;&amp;</span>
+<span class="lineNum">    1319 </span>                :            :                                         allocated == MemoryAccountMemoryAccount-&gt;allocated &amp;&amp; freed == MemoryAccountMemoryAccount-&gt;freed);
+<span class="lineNum">    1320 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1321 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">          4 :                 else if (ownerType == MEMORY_OWNER_TYPE_Rollover)</span>
+<span class="lineNum">    1322 </span>                :            :                 {
+<span class="lineNum">    1323 </span>[<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 3 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == RolloverMemoryAccount-&gt;peak &amp;&amp;</span>
+<span class="lineNum">    1324 </span>                :            :                                         allocated == RolloverMemoryAccount-&gt;allocated &amp;&amp; freed == RolloverMemoryAccount-&gt;freed);
+<span class="lineNum">    1325 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1326 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :                 else if (ownerType == MEMORY_OWNER_TYPE_SharedChunkHeader)</span>
+<span class="lineNum">    1327 </span>                :            :                 {
+<span class="lineNum">    1328 </span>                :            :                         /* SharedChunkHeadersMemoryAccount was also changed after the output was generated. So, don't compare the freed field */
+<span class="lineNum">    1329 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :                         assert_true(peak == SharedChunkHeadersMemoryAccount-&gt;peak &amp;&amp;</span>
+<span class="lineNum">    1330 </span>                :            :                                         allocated == SharedChunkHeadersMemoryAccount-&gt;allocated);
+<span class="lineNum">    1331 </span>                :<span class="lineCov">          2 :                 }</span>
+<span class="lineNum">    1332 </span>                :            :                 else
+<span class="lineNum">    1333 </span>                :            :                 {
+<span class="lineNum">    1334 </span>                :<span class="lineNoCov">          0 :                         assert_true(false);</span>
+<span class="lineNum">    1335 </span>                :            :                 }
+<span class="lineNum">    1336 </span>                :            : 
+<span class="lineNum">    1337 </span>                :<span class="lineCov">         18 :                 token = strtok(NULL, &quot;\n&quot;);</span>
+<span class="lineNum">    1338 </span>                :            : 
+<span class="lineNum">    1339 </span>                :<span class="lineCov">         18 :                 lineNo++;</span>
+<span class="lineNum">    1340 </span>                :            :         }
+<span class="lineNum">    1341 </span>                :<span class="lineCov">          2 :     pfree(newAccount);</span>
+<span class="lineNum">    1342 </span>                :<span class="lineCov">          2 : }</span>
+<span class="lineNum">    1343 </span>                :            : 
+<span class="lineNum">    1344 </span>                :            : /*
+<span class="lineNum">    1345 </span>                :            :  * Tests if we correctly convert the short and long living indexes to a combined
+<span class="lineNum">    1346 </span>                :            :  * array index
+<a name="1347"><span class="lineNum">    1347 </span>                :            :  */</a>
+<span class="lineNum">    1348 </span>                :            : void
+<span class="lineNum">    1349 </span>                :            : test__ConvertIdToUniversalArrayIndex__Validate(void **state)
+<span class="lineNum">    1350 </span>                :            : {
+<span class="lineNum">    1351 </span>                :            :         // For long living number of short living accounts don't matter to resolve to a compact index
+<span class="lineNum">    1352 </span>                :<span class="lineCov">          2 :         assert_true(ConvertIdToUniversalArrayIndex(MEMORY_OWNER_TYPE_MemAccount, MEMORY_OWNER_TYPE_START_SHORT_LIVING,</span>
+<span class="lineNum">    1353 </span>                :            :                         1) == MEMORY_OWNER_TYPE_MemAccount);
+<span class="lineNum">    1354 </span>                :            : 
+<span class="lineNum">    1355 </span>                :<span class="lineCov">          2 :         assert_true(ConvertIdToUniversalArrayIndex(MEMORY_OWNER_TYPE_MemAccount, MEMORY_OWNER_TYPE_START_SHORT_LIVING + 10,</span>
+<span class="lineNum">    1356 </span>                :            :                         4) == MEMORY_OWNER_TYPE_MemAccount);
+<span class="lineNum">    1357 </span>                :            : 
+<span class="lineNum">    1358 </span>                :            :         // For gap of 10 we will still resolve to a compact index
+<span class="lineNum">    1359 </span>                :<span class="lineCov">          2 :         assert_true(ConvertIdToUniversalArrayIndex(MEMORY_OWNER_TYPE_Top + 10, MEMORY_OWNER_TYPE_START_SHORT_LIVING + 10,</span>
+<span class="lineNum">    1360 </span>                :            :                         3) == MEMORY_OWNER_TYPE_Top);
+<span class="lineNum">    1361 </span>                :            : 
+<span class="lineNum">    1362 </span>                :            :         // For out of range, we should get an error
+<span class="lineNum">    1363 </span>                :            :         //will_be_called(errstart);
+<span class="lineNum">    1364 </span>                :<span class="lineCov">          2 :         ConvertIdToUniversalArrayIndex(100, MEMORY_OWNER_TYPE_START_SHORT_LIVING + 10, 3);</span>
+<span class="lineNum">    1365 </span>        [<span class="branchCov" title="Branch 0 was taken 2 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>]:<span class="lineCov">          2 :         assert_true(elevel == ERROR &amp;&amp; strcmp(outputBuffer.data, &quot;Cannot map id to array index&quot;) == 0);</span>
+<span class="lineNum">    1366 </span>                :<span class="lineCov">          2 : }</span>
+<a name="1367"><span class="lineNum">    1367 </span>                :            : </a>
+<span class="lineNum">    1368 </span>                :            : int
+<span class="lineNum">    1369 </span>                :            : main(int argc, char* argv[])
+<span class="lineNum">    1370 </span>                :            : {
+<span class="lineNum">    1371 </span>                :<span class="lineCov">          2 :         cmockery_parse_arguments(argc, argv);</span>
+<span class="lineNum">    1372 </span>                :            : 
+<span class="lineNum">    1373 </span>                :            :         const UnitTest tests[] = {
+<span class="lineNum">    1374 </span>                :            :                 unit_test_setup_teardown(test__CreateMemoryAccountImpl__ActiveVsParent, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1375 </span>                :            :                 unit_test_setup_teardown(test__CreateMemoryAccountImpl__AccountProperties, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1376 </span>                :            :                 unit_test_setup_teardown(test__CreateMemoryAccountImpl__TracksMemoryOverhead, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1377 </span>                :            :                 unit_test_setup_teardown(test__CreateMemoryAccountImpl__AllocatesOnlyFromMemoryAccountMemoryContext, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1378 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_SwitchAccount__AccountIsSwitched, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1379 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccountIsValid__ProperValidation, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1380 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__ReusesLongLivingAccounts, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1381 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__RecreatesShortLivingAccounts, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1382 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__ReusesMemoryAccountMemoryContext, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1383 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__ResetsMemoryAccountMemoryContext, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1384 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__TopIsActive, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1385 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__AdvancesGeneration, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1386 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__TransferRemainingToRollover, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1387 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Reset__ResetPeakBalance, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1388 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_AdvanceMemoryAccountingGeneration__SetsActiveToRollover, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1389 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_AdvanceMemoryAccountingGeneration__TransfersBalanceToRolloverWithoutMigration, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1390 </span>                :            :                 unit_test_setup_teardown(test__MemoryContextReset__ResetsSharedChunkHeadersMemoryAccountBalance, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1391 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_Serialize__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1392 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_GetAccountName__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1393 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_SizeOfAccountInBytes__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1394 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_GetGlobalPeak__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1395 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_GetAccountPeakBalance__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1396 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_GetBalance__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1397 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_ToString__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1398 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_SaveToLog__GeneratesCorrectString, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1399 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_SaveToFile__GeneratesCorrectString, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1400 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_PrettyPrint__GeneratesCorrectString, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1401 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_CombinedAccountArrayToString__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1402 </span>                :            :                 unit_test_setup_teardown(test__ConvertIdToUniversalArrayIndex__Validate, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1403 </span>                :            :                 unit_test_setup_teardown(test__MemoryAccounting_GetAccountCurrentBalance__ResetPeakBalance, SetupMemoryDataStructures, TeardownMemoryDataStructures),
+<span class="lineNum">    1404 </span>                :            :         };
+<span class="lineNum">    1405 </span>                :            : 
+<span class="lineNum">    1406 </span>                :<span class="lineCov">          2 :         return run_tests(tests);</span>
+<span class="lineNum">    1407 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

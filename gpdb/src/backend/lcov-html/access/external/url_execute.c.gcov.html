@@ -1,0 +1,849 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - access/external/url_execute.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">access/external</a> - url_execute.c<span style="font-size: 80%;"> (source / <a href="url_execute.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">229</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">108</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * url_execute.c
+<span class="lineNum">       4 </span>                :            :  *        Core support for opening external relations via a URL execute
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2007-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">       9 </span>                :            :  *        src/backend/access/external/url_execute.c
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      12 </span>                :            :  */
+<span class="lineNum">      13 </span>                :            : 
+<span class="lineNum">      14 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      15 </span>                :            : 
+<span class="lineNum">      16 </span>                :            : #include &lt;sys/types.h&gt;
+<span class="lineNum">      17 </span>                :            : #include &lt;sys/wait.h&gt;
+<span class="lineNum">      18 </span>                :            : #include &lt;unistd.h&gt;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : #include &quot;access/fileam.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;cdb/cdbtimer.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;libpq/pqsignal.h&quot;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : #define EXEC_DATA_P 0 /* index to data pipe */
+<span class="lineNum">      26 </span>                :            : #define EXEC_ERR_P 1 /* index to error pipe  */
+<span class="lineNum">      27 </span>                :            : 
+<span class="lineNum">      28 </span>                :            : /*
+<span class="lineNum">      29 </span>                :            :  * This struct encapsulates the resources that need to be explicitly cleaned up
+<span class="lineNum">      30 </span>                :            :  * on error. We use the resource owner mechanism to make sure
+<span class="lineNum">      31 </span>                :            :  * these are not leaked. When a ResourceOwner is released, our hook will
+<span class="lineNum">      32 </span>                :            :  * walk the list of open curlhandles, and releases any that were owned by
+<span class="lineNum">      33 </span>                :            :  * the released resource owner.
+<span class="lineNum">      34 </span>                :            :  *
+<span class="lineNum">      35 </span>                :            :  * On abort, we need to close the pipe FDs, and wait for the subprocess to
+<span class="lineNum">      36 </span>                :            :  * exit.
+<span class="lineNum">      37 </span>                :            :  */
+<span class="lineNum">      38 </span>                :            : typedef struct execute_handle_t
+<span class="lineNum">      39 </span>                :            : {
+<span class="lineNum">      40 </span>                :            :         /*
+<span class="lineNum">      41 </span>                :            :          * PID of the open sub-process, and pipe FDs to communicate with it.
+<span class="lineNum">      42 </span>                :            :          */
+<span class="lineNum">      43 </span>                :            :         int                     pid;
+<span class="lineNum">      44 </span>                :            :         int                     pipes[2];               /* only out and err needed */
+<span class="lineNum">      45 </span>                :            : 
+<span class="lineNum">      46 </span>                :            :         ResourceOwner owner;    /* owner of this handle */
+<span class="lineNum">      47 </span>                :            :         struct execute_handle_t *next;
+<span class="lineNum">      48 </span>                :            :         struct execute_handle_t *prev;
+<span class="lineNum">      49 </span>                :            : } execute_handle_t;
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :            : /*
+<span class="lineNum">      52 </span>                :            :  * Private state for an EXECUTE external table.
+<span class="lineNum">      53 </span>                :            :  */
+<span class="lineNum">      54 </span>                :            : typedef struct URL_EXECUTE_FILE
+<span class="lineNum">      55 </span>                :            : {
+<span class="lineNum">      56 </span>                :            :         URL_FILE        common;
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            :         char       *shexec;                     /* shell command-line */
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :            :         execute_handle_t *handle;       /* ResourceOwner-tracked stuff */
+<span class="lineNum">      61 </span>                :            : } URL_EXECUTE_FILE;
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : static int popen_with_stderr(int *rwepipe, const char *exe, bool forwrite);
+<span class="lineNum">      64 </span>                :            : static int pclose_with_stderr(int pid, int *rwepipe, StringInfo sinfo);
+<span class="lineNum">      65 </span>                :            : static char *interpretError(int exitCode, char *buf, size_t buflen, char *err, size_t errlen);
+<span class="lineNum">      66 </span>                :            : static const char *getSignalNameFromCode(int signo);
+<span class="lineNum">      67 </span>                :            : static void read_err_msg(int fid, StringInfo sinfo);
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :            : 
+<span class="lineNum">      70 </span>                :            : /*
+<span class="lineNum">      71 </span>                :            :  * Linked list of open &quot;handles&quot;. These are allocated in TopMemoryContext,
+<span class="lineNum">      72 </span>                :            :  * and tracked by resource owners.
+<span class="lineNum">      73 </span>                :            :  */
+<span class="lineNum">      74 </span>                :            : static execute_handle_t *open_execute_handles;
+<span class="lineNum">      75 </span>                :            : 
+<span class="lineNum">      76 </span>                :            : static bool execute_resowner_callback_registered;
+<a name="77"><span class="lineNum">      77 </span>                :            : </a>
+<span class="lineNum">      78 </span>                :            : static execute_handle_t *
+<span class="lineNum">      79 </span>                :            : create_execute_handle(void)
+<span class="lineNum">      80 </span>                :            : {
+<span class="lineNum">      81 </span>                :            :         execute_handle_t *h;
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :         h = MemoryContextAlloc(TopMemoryContext, sizeof(execute_handle_t));</span>
+<span class="lineNum">      84 </span>                :<span class="lineNoCov">          0 :         h-&gt;pid = -1;</span>
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :         h-&gt;pipes[EXEC_DATA_P] = -1;</span>
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :         h-&gt;pipes[EXEC_ERR_P] = -1;</span>
+<span class="lineNum">      87 </span>                :            : 
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :         h-&gt;owner = CurrentResourceOwner;</span>
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :         h-&gt;next = open_execute_handles;</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         h-&gt;prev = NULL;</span>
+<span class="lineNum">      91 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (open_execute_handles)</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :                 open_execute_handles-&gt;prev = h;</span>
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :         open_execute_handles = h;</span>
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :         return h;</span>
+<span class="lineNum">      96 </span>                :            : }
+<a name="97"><span class="lineNum">      97 </span>                :            : </a>
+<span class="lineNum">      98 </span>                :            : static void
+<span class="lineNum">      99 </span>                :            : destroy_execute_handle(execute_handle_t *h)
+<span class="lineNum">     100 </span>                :            : {
+<span class="lineNum">     101 </span>                :            :         /* unlink from linked list first */
+<span class="lineNum">     102 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (h-&gt;prev)</span>
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 :                 h-&gt;prev-&gt;next = h-&gt;next;</span>
+<span class="lineNum">     104 </span>                :            :         else
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :                 open_execute_handles = h-&gt;next;</span>
+<span class="lineNum">     106 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (h-&gt;next)</span>
+<span class="lineNum">     107 </span>                :<span class="lineNoCov">          0 :                 h-&gt;next-&gt;prev = h-&gt;prev;</span>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (h-&gt;pipes[EXEC_DATA_P] != -1)</span>
+<span class="lineNum">     110 </span>                :<span class="lineNoCov">          0 :                 close(h-&gt;pipes[EXEC_DATA_P]);</span>
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            :         /* We don't bother reading possible error message from the pipe */
+<span class="lineNum">     113 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (h-&gt;pipes[EXEC_ERR_P] != -1)</span>
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :                 close(h-&gt;pipes[EXEC_ERR_P]);</span>
+<span class="lineNum">     115 </span>                :            : 
+<span class="lineNum">     116 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (h-&gt;pid != -1)</span>
+<span class="lineNum">     117 </span>                :            :         {
+<span class="lineNum">     118 </span>                :            : #ifndef WIN32
+<span class="lineNum">     119 </span>                :            :                 int                     status;
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :                 waitpid(h-&gt;pid, &amp;status, 0);</span>
+<span class="lineNum">     122 </span>                :            : #endif
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     124 </span>                :            : 
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :         pfree(h);</span>
+<span class="lineNum">     126 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     127 </span>                :            : 
+<span class="lineNum">     128 </span>                :            : /*
+<span class="lineNum">     129 </span>                :            :  * Close any open handles on abort.
+<a name="130"><span class="lineNum">     130 </span>                :            :  */</a>
+<span class="lineNum">     131 </span>                :            : static void
+<span class="lineNum">     132 </span>                :            : execute_abort_callback(ResourceReleasePhase phase,
+<span class="lineNum">     133 </span>                :            :                                            bool isCommit,
+<span class="lineNum">     134 </span>                :            :                                            bool isTopLevel,
+<span class="lineNum">     135 </span>                :            :                                            void *arg)
+<span class="lineNum">     136 </span>                :            : {
+<span class="lineNum">     137 </span>                :            :         execute_handle_t *curr;
+<span class="lineNum">     138 </span>                :            :         execute_handle_t *next;
+<span class="lineNum">     139 </span>                :            : 
+<span class="lineNum">     140 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (phase != RESOURCE_RELEASE_AFTER_LOCKS)</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         next = open_execute_handles;</span>
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (next)</span>
+<span class="lineNum">     145 </span>                :            :         {
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :                 curr = next;</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                 next = curr-&gt;next;</span>
+<span class="lineNum">     148 </span>                :            : 
+<span class="lineNum">     149 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (curr-&gt;owner == CurrentResourceOwner)</span>
+<span class="lineNum">     150 </span>                :            :                 {
+<span class="lineNum">     151 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (isCommit)</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                                 elog(WARNING, &quot;execute-type external table reference leak: %p still referenced&quot;, curr);</span>
+<span class="lineNum">     153 </span>                :            : 
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                         destroy_execute_handle(curr);</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     156 </span>                :            :         }
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     158 </span>                :            : 
+<a name="159"><span class="lineNum">     159 </span>                :            : </a>
+<span class="lineNum">     160 </span>                :            : static void
+<span class="lineNum">     161 </span>                :            : make_export(char *name, const char *value, StringInfo buf)
+<span class="lineNum">     162 </span>                :            : {
+<span class="lineNum">     163 </span>                :            :         char            ch;
+<span class="lineNum">     164 </span>                :            : 
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :         appendStringInfo(buf, &quot;%s='&quot;, name);</span>
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for ( ; 0 != (ch = *value); value++)</span>
+<span class="lineNum">     168 </span>                :            :         {
+<span class="lineNum">     169 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ch == '\'' || ch == '\\')</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoChar(buf, '\\');</span>
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>                :<span class="lineNoCov">          0 :                 appendStringInfoChar(buf, ch);</span>
+<span class="lineNum">     173 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>                :<span class="lineNoCov">          0 :         appendStringInfo(buf, &quot;' &amp;&amp; export %s &amp;&amp; &quot;, name);</span>
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     177 </span>                :            : 
+<a name="178"><span class="lineNum">     178 </span>                :            : </a>
+<span class="lineNum">     179 </span>                :            : static char *
+<span class="lineNum">     180 </span>                :            : make_command(const char *cmd, extvar_t *ev)
+<span class="lineNum">     181 </span>                :            : {
+<span class="lineNum">     182 </span>                :            :         StringInfoData buf;
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;buf);</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_MASTER_HOST&quot;, ev-&gt;GP_MASTER_HOST, &amp;buf);</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_MASTER_PORT&quot;, ev-&gt;GP_MASTER_PORT, &amp;buf);</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SEG_PG_CONF&quot;, ev-&gt;GP_SEG_PG_CONF, &amp;buf);</span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SEG_DATADIR&quot;, ev-&gt;GP_SEG_DATADIR, &amp;buf);</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_DATABASE&quot;, ev-&gt;GP_DATABASE, &amp;buf);</span>
+<span class="lineNum">     191 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_USER&quot;, ev-&gt;GP_USER, &amp;buf);</span>
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_DATE&quot;, ev-&gt;GP_DATE, &amp;buf);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_TIME&quot;, ev-&gt;GP_TIME, &amp;buf);</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_XID&quot;, ev-&gt;GP_XID, &amp;buf);</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_CID&quot;, ev-&gt;GP_CID, &amp;buf);</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SN&quot;, ev-&gt;GP_SN, &amp;buf);</span>
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SEGMENT_ID&quot;, ev-&gt;GP_SEGMENT_ID, &amp;buf);</span>
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SEG_PORT&quot;, ev-&gt;GP_SEG_PORT, &amp;buf);</span>
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SESSION_ID&quot;, ev-&gt;GP_SESSION_ID, &amp;buf);</span>
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_SEGMENT_COUNT&quot;, ev-&gt;GP_SEGMENT_COUNT, &amp;buf);</span>
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>                :            :         /* hadoop env var */
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_HADOOP_CONN_JARDIR&quot;, ev-&gt;GP_HADOOP_CONN_JARDIR, &amp;buf);</span>
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :         make_export(&quot;GP_HADOOP_CONN_VERSION&quot;, ev-&gt;GP_HADOOP_CONN_VERSION, &amp;buf);</span>
+<span class="lineNum">     205 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (strlen(ev-&gt;GP_HADOOP_HOME) &gt; 0)</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                 make_export(&quot;HADOOP_HOME&quot;,    ev-&gt;GP_HADOOP_HOME,    &amp;buf);</span>
+<span class="lineNum">     207 </span>                :            : 
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         appendStringInfoString(&amp;buf, cmd);</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :         return buf.data;</span>
+<span class="lineNum">     211 </span>                :            : }
+<span class="lineNum">     212 </span>                :            : 
+<span class="lineNum">     213 </span>                :            : /**
+<span class="lineNum">     214 </span>                :            :  * execute_fopen()
+<span class="lineNum">     215 </span>                :            :  *
+<span class="lineNum">     216 </span>                :            :  * refactor the fopen code for execute into this routine
+<a name="217"><span class="lineNum">     217 </span>                :            :  */</a>
+<span class="lineNum">     218 </span>                :            : URL_FILE *
+<span class="lineNum">     219 </span>                :            : url_execute_fopen(char *url, bool forwrite, extvar_t *ev, CopyState pstate)
+<span class="lineNum">     220 </span>                :            : {
+<span class="lineNum">     221 </span>                :            :         URL_EXECUTE_FILE *file;
+<span class="lineNum">     222 </span>                :            :         int                     save_errno;
+<span class="lineNum">     223 </span>                :            :         struct itimers savetimers;
+<span class="lineNum">     224 </span>                :            :         pqsigfunc       save_SIGPIPE;
+<span class="lineNum">     225 </span>                :            :         char       *cmd;
+<span class="lineNum">     226 </span>                :            : 
+<span class="lineNum">     227 </span>                :            :         /* Execute command */
+<span class="lineNum">     228 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(strncmp(url, EXEC_URL_PREFIX, strlen(EXEC_URL_PREFIX)) == 0);</span>
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :         cmd  = url + strlen(EXEC_URL_PREFIX);</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :         file = palloc0(sizeof(URL_EXECUTE_FILE));</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :         file-&gt;common.type = CFTYPE_EXEC;     /* marked as a EXEC */</span>
+<span class="lineNum">     233 </span>                :<span class="lineNoCov">          0 :         file-&gt;common.url = pstrdup(url);</span>
+<span class="lineNum">     234 </span>                :<span class="lineNoCov">          0 :         file-&gt;shexec = make_command(cmd, ev);                /* Execute command */</span>
+<span class="lineNum">     235 </span>                :            : 
+<span class="lineNum">     236 </span>                :            :         /* Clear process interval timers */
+<span class="lineNum">     237 </span>                :<span class="lineNoCov">          0 :         resetTimers(&amp;savetimers);</span>
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!execute_resowner_callback_registered)</span>
+<span class="lineNum">     240 </span>                :            :         {
+<span class="lineNum">     241 </span>                :<span class="lineNoCov">          0 :                 RegisterResourceReleaseCallback(execute_abort_callback, NULL);</span>
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                 execute_resowner_callback_registered = true;</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :         file-&gt;handle = create_execute_handle();</span>
+<span class="lineNum">     246 </span>                :            : 
+<span class="lineNum">     247 </span>                :            :         /*
+<span class="lineNum">     248 </span>                :            :          * Preserve the SIGPIPE handler and set to default handling.  This
+<span class="lineNum">     249 </span>                :            :          * allows &quot;normal&quot; SIGPIPE handling in the command pipeline.  Normal
+<span class="lineNum">     250 </span>                :            :          * for PG is to *ignore* SIGPIPE.
+<span class="lineNum">     251 </span>                :            :          */
+<span class="lineNum">     252 </span>                :<span class="lineNoCov">          0 :         save_SIGPIPE = pqsignal(SIGPIPE, SIG_DFL);</span>
+<span class="lineNum">     253 </span>                :            : 
+<span class="lineNum">     254 </span>                :            :         /* execute the user command */
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :         file-&gt;handle-&gt;pid = popen_with_stderr(file-&gt;handle-&gt;pipes,</span>
+<span class="lineNum">     256 </span>                :<span class="lineNoCov">          0 :                                                                                   file-&gt;shexec,</span>
+<span class="lineNum">     257 </span>                :<span class="lineNoCov">          0 :                                                                                   forwrite);</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :         save_errno = errno;</span>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :            :         /* Restore the SIGPIPE handler */
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :         pqsignal(SIGPIPE, save_SIGPIPE);</span>
+<span class="lineNum">     262 </span>                :            : 
+<span class="lineNum">     263 </span>                :            :         /* Restore process interval timers */
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :         restoreTimers(&amp;savetimers);</span>
+<span class="lineNum">     265 </span>                :            : 
+<span class="lineNum">     266 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (file-&gt;handle-&gt;pid == -1)</span>
+<span class="lineNum">     267 </span>                :            :         {
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                 errno = save_errno;</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :                 pfree(file-&gt;common.url);</span>
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :                 pfree(file);</span>
+<span class="lineNum">     271 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     272 </span>                :            :                                 (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+<span class="lineNum">     273 </span>                :            :                                                 errmsg(&quot;cannot start external table command: %m&quot;),
+<span class="lineNum">     274 </span>                :            :                                                 errdetail(&quot;Command: %s&quot;, cmd)));
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :         return (URL_FILE *) file;</span>
+<span class="lineNum">     279 </span>                :            : }
+<a name="280"><span class="lineNum">     280 </span>                :            : </a>
+<span class="lineNum">     281 </span>                :            : void
+<span class="lineNum">     282 </span>                :            : url_execute_fclose(URL_FILE *file, bool failOnError, const char *relname)
+<span class="lineNum">     283 </span>                :            : {
+<span class="lineNum">     284 </span>                :<span class="lineNoCov">          0 :         URL_EXECUTE_FILE *efile = (URL_EXECUTE_FILE *) file;</span>
+<span class="lineNum">     285 </span>                :            :         StringInfoData sinfo;
+<span class="lineNum">     286 </span>                :            :         char       *url;
+<span class="lineNum">     287 </span>                :            :         int                     ret;
+<span class="lineNum">     288 </span>                :            : 
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :         initStringInfo(&amp;sinfo);</span>
+<span class="lineNum">     290 </span>                :            : 
+<span class="lineNum">     291 </span>                :            :         /* close the child process and related pipes */
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :         ret = pclose_with_stderr(efile-&gt;handle-&gt;pid, efile-&gt;handle-&gt;pipes, &amp;sinfo);</span>
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :         destroy_execute_handle(efile-&gt;handle);</span>
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         efile-&gt;handle = NULL;</span>
+<span class="lineNum">     296 </span>                :            :         
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :         url = pstrdup(file-&gt;url);    </span>
+<span class="lineNum">     298 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ret == 0)</span>
+<span class="lineNum">     299 </span>                :            :         {
+<span class="lineNum">     300 </span>                :            :                 /* pclose() ended successfully; no errors to reflect */
+<span class="lineNum">     301 </span>                :            :                 ;
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     303 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (ret == -1)</span>
+<span class="lineNum">     304 </span>                :            :         {
+<span class="lineNum">     305 </span>                :            :                 /* pclose()/wait4() ended with an error; errno should be valid */
+<span class="lineNum">     306 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (failOnError)</span>
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :                         pfree(file);</span>
+<span class="lineNum">     308 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport((failOnError ? ERROR : LOG),</span>
+<span class="lineNum">     309 </span>                :            :                                 (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+<span class="lineNum">     310 </span>                :            :                                  errmsg(&quot;cannot close external table %s command: %m&quot;,
+<span class="lineNum">     311 </span>                :            :                                                 (relname ? relname : &quot;&quot;)),
+<span class="lineNum">     312 </span>                :            :                                  errdetail(&quot;command: %s&quot;, url)));
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     314 </span>                :            :         else
+<span class="lineNum">     315 </span>                :            :         {
+<span class="lineNum">     316 </span>                :            :                 /*
+<span class="lineNum">     317 </span>                :            :                  * pclose() returned the process termination state.  The interpretExitCode() function
+<span class="lineNum">     318 </span>                :            :                  * generates a descriptive message from the exit code.
+<span class="lineNum">     319 </span>                :            :                  */
+<span class="lineNum">     320 </span>                :            :                 char buf[512];
+<span class="lineNum">     321 </span>                :            : 
+<span class="lineNum">     322 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (failOnError)</span>
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :                         pfree(file);</span>
+<span class="lineNum">     324 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport((failOnError ? ERROR : LOG),</span>
+<span class="lineNum">     325 </span>                :            :                                 (errcode(ERRCODE_EXTERNAL_ROUTINE_EXCEPTION),
+<span class="lineNum">     326 </span>                :            :                                  errmsg(&quot;external table %s command ended with %s&quot;,
+<span class="lineNum">     327 </span>                :            :                                                 (relname ? relname : &quot;&quot;),
+<span class="lineNum">     328 </span>                :            :                                                 interpretError(ret, buf, sizeof(buf)/sizeof(char), sinfo.data, sinfo.len)),
+<span class="lineNum">     329 </span>                :            :                                  errdetail(&quot;Command: %s&quot;, url)));
+<span class="lineNum">     330 </span>                :            :         }
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         pfree(url);</span>
+<span class="lineNum">     332 </span>                :<span class="lineNoCov">          0 :         pfree(sinfo.data);</span>
+<span class="lineNum">     333 </span>                :            : 
+<span class="lineNum">     334 </span>                :<span class="lineNoCov">          0 :         pfree(file);</span>
+<span class="lineNum">     335 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="336"><span class="lineNum">     336 </span>                :            : </a>
+<span class="lineNum">     337 </span>                :            : bool
+<span class="lineNum">     338 </span>                :            : url_execute_feof(URL_FILE *file, int bytesread)
+<span class="lineNum">     339 </span>                :            : {
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :         return (bytesread == 0);</span>
+<span class="lineNum">     341 </span>                :            : }
+<a name="342"><span class="lineNum">     342 </span>                :            : </a>
+<span class="lineNum">     343 </span>                :            : bool
+<span class="lineNum">     344 </span>                :            : url_execute_ferror(URL_FILE *file, int bytesread, char *ebuf, int ebuflen)
+<span class="lineNum">     345 </span>                :            : {
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :         URL_EXECUTE_FILE *efile = (URL_EXECUTE_FILE *) file;</span>
+<span class="lineNum">     347 </span>                :            :         int                     ret;
+<span class="lineNum">     348 </span>                :            :         int                     nread;
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :         ret = (bytesread == -1);</span>
+<span class="lineNum">     351 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(ret == true &amp;&amp; ebuflen &gt; 0 &amp;&amp; ebuf != NULL)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     352 </span>                :            :         {
+<span class="lineNum">     353 </span>                :            :                 /*
+<span class="lineNum">     354 </span>                :            :                  * Read one byte less than the maximum size to ensure zero
+<span class="lineNum">     355 </span>                :            :                  * termination of the buffer.
+<span class="lineNum">     356 </span>                :            :                  */
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :                 nread = piperead(efile-&gt;handle-&gt;pipes[EXEC_ERR_P], ebuf, ebuflen -1);</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(nread != -1)</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                         ebuf[nread] = 0;</span>
+<span class="lineNum">     361 </span>                :            :                 else
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :                         strncpy(ebuf,&quot;error string unavailable due to read error&quot;,ebuflen-1);</span>
+<span class="lineNum">     363 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     364 </span>                :            : 
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         return ret;</span>
+<span class="lineNum">     366 </span>                :            : }
+<a name="367"><span class="lineNum">     367 </span>                :            : </a>
+<span class="lineNum">     368 </span>                :            : size_t
+<span class="lineNum">     369 </span>                :            : url_execute_fread(void *ptr, size_t size, URL_FILE *file, CopyState pstate)
+<span class="lineNum">     370 </span>                :            : {
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :         URL_EXECUTE_FILE *efile = (URL_EXECUTE_FILE *) file;</span>
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :         return piperead(efile-&gt;handle-&gt;pipes[EXEC_DATA_P], ptr, size);</span>
+<span class="lineNum">     374 </span>                :            : }
+<a name="375"><span class="lineNum">     375 </span>                :            : </a>
+<span class="lineNum">     376 </span>                :            : size_t
+<span class="lineNum">     377 </span>                :            : url_execute_fwrite(void *ptr, size_t size, URL_FILE *file, CopyState pstate)
+<span class="lineNum">     378 </span>                :            : {
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         URL_EXECUTE_FILE *efile = (URL_EXECUTE_FILE *) file;</span>
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         return pipewrite(efile-&gt;handle-&gt;pipes[EXEC_DATA_P], ptr, size);</span>
+<span class="lineNum">     382 </span>                :            : }
+<span class="lineNum">     383 </span>                :            : 
+<span class="lineNum">     384 </span>                :            : /*
+<span class="lineNum">     385 </span>                :            :  * interpretError - formats a brief message and/or the exit code from pclose()
+<span class="lineNum">     386 </span>                :            :  *              (or wait4()).
+<a name="387"><span class="lineNum">     387 </span>                :            :  */</a>
+<span class="lineNum">     388 </span>                :            : static char *
+<span class="lineNum">     389 </span>                :            : interpretError(int rc, char *buf, size_t buflen, char *err, size_t errlen)
+<span class="lineNum">     390 </span>                :            : {
+<span class="lineNum">     391 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (WIFEXITED(rc))</span>
+<span class="lineNum">     392 </span>                :            :         {
+<span class="lineNum">     393 </span>                :<span class="lineNoCov">          0 :                 int exitCode = WEXITSTATUS(rc);</span>
+<span class="lineNum">     394 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (exitCode &gt;= 128)</span>
+<span class="lineNum">     395 </span>                :            :                 {
+<span class="lineNum">     396 </span>                :            :                         /*
+<span class="lineNum">     397 </span>                :            :                          * If the exit code has the 128-bit set, the exit code represents
+<span class="lineNum">     398 </span>                :            :                          * a shell exited by signal where the signal number is exitCode - 128.
+<span class="lineNum">     399 </span>                :            :                          */
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :                         exitCode -= 128;</span>
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :                         snprintf(buf, buflen, &quot;SHELL TERMINATED by signal %s (%d)&quot;, getSignalNameFromCode(exitCode), exitCode);</span>
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     403 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (exitCode == 0)</span>
+<span class="lineNum">     404 </span>                :            :                 {
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :                         snprintf(buf, buflen, &quot;EXITED; rc=%d&quot;, exitCode);</span>
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     407 </span>                :            :                 else
+<span class="lineNum">     408 </span>                :            :                 {
+<span class="lineNum">     409 </span>                :            :                         /* Exit codes from commands rarely map to strerror() strings. In here
+<span class="lineNum">     410 </span>                :            :                          * we show the error string returned from pclose, and omit the non
+<span class="lineNum">     411 </span>                :            :                          * friendly exit code interpretation */
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :                         snprintf(buf, buflen, &quot;error. %s&quot;, err);</span>
+<span class="lineNum">     413 </span>                :            :                 }
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     415 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (WIFSIGNALED(rc))</span>
+<span class="lineNum">     416 </span>                :            :         {
+<span class="lineNum">     417 </span>                :<span class="lineNoCov">          0 :                 int signalCode = WTERMSIG(rc);</span>
+<span class="lineNum">     418 </span>                :<span class="lineNoCov">          0 :                 snprintf(buf, buflen, &quot;TERMINATED by signal %s (%d)&quot;, getSignalNameFromCode(signalCode), signalCode);</span>
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     420 </span>                :            : #ifndef WIN32
+<span class="lineNum">     421 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (WIFSTOPPED(rc))</span>
+<span class="lineNum">     422 </span>                :            :         {
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                 int signalCode = WSTOPSIG(rc);</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                 snprintf(buf, buflen, &quot;STOPPED by signal %s (%d)&quot;, getSignalNameFromCode(signalCode), signalCode);</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     426 </span>                :            : #endif
+<span class="lineNum">     427 </span>                :            :         else
+<span class="lineNum">     428 </span>                :            :         {
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                 snprintf(buf, buflen, &quot;UNRECOGNIZED termination; rc=%#x&quot;, rc);</span>
+<span class="lineNum">     430 </span>                :            :         }
+<span class="lineNum">     431 </span>                :            : 
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :         return buf;</span>
+<span class="lineNum">     433 </span>                :            : }
+<span class="lineNum">     434 </span>                :            : 
+<span class="lineNum">     435 </span>                :            : 
+<span class="lineNum">     436 </span>                :            : struct signalDef {
+<span class="lineNum">     437 </span>                :            :         const int                       signalCode;
+<span class="lineNum">     438 </span>                :            :         const char                 *signalName;
+<span class="lineNum">     439 </span>                :            : };
+<span class="lineNum">     440 </span>                :            : 
+<span class="lineNum">     441 </span>                :            : /*
+<span class="lineNum">     442 </span>                :            :  * Table mapping signal numbers to signal identifiers (names).
+<span class="lineNum">     443 </span>                :            :  */
+<span class="lineNum">     444 </span>                :            : struct signalDef signals[] = {
+<span class="lineNum">     445 </span>                :            : #ifdef SIGHUP
+<span class="lineNum">     446 </span>                :            :                 { SIGHUP,    &quot;SIGHUP&quot; },
+<span class="lineNum">     447 </span>                :            : #endif
+<span class="lineNum">     448 </span>                :            : #ifdef SIGINT
+<span class="lineNum">     449 </span>                :            :                 { SIGINT,    &quot;SIGINT&quot; },
+<span class="lineNum">     450 </span>                :            : #endif
+<span class="lineNum">     451 </span>                :            : #ifdef SIGQUIT
+<span class="lineNum">     452 </span>                :            :                 { SIGQUIT,   &quot;SIGQUIT&quot; },
+<span class="lineNum">     453 </span>                :            : #endif
+<span class="lineNum">     454 </span>                :            : #ifdef SIGILL
+<span class="lineNum">     455 </span>                :            :                 { SIGILL,    &quot;SIGILL&quot; },
+<span class="lineNum">     456 </span>                :            : #endif
+<span class="lineNum">     457 </span>                :            : #ifdef SIGTRAP
+<span class="lineNum">     458 </span>                :            :                 { SIGTRAP,   &quot;SIGTRAP&quot; },
+<span class="lineNum">     459 </span>                :            : #endif
+<span class="lineNum">     460 </span>                :            : #ifdef SIGABRT
+<span class="lineNum">     461 </span>                :            :                 { SIGABRT,   &quot;SIGABRT&quot; },
+<span class="lineNum">     462 </span>                :            : #endif
+<span class="lineNum">     463 </span>                :            : #ifdef SIGEMT
+<span class="lineNum">     464 </span>                :            :                 { SIGEMT,    &quot;SIGEMT&quot; },
+<span class="lineNum">     465 </span>                :            : #endif
+<span class="lineNum">     466 </span>                :            : #ifdef SIGFPE
+<span class="lineNum">     467 </span>                :            :                 { SIGFPE,    &quot;SIGFPE&quot; },
+<span class="lineNum">     468 </span>                :            : #endif
+<span class="lineNum">     469 </span>                :            : #ifdef SIGKILL
+<span class="lineNum">     470 </span>                :            :                 { SIGKILL,   &quot;SIGKILL&quot; },
+<span class="lineNum">     471 </span>                :            : #endif
+<span class="lineNum">     472 </span>                :            : #ifdef SIGBUS
+<span class="lineNum">     473 </span>                :            :                 { SIGBUS,    &quot;SIGBUS&quot; },
+<span class="lineNum">     474 </span>                :            : #endif
+<span class="lineNum">     475 </span>                :            : #ifdef SIGSEGV
+<span class="lineNum">     476 </span>                :            :                 { SIGSEGV,   &quot;SIGSEGV&quot; },
+<span class="lineNum">     477 </span>                :            : #endif
+<span class="lineNum">     478 </span>                :            : #ifdef SIGSYS
+<span class="lineNum">     479 </span>                :            :                 { SIGSYS,    &quot;SIGSYS&quot; },
+<span class="lineNum">     480 </span>                :            : #endif
+<span class="lineNum">     481 </span>                :            : #ifdef SIGPIPE
+<span class="lineNum">     482 </span>                :            :                 { SIGPIPE,   &quot;SIGPIPE&quot; },
+<span class="lineNum">     483 </span>                :            : #endif
+<span class="lineNum">     484 </span>                :            : #ifdef SIGALRM
+<span class="lineNum">     485 </span>                :            :                 { SIGALRM,   &quot;SIGALRM&quot; },
+<span class="lineNum">     486 </span>                :            : #endif
+<span class="lineNum">     487 </span>                :            : #ifdef SIGTERM
+<span class="lineNum">     488 </span>                :            :                 { SIGTERM,   &quot;SIGTERM&quot; },
+<span class="lineNum">     489 </span>                :            : #endif
+<span class="lineNum">     490 </span>                :            : #ifdef SIGURG
+<span class="lineNum">     491 </span>                :            :                 { SIGURG,    &quot;SIGURG&quot; },
+<span class="lineNum">     492 </span>                :            : #endif
+<span class="lineNum">     493 </span>                :            : #ifdef SIGSTOP
+<span class="lineNum">     494 </span>                :            :                 { SIGSTOP,   &quot;SIGSTOP&quot; },
+<span class="lineNum">     495 </span>                :            : #endif
+<span class="lineNum">     496 </span>                :            : #ifdef SIGTSTP
+<span class="lineNum">     497 </span>                :            :                 { SIGTSTP,   &quot;SIGTSTP&quot; },
+<span class="lineNum">     498 </span>                :            : #endif
+<span class="lineNum">     499 </span>                :            : #ifdef SIGCONT
+<span class="lineNum">     500 </span>                :            :                 { SIGCONT,   &quot;SIGCONT&quot; },
+<span class="lineNum">     501 </span>                :            : #endif
+<span class="lineNum">     502 </span>                :            : #ifdef SIGCHLD
+<span class="lineNum">     503 </span>                :            :                 { SIGCHLD,   &quot;SIGCHLD&quot; },
+<span class="lineNum">     504 </span>                :            : #endif
+<span class="lineNum">     505 </span>                :            : #ifdef SIGTTIN
+<span class="lineNum">     506 </span>                :            :                 { SIGTTIN,   &quot;SIGTTIN&quot; },
+<span class="lineNum">     507 </span>                :            : #endif
+<span class="lineNum">     508 </span>                :            : #ifdef SIGTTOU
+<span class="lineNum">     509 </span>                :            :                 { SIGTTOU,   &quot;SIGTTOU&quot; },
+<span class="lineNum">     510 </span>                :            : #endif
+<span class="lineNum">     511 </span>                :            : #ifdef SIGIO
+<span class="lineNum">     512 </span>                :            :                 { SIGIO,     &quot;SIGIO&quot; },
+<span class="lineNum">     513 </span>                :            : #endif
+<span class="lineNum">     514 </span>                :            : #ifdef SIGXCPU
+<span class="lineNum">     515 </span>                :            :                 { SIGXCPU,   &quot;SIGXCPU&quot; },
+<span class="lineNum">     516 </span>                :            : #endif
+<span class="lineNum">     517 </span>                :            : #ifdef SIGXFSZ
+<span class="lineNum">     518 </span>                :            :                 { SIGXFSZ,   &quot;SIGXFSZ&quot; },
+<span class="lineNum">     519 </span>                :            : #endif
+<span class="lineNum">     520 </span>                :            : #ifdef SIGVTALRM
+<span class="lineNum">     521 </span>                :            :                 { SIGVTALRM, &quot;SIGVTALRM&quot; },
+<span class="lineNum">     522 </span>                :            : #endif
+<span class="lineNum">     523 </span>                :            : #ifdef SIGPROF
+<span class="lineNum">     524 </span>                :            :                 { SIGPROF,   &quot;SIGPROF&quot; },
+<span class="lineNum">     525 </span>                :            : #endif
+<span class="lineNum">     526 </span>                :            : #ifdef SIGWINCH
+<span class="lineNum">     527 </span>                :            :                 { SIGWINCH,  &quot;SIGWINCH&quot; },
+<span class="lineNum">     528 </span>                :            : #endif
+<span class="lineNum">     529 </span>                :            : #ifdef SIGINFO
+<span class="lineNum">     530 </span>                :            :                 { SIGINFO,   &quot;SIGINFO&quot; },
+<span class="lineNum">     531 </span>                :            : #endif
+<span class="lineNum">     532 </span>                :            : #ifdef SIGUSR1
+<span class="lineNum">     533 </span>                :            :                 { SIGUSR1,   &quot;SIGUSR1&quot; },
+<span class="lineNum">     534 </span>                :            : #endif
+<span class="lineNum">     535 </span>                :            : #ifdef SIGUSR2
+<span class="lineNum">     536 </span>                :            :                 { SIGUSR2,   &quot;SIGUSR2&quot; },
+<span class="lineNum">     537 </span>                :            : #endif
+<span class="lineNum">     538 </span>                :            :                 { -1, &quot;&quot; }
+<span class="lineNum">     539 </span>                :            : };
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :            : 
+<span class="lineNum">     542 </span>                :            : /*
+<span class="lineNum">     543 </span>                :            :  * getSignalNameFromCode - gets the signal name given the signal number.
+<a name="544"><span class="lineNum">     544 </span>                :            :  */</a>
+<span class="lineNum">     545 </span>                :            : static const char *
+<span class="lineNum">     546 </span>                :            : getSignalNameFromCode(int signo)
+<span class="lineNum">     547 </span>                :            : {
+<span class="lineNum">     548 </span>                :            :         int i;
+<span class="lineNum">     549 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; signals[i].signalCode != -1; i++)</span>
+<span class="lineNum">     550 </span>                :            :         {
+<span class="lineNum">     551 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (signals[i].signalCode == signo)</span>
+<span class="lineNum">     552 </span>                :<span class="lineNoCov">          0 :                         return signals[i].signalName;</span>
+<span class="lineNum">     553 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     554 </span>                :            : 
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :         return &quot;UNRECOGNIZED&quot;;</span>
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     557 </span>                :            : 
+<span class="lineNum">     558 </span>                :            : /*
+<span class="lineNum">     559 </span>                :            :  * popen_with_stderr
+<span class="lineNum">     560 </span>                :            :  *
+<span class="lineNum">     561 </span>                :            :  * standard popen doesn't redirect stderr from the child process.
+<span class="lineNum">     562 </span>                :            :  * we need stderr in order to display the error that child process
+<span class="lineNum">     563 </span>                :            :  * encountered and show it to the user. This is, therefore, a wrapper
+<span class="lineNum">     564 </span>                :            :  * around a set of file descriptor redirections and a fork.
+<span class="lineNum">     565 </span>                :            :  *
+<span class="lineNum">     566 </span>                :            :  * if 'forwrite' is set then we set the data pipe write side on the
+<span class="lineNum">     567 </span>                :            :  * parent. otherwise, we set the read side on the parent.
+<a name="568"><span class="lineNum">     568 </span>                :            :  */</a>
+<span class="lineNum">     569 </span>                :            : static int
+<span class="lineNum">     570 </span>                :            : popen_with_stderr(int *pipes, const char *exe, bool forwrite)
+<span class="lineNum">     571 </span>                :            : {
+<span class="lineNum">     572 </span>                :            :         int data[2];    /* pipe to send data child &lt;--&gt; parent */
+<span class="lineNum">     573 </span>                :            :         int err[2];             /* pipe to send errors child --&gt; parent */
+<span class="lineNum">     574 </span>                :<span class="lineNoCov">          0 :         int pid = -1;</span>
+<span class="lineNum">     575 </span>                :            :         
+<span class="lineNum">     576 </span>                :<span class="lineNoCov">          0 :         const int READ = 0;</span>
+<span class="lineNum">     577 </span>                :<span class="lineNoCov">          0 :         const int WRITE = 1;</span>
+<span class="lineNum">     578 </span>                :            : 
+<span class="lineNum">     579 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pgpipe(data) &lt; 0)</span>
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     581 </span>                :            : 
+<span class="lineNum">     582 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pgpipe(err) &lt; 0)</span>
+<span class="lineNum">     583 </span>                :            :         {
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                 close(data[READ]);</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                 close(data[WRITE]);</span>
+<span class="lineNum">     586 </span>                :<span class="lineNoCov">          0 :                 return -1;</span>
+<span class="lineNum">     587 </span>                :            :         }
+<span class="lineNum">     588 </span>                :            : #ifndef WIN32
+<span class="lineNum">     589 </span>                :            : 
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :         pid = fork();</span>
+<span class="lineNum">     591 </span>                :            :         
+<span class="lineNum">     592 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (pid &gt; 0) /* parent */</span>
+<span class="lineNum">     593 </span>                :            :         {
+<span class="lineNum">     594 </span>                :            : 
+<span class="lineNum">     595 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (forwrite)</span>
+<span class="lineNum">     596 </span>                :            :                 {
+<span class="lineNum">     597 </span>                :            :                         /* parent writes to child */
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :                         close(data[READ]);</span>
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                         pipes[EXEC_DATA_P] = data[WRITE];</span>
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     601 </span>                :            :                 else
+<span class="lineNum">     602 </span>                :            :                 {
+<span class="lineNum">     603 </span>                :            :                         /* parent reads from child */
+<span class="lineNum">     604 </span>                :<span class="lineNoCov">          0 :                         close(data[WRITE]);</span>
+<span class="lineNum">     605 </span>                :<span class="lineNoCov">          0 :                         pipes[EXEC_DATA_P] = data[READ];                        </span>
+<span class="lineNum">     606 </span>                :            :                 }
+<span class="lineNum">     607 </span>                :            :                 
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :                 close(err[WRITE]);</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :                 pipes[EXEC_ERR_P] = err[READ];</span>
+<span class="lineNum">     610 </span>                :            :                 
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :                 return pid;</span>
+<span class="lineNum">     612 </span>                :            :         }
+<span class="lineNum">     613 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (pid == 0) /* child */</span>
+<span class="lineNum">     614 </span>                :            :         {               
+<span class="lineNum">     615 </span>                :            : 
+<span class="lineNum">     616 </span>                :            :                 /*
+<span class="lineNum">     617 </span>                :            :                  * set up the data pipe
+<span class="lineNum">     618 </span>                :            :                  */
+<span class="lineNum">     619 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (forwrite)</span>
+<span class="lineNum">     620 </span>                :            :                 {
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :                         close(data[WRITE]);</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                         close(fileno(stdin));</span>
+<span class="lineNum">     623 </span>                :            :                         
+<span class="lineNum">     624 </span>                :            :                         /* assign pipes to parent to stdin */
+<span class="lineNum">     625 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (dup2(data[READ], fileno(stdin)) &lt; 0)</span>
+<span class="lineNum">     626 </span>                :            :                         {
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :                                 perror(&quot;dup2 error&quot;);</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                                 exit(EXIT_FAILURE);</span>
+<span class="lineNum">     629 </span>                :            :                         }
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :            :                         /* no longer needed after the duplication */
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :                         close(data[READ]);                      </span>
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     634 </span>                :            :                 else
+<span class="lineNum">     635 </span>                :            :                 {
+<span class="lineNum">     636 </span>                :<span class="lineNoCov">          0 :                         close(data[READ]);</span>
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :                         close(fileno(stdout));</span>
+<span class="lineNum">     638 </span>                :            :                         
+<span class="lineNum">     639 </span>                :            :                         /* assign pipes to parent to stdout */
+<span class="lineNum">     640 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (dup2(data[WRITE], fileno(stdout)) &lt; 0)</span>
+<span class="lineNum">     641 </span>                :            :                         {
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :                                 perror(&quot;dup2 error&quot;);</span>
+<span class="lineNum">     643 </span>                :<span class="lineNoCov">          0 :                                 exit(EXIT_FAILURE);</span>
+<span class="lineNum">     644 </span>                :            :                         }
+<span class="lineNum">     645 </span>                :            : 
+<span class="lineNum">     646 </span>                :            :                         /* no longer needed after the duplication */
+<span class="lineNum">     647 </span>                :<span class="lineNoCov">          0 :                         close(data[WRITE]);</span>
+<span class="lineNum">     648 </span>                :            :                 }
+<span class="lineNum">     649 </span>                :            :                 
+<span class="lineNum">     650 </span>                :            :                 /*
+<span class="lineNum">     651 </span>                :            :                  * now set up the error pipe
+<span class="lineNum">     652 </span>                :            :                  */
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :                 close(err[READ]);</span>
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 :                 close(fileno(stderr));</span>
+<span class="lineNum">     655 </span>                :            :                 
+<span class="lineNum">     656 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (dup2(err[WRITE], fileno(stderr)) &lt; 0)</span>
+<span class="lineNum">     657 </span>                :            :                 {
+<span class="lineNum">     658 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(forwrite)</span>
+<span class="lineNum">     659 </span>                :<span class="lineNoCov">          0 :                                 close(data[WRITE]);</span>
+<span class="lineNum">     660 </span>                :            :                         else
+<span class="lineNum">     661 </span>                :<span class="lineNoCov">          0 :                                 close(data[READ]);</span>
+<span class="lineNum">     662 </span>                :            :                         
+<span class="lineNum">     663 </span>                :<span class="lineNoCov">          0 :                         perror(&quot;dup2 error&quot;);</span>
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                         exit(EXIT_FAILURE);                     </span>
+<span class="lineNum">     665 </span>                :            :                 }
+<span class="lineNum">     666 </span>                :            : 
+<span class="lineNum">     667 </span>                :<span class="lineNoCov">          0 :                 close(err[WRITE]);</span>
+<span class="lineNum">     668 </span>                :            :                                 
+<span class="lineNum">     669 </span>                :            :                 /* go ahead and execute the user command */
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :                 execl(&quot;/bin/sh&quot;, &quot;sh&quot;, &quot;-c&quot;, exe, NULL);</span>
+<span class="lineNum">     671 </span>                :            : 
+<span class="lineNum">     672 </span>                :            :                 /* if we're here an error occurred */
+<span class="lineNum">     673 </span>                :<span class="lineNoCov">          0 :                 exit(EXIT_FAILURE);</span>
+<span class="lineNum">     674 </span>                :            :         }
+<span class="lineNum">     675 </span>                :            :         else
+<span class="lineNum">     676 </span>                :            :         {
+<span class="lineNum">     677 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(forwrite)</span>
+<span class="lineNum">     678 </span>                :            :                 {
+<span class="lineNum">     679 </span>                :<span class="lineNoCov">          0 :                         close(data[WRITE]);</span>
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                         close(data[READ]);</span>
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     682 </span>                :            :                 else
+<span class="lineNum">     683 </span>                :            :                 {
+<span class="lineNum">     684 </span>                :<span class="lineNoCov">          0 :                         close(data[READ]);</span>
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :                         close(data[WRITE]);</span>
+<span class="lineNum">     686 </span>                :            :                 }
+<span class="lineNum">     687 </span>                :<span class="lineNoCov">          0 :                 close(err[READ]);</span>
+<span class="lineNum">     688 </span>                :<span class="lineNoCov">          0 :                 close(err[WRITE]);</span>
+<span class="lineNum">     689 </span>                :            :                 
+<span class="lineNum">     690 </span>                :<span class="lineNoCov">          0 :                 return -1;              </span>
+<span class="lineNum">     691 </span>                :            :         }
+<span class="lineNum">     692 </span>                :            : #endif
+<span class="lineNum">     693 </span>                :            : 
+<span class="lineNum">     694 </span>                :            :         return pid;
+<span class="lineNum">     695 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     696 </span>                :            : 
+<span class="lineNum">     697 </span>                :            : /*
+<span class="lineNum">     698 </span>                :            :  * read err msg from err pipe
+<a name="699"><span class="lineNum">     699 </span>                :            :  */</a>
+<span class="lineNum">     700 </span>                :            : static void
+<span class="lineNum">     701 </span>                :            : read_err_msg(int fid, StringInfo sinfo)
+<span class="lineNum">     702 </span>                :            : {
+<span class="lineNum">     703 </span>                :            :         char ebuf[512];
+<span class="lineNum">     704 </span>                :<span class="lineNoCov">          0 :         int ebuflen = 512;</span>
+<span class="lineNum">     705 </span>                :            : 
+<span class="lineNum">     706 </span>                :<span class="lineNoCov">          0 :         while (true)</span>
+<span class="lineNum">     707 </span>                :            :         {
+<span class="lineNum">     708 </span>                :<span class="lineNoCov">          0 :                 int nread = piperead(fid, ebuf, ebuflen);</span>
+<span class="lineNum">     709 </span>                :            : 
+<span class="lineNum">     710 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(nread == 0)</span>
+<span class="lineNum">     711 </span>                :            :                 {
+<span class="lineNum">     712 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     713 </span>                :            :                 }
+<span class="lineNum">     714 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if(nread &gt; 0)</span>
+<span class="lineNum">     715 </span>                :            :                 {
+<span class="lineNum">     716 </span>                :<span class="lineNoCov">          0 :                         appendBinaryStringInfo(sinfo, ebuf, nread);</span>
+<span class="lineNum">     717 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     718 </span>                :            :                 else
+<span class="lineNum">     719 </span>                :            :                 {
+<span class="lineNum">     720 </span>                :<span class="lineNoCov">          0 :                         appendStringInfoString(sinfo, &quot;error string unavailable due to read error&quot;);</span>
+<span class="lineNum">     721 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     722 </span>                :            :                 }
+<span class="lineNum">     723 </span>                :            :         }
+<span class="lineNum">     724 </span>                :            : 
+<span class="lineNum">     725 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (sinfo-&gt;len &gt; 0){</span>
+<span class="lineNum">     726 </span>                :<span class="lineNoCov">          0 :                 write_log(&quot;read err msg from pipe, len:%d msg:%s&quot;, sinfo-&gt;len, sinfo-&gt;data);</span>
+<span class="lineNum">     727 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     728 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     729 </span>                :            : 
+<span class="lineNum">     730 </span>                :            : /*
+<span class="lineNum">     731 </span>                :            :  * pclose_with_stderr
+<span class="lineNum">     732 </span>                :            :  *
+<span class="lineNum">     733 </span>                :            :  * close our data and error pipes and return the child process
+<span class="lineNum">     734 </span>                :            :  * termination status. if child terminated with error, 'buf' will
+<span class="lineNum">     735 </span>                :            :  * point to the error string retrieved from child's stderr.
+<a name="736"><span class="lineNum">     736 </span>                :            :  */</a>
+<span class="lineNum">     737 </span>                :            : static int
+<span class="lineNum">     738 </span>                :            : pclose_with_stderr(int pid, int *pipes, StringInfo sinfo)
+<span class="lineNum">     739 </span>                :            : {
+<span class="lineNum">     740 </span>                :            :         int status;
+<span class="lineNum">     741 </span>                :            :         
+<span class="lineNum">     742 </span>                :            :         /* close the data pipe. we can now read from error pipe without being blocked */
+<span class="lineNum">     743 </span>                :<span class="lineNoCov">          0 :         close(pipes[EXEC_DATA_P]);</span>
+<span class="lineNum">     744 </span>                :            :         
+<span class="lineNum">     745 </span>                :<span class="lineNoCov">          0 :         read_err_msg(pipes[EXEC_ERR_P], sinfo);</span>
+<span class="lineNum">     746 </span>                :            : 
+<span class="lineNum">     747 </span>                :<span class="lineNoCov">          0 :         close(pipes[EXEC_ERR_P]);</span>
+<span class="lineNum">     748 </span>                :            : 
+<span class="lineNum">     749 </span>                :            : #ifndef WIN32
+<span class="lineNum">     750 </span>                :<span class="lineNoCov">          0 :         waitpid(pid, &amp;status, 0);</span>
+<span class="lineNum">     751 </span>                :            : #else
+<span class="lineNum">     752 </span>                :            :     status = -1;
+<span class="lineNum">     753 </span>                :            : #endif
+<span class="lineNum">     754 </span>                :            : 
+<span class="lineNum">     755 </span>                :<span class="lineNoCov">          0 :         return status;</span>
+<span class="lineNum">     756 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

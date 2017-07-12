@@ -1,0 +1,470 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - storage/ipc/sinval.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">storage/ipc</a> - sinval.c<span style="font-size: 80%;"> (source / <a href="sinval.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">83</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">6</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">48</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * sinval.c
+<span class="lineNum">       4 </span>                :            :  *        POSTGRES shared cache invalidation communication code.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2012, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        src/backend/storage/ipc/sinval.c
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;access/xact.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;commands/async.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;storage/ipc.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;storage/proc.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;storage/sinvaladt.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;utils/inval.h&quot;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : #include &quot;cdb/cdbtm.h&quot;          /* DtxContext */
+<span class="lineNum">      26 </span>                :            : 
+<span class="lineNum">      27 </span>                :            : uint64          SharedInvalidMessageCounter;
+<span class="lineNum">      28 </span>                :            : 
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : /*
+<span class="lineNum">      31 </span>                :            :  * Because backends sitting idle will not be reading sinval events, we
+<span class="lineNum">      32 </span>                :            :  * need a way to give an idle backend a swift kick in the rear and make
+<span class="lineNum">      33 </span>                :            :  * it catch up before the sinval queue overflows and forces it to go
+<span class="lineNum">      34 </span>                :            :  * through a cache reset exercise.      This is done by sending
+<span class="lineNum">      35 </span>                :            :  * PROCSIG_CATCHUP_INTERRUPT to any backend that gets too far behind.
+<span class="lineNum">      36 </span>                :            :  *
+<span class="lineNum">      37 </span>                :            :  * State for catchup events consists of two flags: one saying whether
+<span class="lineNum">      38 </span>                :            :  * the signal handler is currently allowed to call ProcessCatchupEvent
+<span class="lineNum">      39 </span>                :            :  * directly, and one saying whether the signal has occurred but the handler
+<span class="lineNum">      40 </span>                :            :  * was not allowed to call ProcessCatchupEvent at the time.
+<span class="lineNum">      41 </span>                :            :  *
+<span class="lineNum">      42 </span>                :            :  * NB: the &quot;volatile&quot; on these declarations is critical!  If your compiler
+<span class="lineNum">      43 </span>                :            :  * does not grok &quot;volatile&quot;, you'd be best advised to compile this file
+<span class="lineNum">      44 </span>                :            :  * with all optimization turned off.
+<span class="lineNum">      45 </span>                :            :  */
+<span class="lineNum">      46 </span>                :            : static volatile int catchupInterruptEnabled = 0;
+<span class="lineNum">      47 </span>                :            : static volatile int catchupInterruptOccurred = 0;
+<span class="lineNum">      48 </span>                :            : 
+<span class="lineNum">      49 </span>                :            : /* Are we currently processing a catchup event? */
+<span class="lineNum">      50 </span>                :            : volatile int in_process_catchup_event = 0;
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :            : static void ProcessCatchupEvent(void);
+<span class="lineNum">      53 </span>                :            : 
+<span class="lineNum">      54 </span>                :            : 
+<span class="lineNum">      55 </span>                :            : /*
+<span class="lineNum">      56 </span>                :            :  * SendSharedInvalidMessages
+<span class="lineNum">      57 </span>                :            :  *      Add shared-cache-invalidation message(s) to the global SI message queue.
+<a name="58"><span class="lineNum">      58 </span>                :            :  */</a>
+<span class="lineNum">      59 </span>                :            : void
+<span class="lineNum">      60 </span>                :            : SendSharedInvalidMessages(const SharedInvalidationMessage *msgs, int n)
+<span class="lineNum">      61 </span>                :            : {
+<span class="lineNum">      62 </span>                :<span class="lineNoCov">          0 :         SIInsertDataEntries(msgs, n);</span>
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : /*
+<span class="lineNum">      66 </span>                :            :  * ReceiveSharedInvalidMessages
+<span class="lineNum">      67 </span>                :            :  *              Process shared-cache-invalidation messages waiting for this backend
+<span class="lineNum">      68 </span>                :            :  *
+<span class="lineNum">      69 </span>                :            :  * We guarantee to process all messages that had been queued before the
+<span class="lineNum">      70 </span>                :            :  * routine was entered.  It is of course possible for more messages to get
+<span class="lineNum">      71 </span>                :            :  * queued right after our last SIGetDataEntries call.
+<span class="lineNum">      72 </span>                :            :  *
+<span class="lineNum">      73 </span>                :            :  * NOTE: it is entirely possible for this routine to be invoked recursively
+<span class="lineNum">      74 </span>                :            :  * as a consequence of processing inside the invalFunction or resetFunction.
+<span class="lineNum">      75 </span>                :            :  * Furthermore, such a recursive call must guarantee that all outstanding
+<span class="lineNum">      76 </span>                :            :  * inval messages have been processed before it exits.  This is the reason
+<span class="lineNum">      77 </span>                :            :  * for the strange-looking choice to use a statically allocated buffer array
+<span class="lineNum">      78 </span>                :            :  * and counters; it's so that a recursive call can process messages already
+<span class="lineNum">      79 </span>                :            :  * sucked out of sinvaladt.c.
+<a name="80"><span class="lineNum">      80 </span>                :            :  */</a>
+<span class="lineNum">      81 </span>                :            : void
+<span class="lineNum">      82 </span>                :            : ReceiveSharedInvalidMessages(
+<span class="lineNum">      83 </span>                :            :                                           void (*invalFunction) (SharedInvalidationMessage *msg),
+<span class="lineNum">      84 </span>                :            :                                                          void (*resetFunction) (void))
+<span class="lineNum">      85 </span>                :            : {
+<span class="lineNum">      86 </span>                :            : #define MAXINVALMSGS 32
+<span class="lineNum">      87 </span>                :            :         static SharedInvalidationMessage messages[MAXINVALMSGS];
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            :         /*
+<span class="lineNum">      90 </span>                :            :          * We use volatile here to prevent bugs if a compiler doesn't realize that
+<span class="lineNum">      91 </span>                :            :          * recursion is a possibility ...
+<span class="lineNum">      92 </span>                :            :          */
+<span class="lineNum">      93 </span>                :            :         static volatile int nextmsg = 0;
+<span class="lineNum">      94 </span>                :            :         static volatile int nummsgs = 0;
+<span class="lineNum">      95 </span>                :            : 
+<span class="lineNum">      96 </span>                :            :         /* Deal with any messages still pending from an outer recursion */
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (nextmsg &lt; nummsgs)</span>
+<span class="lineNum">      98 </span>                :            :         {
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :                 SharedInvalidationMessage *msg = &amp;messages[nextmsg++];</span>
+<span class="lineNum">     100 </span>                :            : 
+<span class="lineNum">     101 </span>                :<span class="lineNoCov">          0 :                 SharedInvalidMessageCounter++;</span>
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :                 invalFunction(msg);</span>
+<span class="lineNum">     103 </span>                :            :         }
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :         do</span>
+<span class="lineNum">     106 </span>                :            :         {
+<span class="lineNum">     107 </span>                :            :                 int                     getResult;
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 :                 nextmsg = nummsgs = 0;</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            :                 /* Try to get some more messages */
+<span class="lineNum">     112 </span>                :<span class="lineNoCov">          0 :                 getResult = SIGetDataEntries(messages, MAXINVALMSGS);</span>
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (getResult &lt; 0)</span>
+<span class="lineNum">     115 </span>                :            :                 {
+<span class="lineNum">     116 </span>                :            :                         /* got a reset message */
+<span class="lineNum">     117 </span>                :<span class="lineNoCov">          0 :                         elog(DEBUG4, &quot;cache state reset&quot;);</span>
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :                         SharedInvalidMessageCounter++;</span>
+<span class="lineNum">     119 </span>                :<span class="lineNoCov">          0 :                         resetFunction();</span>
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                         break;                          /* nothing more to do */</span>
+<span class="lineNum">     121 </span>                :            :                 }
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :            :                 /* Process them, being wary that a recursive call might eat some */
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 nextmsg = 0;</span>
+<span class="lineNum">     125 </span>                :<span class="lineNoCov">          0 :                 nummsgs = getResult;</span>
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 while (nextmsg &lt; nummsgs)</span>
+<span class="lineNum">     128 </span>                :            :                 {
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :                         SharedInvalidationMessage *msg = &amp;messages[nextmsg++];</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :<span class="lineNoCov">          0 :                         SharedInvalidMessageCounter++;</span>
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :                         invalFunction(msg);</span>
+<span class="lineNum">     133 </span>                :            :                 }
+<span class="lineNum">     134 </span>                :            : 
+<span class="lineNum">     135 </span>                :            :                 /*
+<span class="lineNum">     136 </span>                :            :                  * We only need to loop if the last SIGetDataEntries call (which might
+<span class="lineNum">     137 </span>                :            :                  * have been within a recursive call) returned a full buffer.
+<span class="lineNum">     138 </span>                :            :                  */
+<span class="lineNum">     139 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         } while (nummsgs == MAXINVALMSGS);</span>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :            :         /*
+<span class="lineNum">     142 </span>                :            :          * We are now caught up.  If we received a catchup signal, reset that
+<span class="lineNum">     143 </span>                :            :          * flag, and call SICleanupQueue().  This is not so much because we need
+<span class="lineNum">     144 </span>                :            :          * to flush dead messages right now, as that we want to pass on the
+<span class="lineNum">     145 </span>                :            :          * catchup signal to the next slowest backend.  &quot;Daisy chaining&quot; the
+<span class="lineNum">     146 </span>                :            :          * catchup signal this way avoids creating spikes in system load for what
+<span class="lineNum">     147 </span>                :            :          * should be just a background maintenance activity.
+<span class="lineNum">     148 </span>                :            :          */
+<span class="lineNum">     149 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (catchupInterruptOccurred)</span>
+<span class="lineNum">     150 </span>                :            :         {
+<span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :                 catchupInterruptOccurred = 0;</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                 elog(DEBUG4, &quot;sinval catchup complete, cleaning queue&quot;);</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 SICleanupQueue(false, 0);</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :            : 
+<span class="lineNum">     158 </span>                :            : /*
+<span class="lineNum">     159 </span>                :            :  * HandleCatchupInterrupt
+<span class="lineNum">     160 </span>                :            :  *
+<span class="lineNum">     161 </span>                :            :  * This is called when PROCSIG_CATCHUP_INTERRUPT is received.
+<span class="lineNum">     162 </span>                :            :  *
+<span class="lineNum">     163 </span>                :            :  * If we are idle (catchupInterruptEnabled is set), we can safely
+<span class="lineNum">     164 </span>                :            :  * invoke ProcessCatchupEvent directly.  Otherwise, just set a flag
+<span class="lineNum">     165 </span>                :            :  * to do it later.      (Note that it's quite possible for normal processing
+<span class="lineNum">     166 </span>                :            :  * of the current transaction to cause ReceiveSharedInvalidMessages()
+<span class="lineNum">     167 </span>                :            :  * to be run later on; in that case the flag will get cleared again,
+<span class="lineNum">     168 </span>                :            :  * since there's no longer any reason to do anything.)
+<a name="169"><span class="lineNum">     169 </span>                :            :  */</a>
+<span class="lineNum">     170 </span>                :            : void
+<span class="lineNum">     171 </span>                :            : HandleCatchupInterrupt(void)
+<span class="lineNum">     172 </span>                :            : {
+<span class="lineNum">     173 </span>                :            :         /*
+<span class="lineNum">     174 </span>                :            :          * Note: this is called by a SIGNAL HANDLER. You must be very wary what
+<span class="lineNum">     175 </span>                :            :          * you do here.
+<span class="lineNum">     176 </span>                :            :          */
+<span class="lineNum">     177 </span>                :            : 
+<span class="lineNum">     178 </span>                :            :         /* Don't joggle the elbow of proc_exit */
+<span class="lineNum">     179 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (proc_exit_inprogress)</span>
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :                 return;</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (catchupInterruptEnabled)</span>
+<span class="lineNum">     183 </span>                :            :         {
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                 bool            save_ImmediateInterruptOK = ImmediateInterruptOK;</span>
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :            :                 /*
+<span class="lineNum">     187 </span>                :            :                  * We may be called while ImmediateInterruptOK is true; turn it off
+<span class="lineNum">     188 </span>                :            :                  * while messing with the catchup state.  (We would have to save and
+<span class="lineNum">     189 </span>                :            :                  * restore it anyway, because PGSemaphore operations inside
+<span class="lineNum">     190 </span>                :            :                  * ProcessCatchupEvent() might reset it.)
+<span class="lineNum">     191 </span>                :            :                  */
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                 ImmediateInterruptOK = false;</span>
+<span class="lineNum">     193 </span>                :            : 
+<span class="lineNum">     194 </span>                :            :                 /*
+<span class="lineNum">     195 </span>                :            :                  * I'm not sure whether some flavors of Unix might allow another
+<span class="lineNum">     196 </span>                :            :                  * SIGUSR1 occurrence to recursively interrupt this routine. To cope
+<span class="lineNum">     197 </span>                :            :                  * with the possibility, we do the same sort of dance that
+<span class="lineNum">     198 </span>                :            :                  * EnableCatchupInterrupt must do --- see that routine for comments.
+<span class="lineNum">     199 </span>                :            :                  */
+<span class="lineNum">     200 </span>                :<span class="lineNoCov">          0 :                 catchupInterruptEnabled = 0;    /* disable any recursive signal */</span>
+<span class="lineNum">     201 </span>                :<span class="lineNoCov">          0 :                 catchupInterruptOccurred = 1;   /* do at least one iteration */</span>
+<span class="lineNum">     202 </span>                :<span class="lineNoCov">          0 :                 for (;;)</span>
+<span class="lineNum">     203 </span>                :            :                 {
+<span class="lineNum">     204 </span>                :<span class="lineNoCov">          0 :                         catchupInterruptEnabled = 1;</span>
+<span class="lineNum">     205 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!catchupInterruptOccurred)</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                         catchupInterruptEnabled = 0;</span>
+<span class="lineNum">     208 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (catchupInterruptOccurred)</span>
+<span class="lineNum">     209 </span>                :            :                         {
+<span class="lineNum">     210 </span>                :            :                                 /* Here, it is finally safe to do stuff. */
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                                 ProcessCatchupEvent();</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     213 </span>                :            :                 }
+<span class="lineNum">     214 </span>                :            : 
+<span class="lineNum">     215 </span>                :            :                 /*
+<span class="lineNum">     216 </span>                :            :                  * Restore ImmediateInterruptOK, and check for interrupts if needed.
+<span class="lineNum">     217 </span>                :            :                  */
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                 ImmediateInterruptOK = save_ImmediateInterruptOK;</span>
+<span class="lineNum">     219 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (save_ImmediateInterruptOK)</span>
+<span class="lineNum">     220 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     222 </span>                :            :         else
+<span class="lineNum">     223 </span>                :            :         {
+<span class="lineNum">     224 </span>                :            :                 /*
+<span class="lineNum">     225 </span>                :            :                  * In this path it is NOT SAFE to do much of anything, except this:
+<span class="lineNum">     226 </span>                :            :                  */
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :                 catchupInterruptOccurred = 1;</span>
+<span class="lineNum">     228 </span>                :            :         }
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     230 </span>                :            : 
+<span class="lineNum">     231 </span>                :            : /*
+<span class="lineNum">     232 </span>                :            :  * EnableCatchupInterrupt
+<span class="lineNum">     233 </span>                :            :  *
+<span class="lineNum">     234 </span>                :            :  * This is called by the PostgresMain main loop just before waiting
+<span class="lineNum">     235 </span>                :            :  * for a frontend command.      We process any pending catchup events,
+<span class="lineNum">     236 </span>                :            :  * and enable the signal handler to process future events directly.
+<span class="lineNum">     237 </span>                :            :  *
+<span class="lineNum">     238 </span>                :            :  * NOTE: the signal handler starts out disabled, and stays so until
+<span class="lineNum">     239 </span>                :            :  * PostgresMain calls this the first time.
+<a name="240"><span class="lineNum">     240 </span>                :            :  */</a>
+<span class="lineNum">     241 </span>                :            : void
+<span class="lineNum">     242 </span>                :            : EnableCatchupInterrupt(void)
+<span class="lineNum">     243 </span>                :            : {
+<span class="lineNum">     244 </span>                :            :         /*
+<span class="lineNum">     245 </span>                :            :          * This code is tricky because we are communicating with a signal handler
+<span class="lineNum">     246 </span>                :            :          * that could interrupt us at any point.  If we just checked
+<span class="lineNum">     247 </span>                :            :          * catchupInterruptOccurred and then set catchupInterruptEnabled, we could
+<span class="lineNum">     248 </span>                :            :          * fail to respond promptly to a signal that happens in between those two
+<span class="lineNum">     249 </span>                :            :          * steps.  (A very small time window, perhaps, but Murphy's Law says you
+<span class="lineNum">     250 </span>                :            :          * can hit it...)  Instead, we first set the enable flag, then test the
+<span class="lineNum">     251 </span>                :            :          * occurred flag.  If we see an unserviced interrupt has occurred, we
+<span class="lineNum">     252 </span>                :            :          * re-clear the enable flag before going off to do the service work. (That
+<span class="lineNum">     253 </span>                :            :          * prevents re-entrant invocation of ProcessCatchupEvent() if another
+<span class="lineNum">     254 </span>                :            :          * interrupt occurs.) If an interrupt comes in between the setting and
+<span class="lineNum">     255 </span>                :            :          * clearing of catchupInterruptEnabled, then it will have done the service
+<span class="lineNum">     256 </span>                :            :          * work and left catchupInterruptOccurred zero, so we have to check again
+<span class="lineNum">     257 </span>                :            :          * after clearing enable.  The whole thing has to be in a loop in case
+<span class="lineNum">     258 </span>                :            :          * another interrupt occurs while we're servicing the first. Once we get
+<span class="lineNum">     259 </span>                :            :          * out of the loop, enable is set and we know there is no unserviced
+<span class="lineNum">     260 </span>                :            :          * interrupt.
+<span class="lineNum">     261 </span>                :            :          *
+<span class="lineNum">     262 </span>                :            :          * NB: an overenthusiastic optimizing compiler could easily break this
+<span class="lineNum">     263 </span>                :            :          * code. Hopefully, they all understand what &quot;volatile&quot; means these days.
+<span class="lineNum">     264 </span>                :            :          */
+<span class="lineNum">     265 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     266 </span>                :            :         {
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                 catchupInterruptEnabled = 1;</span>
+<span class="lineNum">     268 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!catchupInterruptOccurred)</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     270 </span>                :<span class="lineNoCov">          0 :                 catchupInterruptEnabled = 0;</span>
+<span class="lineNum">     271 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (catchupInterruptOccurred)</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                         ProcessCatchupEvent();</span>
+<span class="lineNum">     273 </span>                :            :         }
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :            : /*
+<span class="lineNum">     277 </span>                :            :  * DisableCatchupInterrupt
+<span class="lineNum">     278 </span>                :            :  *
+<span class="lineNum">     279 </span>                :            :  * This is called by the PostgresMain main loop just after receiving
+<span class="lineNum">     280 </span>                :            :  * a frontend command.  Signal handler execution of catchup events
+<span class="lineNum">     281 </span>                :            :  * is disabled until the next EnableCatchupInterrupt call.
+<span class="lineNum">     282 </span>                :            :  *
+<span class="lineNum">     283 </span>                :            :  * The PROCSIG_NOTIFY_INTERRUPT signal handler also needs to call this,
+<span class="lineNum">     284 </span>                :            :  * so as to prevent conflicts if one signal interrupts the other.  So we
+<span class="lineNum">     285 </span>                :            :  * must return the previous state of the flag.
+<a name="286"><span class="lineNum">     286 </span>                :            :  */</a>
+<span class="lineNum">     287 </span>                :            : bool
+<span class="lineNum">     288 </span>                :            : DisableCatchupInterrupt(void)
+<span class="lineNum">     289 </span>                :            : {
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :         bool            result = (catchupInterruptEnabled != 0);</span>
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :         catchupInterruptEnabled = 0;</span>
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     295 </span>                :            : }
+<span class="lineNum">     296 </span>                :            : 
+<span class="lineNum">     297 </span>                :            : /*
+<span class="lineNum">     298 </span>                :            :  * ProcessCatchupEvent
+<span class="lineNum">     299 </span>                :            :  *
+<span class="lineNum">     300 </span>                :            :  * Respond to a catchup event (PROCSIG_CATCHUP_INTERRUPT) from another
+<span class="lineNum">     301 </span>                :            :  * backend.
+<span class="lineNum">     302 </span>                :            :  *
+<span class="lineNum">     303 </span>                :            :  * This is called either directly from the PROCSIG_CATCHUP_INTERRUPT
+<span class="lineNum">     304 </span>                :            :  * signal handler, or the next time control reaches the outer idle loop
+<span class="lineNum">     305 </span>                :            :  * (assuming there's still anything to do by then).
+<a name="306"><span class="lineNum">     306 </span>                :            :  */</a>
+<span class="lineNum">     307 </span>                :            : static void
+<span class="lineNum">     308 </span>                :            : ProcessCatchupEvent(void)
+<span class="lineNum">     309 </span>                :            : {
+<span class="lineNum">     310 </span>                :            :         bool            notify_enabled;
+<span class="lineNum">     311 </span>                :            :         bool            client_wait_timeout_enabled;
+<span class="lineNum">     312 </span>                :            :         DtxContext  saveDistributedTransactionContext;
+<span class="lineNum">     313 </span>                :            : 
+<span class="lineNum">     314 </span>                :            :         /*
+<span class="lineNum">     315 </span>                :            :          * Funny indentation to keep the code inside identical to upstream
+<span class="lineNum">     316 </span>                :            :          * while at the same time supporting CMockery which has problems with
+<span class="lineNum">     317 </span>                :            :          * multiple bracing on column 1.
+<span class="lineNum">     318 </span>                :            :          */
+<span class="lineNum">     319 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         PG_TRY();</span>
+<span class="lineNum">     320 </span>                :            :         {
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :         in_process_catchup_event = 1;</span>
+<span class="lineNum">     322 </span>                :            : 
+<span class="lineNum">     323 </span>                :            :         /* Must prevent SIGUSR2 and SIGALRM(for IdleSessionGangTimeout) interrupt while I am running */
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :         notify_enabled = DisableNotifyInterrupt();</span>
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :         client_wait_timeout_enabled = DisableClientWaitTimeoutInterrupt();</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :            :         /*
+<span class="lineNum">     328 </span>                :            :          * What we need to do here is cause ReceiveSharedInvalidMessages() to run,
+<span class="lineNum">     329 </span>                :            :          * which will do the necessary work and also reset the
+<span class="lineNum">     330 </span>                :            :          * catchupInterruptOccurred flag.  If we are inside a transaction we can
+<span class="lineNum">     331 </span>                :            :          * just call AcceptInvalidationMessages() to do this.  If we aren't, we
+<span class="lineNum">     332 </span>                :            :          * start and immediately end a transaction; the call to
+<span class="lineNum">     333 </span>                :            :          * AcceptInvalidationMessages() happens down inside transaction start.
+<span class="lineNum">     334 </span>                :            :          *
+<span class="lineNum">     335 </span>                :            :          * It is awfully tempting to just call AcceptInvalidationMessages()
+<span class="lineNum">     336 </span>                :            :          * without the rest of the xact start/stop overhead, and I think that
+<span class="lineNum">     337 </span>                :            :          * would actually work in the normal case; but I am not sure that things
+<span class="lineNum">     338 </span>                :            :          * would clean up nicely if we got an error partway through.
+<span class="lineNum">     339 </span>                :            :          */
+<span class="lineNum">     340 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsTransactionOrTransactionBlock())</span>
+<span class="lineNum">     341 </span>                :            :         {
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                 elog(DEBUG1, &quot;ProcessCatchupEvent inside transaction&quot;);</span>
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                 AcceptInvalidationMessages();</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     345 </span>                :            :         else
+<span class="lineNum">     346 </span>                :            :         {
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                 elog(DEBUG1, &quot;ProcessCatchupEvent outside transaction&quot;);</span>
+<span class="lineNum">     348 </span>                :            : 
+<span class="lineNum">     349 </span>                :            :                 /*
+<span class="lineNum">     350 </span>                :            :                  * Save distributed transaction context first.
+<span class="lineNum">     351 </span>                :            :                  */
+<span class="lineNum">     352 </span>                :<span class="lineNoCov">          0 :                 saveDistributedTransactionContext = DistributedTransactionContext;</span>
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                 DistributedTransactionContext = DTX_CONTEXT_LOCAL_ONLY;</span>
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :<span class="lineNoCov">          0 :                 StartTransactionCommand();</span>
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :                 CommitTransactionCommand();</span>
+<span class="lineNum">     357 </span>                :            : 
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :                 DistributedTransactionContext = saveDistributedTransactionContext;</span>
+<span class="lineNum">     359 </span>                :            :         }
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (notify_enabled)</span>
+<span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 :                 EnableNotifyInterrupt();</span>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (client_wait_timeout_enabled)</span>
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :                 EnableClientWaitTimeoutInterrupt();</span>
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :<span class="lineNoCov">          0 :         in_process_catchup_event = 0;</span>
+<span class="lineNum">     368 </span>                :            :         }
+<span class="lineNum">     369 </span>                :<span class="lineNoCov">          0 :         PG_CATCH();</span>
+<span class="lineNum">     370 </span>                :            :         {
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :                 in_process_catchup_event = 0;</span>
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :                 PG_RE_THROW();</span>
+<span class="lineNum">     373 </span>                :            :         }
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         PG_END_TRY();</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,325 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - access/hash/hashutil.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">access/hash</a> - hashutil.c<span style="font-size: 80%;"> (source / <a href="hashutil.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">56</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">7</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">76</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * hashutil.c
+<span class="lineNum">       4 </span>                :            :  *        Utility code for Postgres hash implementation.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/access/hash/hashutil.c,v 1.53 2008/01/01 19:45:46 momjian Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;access/hash.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;access/reloptions.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;executor/execdebug.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : /*
+<span class="lineNum">      25 </span>                :            :  * _hash_checkqual -- does the index tuple satisfy the scan conditions?
+<a name="26"><span class="lineNum">      26 </span>                :            :  */</a>
+<span class="lineNum">      27 </span>                :            : bool
+<span class="lineNum">      28 </span>                :            : _hash_checkqual(IndexScanDesc scan, IndexTuple itup)
+<span class="lineNum">      29 </span>                :            : {
+<span class="lineNum">      30 </span>                :<span class="lineNoCov">          0 :         TupleDesc       tupdesc = RelationGetDescr(scan-&gt;indexRelation);</span>
+<span class="lineNum">      31 </span>                :<span class="lineNoCov">          0 :         ScanKey         key = scan-&gt;keyData;</span>
+<span class="lineNum">      32 </span>                :<span class="lineNoCov">          0 :         int                     scanKeySize = scan-&gt;numberOfKeys;</span>
+<span class="lineNum">      33 </span>                :            : 
+<span class="lineNum">      34 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (scanKeySize &gt; 0)</span>
+<span class="lineNum">      35 </span>                :            :         {
+<span class="lineNum">      36 </span>                :            :                 Datum           datum;
+<span class="lineNum">      37 </span>                :            :                 bool            isNull;
+<span class="lineNum">      38 </span>                :            :                 Datum           test;
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 datum = index_getattr(itup,</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 16 was not executed"> # </span><span class="branchNoExec" title="Branch 17 was not executed"> # </span>][<span class="branchNoExec" title="Branch 18 was not executed"> # </span><span class="branchNoExec" title="Branch 19 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 20 was not executed"> # </span><span class="branchNoExec" title="Branch 21 was not executed"> # </span>]
+<span class="lineNum">      41 </span>                :            :                                                           key-&gt;sk_attno,
+<span class="lineNum">      42 </span>                :            :                                                           tupdesc,
+<span class="lineNum">      43 </span>                :            :                                                           &amp;isNull);
+<span class="lineNum">      44 </span>                :            : 
+<span class="lineNum">      45 </span>                :            :                 /* assume sk_func is strict */
+<span class="lineNum">      46 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (isNull)</span>
+<span class="lineNum">      47 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">      48 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (key-&gt;sk_flags &amp; SK_ISNULL)</span>
+<span class="lineNum">      49 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :<span class="lineNoCov">          0 :                 test = FunctionCall2(&amp;key-&gt;sk_func, datum, key-&gt;sk_argument);</span>
+<span class="lineNum">      52 </span>                :            : 
+<span class="lineNum">      53 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!DatumGetBool(test))</span>
+<span class="lineNum">      54 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :<span class="lineNoCov">          0 :                 key++;</span>
+<span class="lineNum">      57 </span>                :<span class="lineNoCov">          0 :                 scanKeySize--;</span>
+<span class="lineNum">      58 </span>                :            :         }
+<span class="lineNum">      59 </span>                :            : 
+<span class="lineNum">      60 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :            : /*
+<span class="lineNum">      64 </span>                :            :  * _hash_datum2hashkey -- given a Datum, call the index's hash procedure
+<span class="lineNum">      65 </span>                :            :  *
+<span class="lineNum">      66 </span>                :            :  * The Datum is assumed to be of the index's column type, so we can use the
+<span class="lineNum">      67 </span>                :            :  * &quot;primary&quot; hash procedure that's tracked for us by the generic index code.
+<a name="68"><span class="lineNum">      68 </span>                :            :  */</a>
+<span class="lineNum">      69 </span>                :            : uint32
+<span class="lineNum">      70 </span>                :            : _hash_datum2hashkey(Relation rel, Datum key)
+<span class="lineNum">      71 </span>                :            : {
+<span class="lineNum">      72 </span>                :            :         FmgrInfo   *procinfo;
+<span class="lineNum">      73 </span>                :            : 
+<span class="lineNum">      74 </span>                :            :         /* XXX assumes index has only one attribute */
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :         procinfo = index_getprocinfo(rel, 1, HASHPROC);</span>
+<span class="lineNum">      76 </span>                :            : 
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :         return DatumGetUInt32(FunctionCall1(procinfo, key));</span>
+<span class="lineNum">      78 </span>                :            : }
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :            : /*
+<span class="lineNum">      81 </span>                :            :  * _hash_datum2hashkey_type -- given a Datum of a specified type,
+<span class="lineNum">      82 </span>                :            :  *                      hash it in a fashion compatible with this index
+<span class="lineNum">      83 </span>                :            :  *
+<span class="lineNum">      84 </span>                :            :  * This is much more expensive than _hash_datum2hashkey, so use it only in
+<span class="lineNum">      85 </span>                :            :  * cross-type situations.
+<a name="86"><span class="lineNum">      86 </span>                :            :  */</a>
+<span class="lineNum">      87 </span>                :            : uint32
+<span class="lineNum">      88 </span>                :            : _hash_datum2hashkey_type(Relation rel, Datum key, Oid keytype)
+<span class="lineNum">      89 </span>                :            : {
+<span class="lineNum">      90 </span>                :            :         RegProcedure hash_proc;
+<span class="lineNum">      91 </span>                :            : 
+<span class="lineNum">      92 </span>                :            :         /* XXX assumes index has only one attribute */
+<span class="lineNum">      93 </span>                :<span class="lineNoCov">          0 :         hash_proc = get_opfamily_proc(rel-&gt;rd_opfamily[0],</span>
+<span class="lineNum">      94 </span>                :<span class="lineNoCov">          0 :                                                                   keytype,</span>
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :                                                                   keytype,</span>
+<span class="lineNum">      96 </span>                :            :                                                                   HASHPROC);
+<span class="lineNum">      97 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!RegProcedureIsValid(hash_proc))</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;missing support function %d(%u,%u) for index \&quot;%s\&quot;&quot;,</span>
+<span class="lineNum">      99 </span>                :            :                          HASHPROC, keytype, keytype,
+<span class="lineNum">     100 </span>                :            :                          RelationGetRelationName(rel));
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :         return DatumGetUInt32(OidFunctionCall1(hash_proc, key));</span>
+<span class="lineNum">     103 </span>                :            : }
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>                :            : /*
+<span class="lineNum">     106 </span>                :            :  * _hash_hashkey2bucket -- determine which bucket the hashkey maps to.
+<a name="107"><span class="lineNum">     107 </span>                :            :  */</a>
+<span class="lineNum">     108 </span>                :            : Bucket
+<span class="lineNum">     109 </span>                :            : _hash_hashkey2bucket(uint32 hashkey, uint32 maxbucket,
+<span class="lineNum">     110 </span>                :            :                                          uint32 highmask, uint32 lowmask)
+<span class="lineNum">     111 </span>                :            : {
+<span class="lineNum">     112 </span>                :            :         Bucket          bucket;
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :<span class="lineNoCov">          0 :         bucket = hashkey &amp; highmask;</span>
+<span class="lineNum">     115 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (bucket &gt; maxbucket)</span>
+<span class="lineNum">     116 </span>                :<span class="lineNoCov">          0 :                 bucket = bucket &amp; lowmask;</span>
+<span class="lineNum">     117 </span>                :            : 
+<span class="lineNum">     118 </span>                :<span class="lineNoCov">          0 :         return bucket;</span>
+<span class="lineNum">     119 </span>                :            : }
+<span class="lineNum">     120 </span>                :            : 
+<span class="lineNum">     121 </span>                :            : /*
+<span class="lineNum">     122 </span>                :            :  * _hash_log2 -- returns ceil(lg2(num))
+<a name="123"><span class="lineNum">     123 </span>                :            :  */</a>
+<span class="lineNum">     124 </span>                :            : uint32
+<span class="lineNum">     125 </span>                :            : _hash_log2(uint32 num)
+<span class="lineNum">     126 </span>                :            : {
+<span class="lineNum">     127 </span>                :            :         uint32          i,
+<span class="lineNum">     128 </span>                :            :                                 limit;
+<span class="lineNum">     129 </span>                :            : 
+<span class="lineNum">     130 </span>                :<span class="lineNoCov">          0 :         limit = 1;</span>
+<span class="lineNum">     131 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         for (i = 0; limit &lt; num; limit &lt;&lt;= 1, i++)</span>
+<span class="lineNum">     132 </span>                :            :                 ;
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         return i;</span>
+<span class="lineNum">     134 </span>                :            : }
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            : /*
+<span class="lineNum">     137 </span>                :            :  * _hash_checkpage -- sanity checks on the format of all hash pages
+<span class="lineNum">     138 </span>                :            :  *
+<span class="lineNum">     139 </span>                :            :  * If flags is not zero, it is a bitwise OR of the acceptable values of
+<span class="lineNum">     140 </span>                :            :  * hasho_flag.
+<a name="141"><span class="lineNum">     141 </span>                :            :  */</a>
+<span class="lineNum">     142 </span>                :            : void
+<span class="lineNum">     143 </span>                :            : _hash_checkpage(Relation rel, Buffer buf, int flags)
+<span class="lineNum">     144 </span>                :            : {
+<span class="lineNum">     145 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Page            page = BufferGetPage(buf);</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     146 </span>                :            : 
+<span class="lineNum">     147 </span>                :            :         /*
+<span class="lineNum">     148 </span>                :            :          * ReadBuffer verifies that every newly-read page passes
+<span class="lineNum">     149 </span>                :            :          * PageHeaderIsValid, which means it either contains a reasonably sane
+<span class="lineNum">     150 </span>                :            :          * page header or is all-zero.  We have to defend against the all-zero
+<span class="lineNum">     151 </span>                :            :          * case, however.
+<span class="lineNum">     152 </span>                :            :          */
+<span class="lineNum">     153 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (PageIsNew(page))</span>
+<span class="lineNum">     154 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     155 </span>                :            :                                 (errcode(ERRCODE_INDEX_CORRUPTED),
+<span class="lineNum">     156 </span>                :            :                          errmsg(&quot;index \&quot;%s\&quot; contains unexpected zero page at block %u&quot;,
+<span class="lineNum">     157 </span>                :            :                                         RelationGetRelationName(rel),
+<span class="lineNum">     158 </span>                :            :                                         BufferGetBlockNumber(buf)),
+<span class="lineNum">     159 </span>                :            :                                  errhint(&quot;Please REINDEX it.&quot;),
+<span class="lineNum">     160 </span>                :            :                                  errSendAlert(true)));
+<span class="lineNum">     161 </span>                :            : 
+<span class="lineNum">     162 </span>                :            :         /*
+<span class="lineNum">     163 </span>                :            :          * Additionally check that the special area looks sane.
+<span class="lineNum">     164 </span>                :            :          */
+<span class="lineNum">     165 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (((PageHeader) (page))-&gt;pd_special !=</span>
+<span class="lineNum">     166 </span>                :            :                 (BLCKSZ - MAXALIGN(sizeof(HashPageOpaqueData))))
+<span class="lineNum">     167 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     168 </span>                :            :                                 (errcode(ERRCODE_INDEX_CORRUPTED),
+<span class="lineNum">     169 </span>                :            :                                  errmsg(&quot;index \&quot;%s\&quot; contains corrupted page at block %u&quot;,
+<span class="lineNum">     170 </span>                :            :                                                 RelationGetRelationName(rel),
+<span class="lineNum">     171 </span>                :            :                                                 BufferGetBlockNumber(buf)),
+<span class="lineNum">     172 </span>                :            :                                  errhint(&quot;Please REINDEX it.&quot;),
+<span class="lineNum">     173 </span>                :            :                                  errSendAlert(true)));
+<span class="lineNum">     174 </span>                :            : 
+<span class="lineNum">     175 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flags)</span>
+<span class="lineNum">     176 </span>                :            :         {
+<span class="lineNum">     177 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 HashPageOpaque opaque = (HashPageOpaque) PageGetSpecialPointer(page);</span>
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((opaque-&gt;hasho_flag &amp; flags) == 0)</span>
+<span class="lineNum">     180 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     181 </span>                :            :                                         (errcode(ERRCODE_INDEX_CORRUPTED),
+<span class="lineNum">     182 </span>                :            :                                    errmsg(&quot;index \&quot;%s\&quot; contains corrupted page at block %u&quot;,
+<span class="lineNum">     183 </span>                :            :                                                   RelationGetRelationName(rel),
+<span class="lineNum">     184 </span>                :            :                                                   BufferGetBlockNumber(buf)),
+<span class="lineNum">     185 </span>                :            :                                          errhint(&quot;Please REINDEX it.&quot;),
+<span class="lineNum">     186 </span>                :            :                                          errSendAlert(true)));
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     188 </span>                :            : 
+<span class="lineNum">     189 </span>                :            :         /*
+<span class="lineNum">     190 </span>                :            :          * When checking the metapage, also verify magic number and version.
+<span class="lineNum">     191 </span>                :            :          */
+<span class="lineNum">     192 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (flags == LH_META_PAGE)</span>
+<span class="lineNum">     193 </span>                :            :         {
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                 HashMetaPage metap = (HashMetaPage) page;</span>
+<span class="lineNum">     195 </span>                :            : 
+<span class="lineNum">     196 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (metap-&gt;hashm_magic != HASH_MAGIC)</span>
+<span class="lineNum">     197 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     198 </span>                :            :                                         (errcode(ERRCODE_INDEX_CORRUPTED),
+<span class="lineNum">     199 </span>                :            :                                          errmsg(&quot;index \&quot;%s\&quot; is not a hash index&quot;,
+<span class="lineNum">     200 </span>                :            :                                                         RelationGetRelationName(rel))));
+<span class="lineNum">     201 </span>                :            : 
+<span class="lineNum">     202 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (metap-&gt;hashm_version != HASH_VERSION)</span>
+<span class="lineNum">     203 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     204 </span>                :            :                                         (errcode(ERRCODE_INDEX_CORRUPTED),
+<span class="lineNum">     205 </span>                :            :                                          errmsg(&quot;index \&quot;%s\&quot; has wrong hash version&quot;,
+<span class="lineNum">     206 </span>                :            :                                                         RelationGetRelationName(rel)),
+<span class="lineNum">     207 </span>                :            :                                          errhint(&quot;Please REINDEX it.&quot;),
+<span class="lineNum">     208 </span>                :            :                                          errSendAlert(true)));
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="211"><span class="lineNum">     211 </span>                :            : </a>
+<span class="lineNum">     212 </span>                :            : Datum
+<span class="lineNum">     213 </span>                :            : hashoptions(PG_FUNCTION_ARGS)
+<span class="lineNum">     214 </span>                :            : {
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :         Datum           reloptions = PG_GETARG_DATUM(0);</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :         bool            validate = PG_GETARG_BOOL(1);</span>
+<span class="lineNum">     217 </span>                :            :         bytea      *result;
+<span class="lineNum">     218 </span>                :            : 
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :         result = default_reloptions(reloptions, validate,</span>
+<span class="lineNum">     220 </span>                :            :                                                                 RELKIND_INDEX,
+<span class="lineNum">     221 </span>                :            :                                                                 HASH_MIN_FILLFACTOR,
+<span class="lineNum">     222 </span>                :            :                                                                 HASH_DEFAULT_FILLFACTOR);
+<span class="lineNum">     223 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (result)</span>
+<span class="lineNum">     224 </span>                :<span class="lineNoCov">          0 :                 PG_RETURN_BYTEA_P(result);</span>
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         PG_RETURN_NULL();</span>
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,396 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/execBitmapAOScan.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - execBitmapAOScan.c<span style="font-size: 80%;"> (source / <a href="execBitmapAOScan.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">99</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">104</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*</a>
+<span class="lineNum">       2 </span>                :            :  * execBitmapAOScan.c
+<span class="lineNum">       3 </span>                :            :  *   Support routines for scanning AO and AOCO tables using bitmaps.
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       7 </span>                :            :  *
+<span class="lineNum">       8 </span>                :            :  * Copyright (c) 2014 Pivotal, Inc.
+<span class="lineNum">       9 </span>                :            :  */
+<span class="lineNum">      10 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      11 </span>                :            : 
+<span class="lineNum">      12 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;executor/execdebug.h&quot;
+<span class="lineNum">      14 </span>                :            : #include &quot;executor/nodeBitmapAppendOnlyscan.h&quot;
+<span class="lineNum">      15 </span>                :            : #include &quot;cdb/cdbappendonlyam.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;cdb/cdbaocsam.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;pgstat.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;parser/parsetree.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;cdb/cdbvars.h&quot; /* gp_select_invisible */
+<span class="lineNum">      22 </span>                :            : #include &quot;nodes/tidbitmap.h&quot;
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : typedef struct
+<span class="lineNum">      25 </span>                :            : {
+<span class="lineNum">      26 </span>                :            :         int                     tupleIndex;
+<span class="lineNum">      27 </span>                :            :         int                     nTuples;
+<span class="lineNum">      28 </span>                :            : } AOIteratorState;
+<span class="lineNum">      29 </span>                :            : 
+<span class="lineNum">      30 </span>                :            : /*
+<span class="lineNum">      31 </span>                :            :  * Prepares for a new AO scan.
+<a name="32"><span class="lineNum">      32 </span>                :            :  */</a>
+<span class="lineNum">      33 </span>                :            : void
+<span class="lineNum">      34 </span>                :            : BitmapAOScanBegin(ScanState *scanState)
+<span class="lineNum">      35 </span>                :            : {
+<span class="lineNum">      36 </span>                :<span class="lineNoCov">          0 :         BitmapTableScanState *node = (BitmapTableScanState *)(scanState);</span>
+<span class="lineNum">      37 </span>                :<span class="lineNoCov">          0 :         Relation currentRelation = node-&gt;ss.ss_currentRelation;</span>
+<span class="lineNum">      38 </span>                :<span class="lineNoCov">          0 :         EState *estate = node-&gt;ss.ps.state;</span>
+<span class="lineNum">      39 </span>                :            : 
+<span class="lineNum">      40 </span>                :<span class="lineNoCov">          0 :         Snapshot appendOnlyMetaDataSnapshot = estate-&gt;es_snapshot;</span>
+<span class="lineNum">      41 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (appendOnlyMetaDataSnapshot == SnapshotAny)</span>
+<span class="lineNum">      42 </span>                :            :         {
+<span class="lineNum">      43 </span>                :            :                 /*
+<span class="lineNum">      44 </span>                :            :                  * the append-only meta data should never be fetched with
+<span class="lineNum">      45 </span>                :            :                  * SnapshotAny as bogus results are returned.
+<span class="lineNum">      46 </span>                :            :                  */
+<span class="lineNum">      47 </span>                :<span class="lineNoCov">          0 :                 appendOnlyMetaDataSnapshot = GetTransactionSnapshot();</span>
+<span class="lineNum">      48 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      49 </span>                :            : 
+<span class="lineNum">      50 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (scanState-&gt;tableType == TableTypeAppendOnly)</span>
+<span class="lineNum">      51 </span>                :            :         {
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :                 node-&gt;scanDesc =</span>
+<span class="lineNum">      53 </span>                :<span class="lineNoCov">          0 :                         appendonly_fetch_init(currentRelation,</span>
+<span class="lineNum">      54 </span>                :<span class="lineNoCov">          0 :                                                                   estate-&gt;es_snapshot,</span>
+<span class="lineNum">      55 </span>                :<span class="lineNoCov">          0 :                                                                   appendOnlyMetaDataSnapshot);</span>
+<span class="lineNum">      56 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      57 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (scanState-&gt;tableType == TableTypeAOCS)</span>
+<span class="lineNum">      58 </span>                :            :         {
+<span class="lineNum">      59 </span>                :            :                 /*
+<span class="lineNum">      60 </span>                :            :                  * Obtain the projection.
+<span class="lineNum">      61 </span>                :            :                  */
+<span class="lineNum">      62 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(currentRelation-&gt;rd_att != NULL);</span>
+<span class="lineNum">      63 </span>                :            : 
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :                 bool *proj = (bool *)palloc0(sizeof(bool) * currentRelation-&gt;rd_att-&gt;natts);</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :<span class="lineNoCov">          0 :                 GetNeededColumnsForScan((Node *) node-&gt;ss.ps.plan-&gt;targetlist, proj, currentRelation-&gt;rd_att-&gt;natts);</span>
+<span class="lineNum">      67 </span>                :<span class="lineNoCov">          0 :                 GetNeededColumnsForScan((Node *) node-&gt;ss.ps.plan-&gt;qual, proj, currentRelation-&gt;rd_att-&gt;natts);</span>
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :<span class="lineNoCov">          0 :                 int colno = 0;</span>
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>                :            :                 /* Check if any column is projected */
+<span class="lineNum">      72 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 for(colno = 0; colno &lt; currentRelation-&gt;rd_att-&gt;natts; colno++)</span>
+<span class="lineNum">      73 </span>                :            :                 {
+<span class="lineNum">      74 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if(proj[colno])</span>
+<span class="lineNum">      75 </span>                :            :                         {
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :                                 break;</span>
+<span class="lineNum">      77 </span>                :            :                         }
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :            :                 /*
+<span class="lineNum">      81 </span>                :            :                  * At least project one column. Since the tids stored in the index may not have
+<span class="lineNum">      82 </span>                :            :                  * a corresponding tuple any more (because of previous crashes, for example), we
+<span class="lineNum">      83 </span>                :            :                  * need to read the tuple to make sure.
+<span class="lineNum">      84 </span>                :            :                  */
+<span class="lineNum">      85 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(colno == currentRelation-&gt;rd_att-&gt;natts)</span>
+<span class="lineNum">      86 </span>                :            :                 {
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :                         proj[0] = true;</span>
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :                 node-&gt;scanDesc =</span>
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :                         aocs_fetch_init(currentRelation, estate-&gt;es_snapshot, appendOnlyMetaDataSnapshot, proj);</span>
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">      93 </span>                :            :         else
+<span class="lineNum">      94 </span>                :            :         {
+<span class="lineNum">      95 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!&quot;Invalid table type&quot;);</span>
+<span class="lineNum">      96 </span>                :            :         }
+<span class="lineNum">      97 </span>                :            : 
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :            :         /*
+<span class="lineNum">     100 </span>                :            :          * AO doesn't need rechecking every tuple once it resolves
+<span class="lineNum">     101 </span>                :            :          * from the bitmap page, except when it deals with lossy
+<span class="lineNum">     102 </span>                :            :          * bitmap, which is handled via scanState-&gt;isLossyBitmapPage.
+<span class="lineNum">     103 </span>                :            :          */
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :         node-&gt;recheckTuples = false;</span>
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     106 </span>                :            : 
+<span class="lineNum">     107 </span>                :            : /*
+<span class="lineNum">     108 </span>                :            :  * Cleans up after the scanning is done.
+<a name="109"><span class="lineNum">     109 </span>                :            :  */</a>
+<span class="lineNum">     110 </span>                :            : void
+<span class="lineNum">     111 </span>                :            : BitmapAOScanEnd(ScanState *scanState)
+<span class="lineNum">     112 </span>                :            : {
+<span class="lineNum">     113 </span>                :<span class="lineNoCov">          0 :         BitmapTableScanState *node = (BitmapTableScanState *)scanState;</span>
+<span class="lineNum">     114 </span>                :            : 
+<span class="lineNum">     115 </span>                :            :         /*
+<span class="lineNum">     116 </span>                :            :          * We might call &quot;End&quot; method before even calling init method,
+<span class="lineNum">     117 </span>                :            :          * in case we had an ERROR. Ignore scanDesc cleanup in such cases
+<span class="lineNum">     118 </span>                :            :          */
+<span class="lineNum">     119 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (NULL != node-&gt;scanDesc)</span>
+<span class="lineNum">     120 </span>                :            :         {
+<span class="lineNum">     121 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (scanState-&gt;tableType == TableTypeAppendOnly)</span>
+<span class="lineNum">     122 </span>                :            :                 {
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :                         appendonly_fetch_finish((AppendOnlyFetchDesc)node-&gt;scanDesc);</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     125 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 else if (scanState-&gt;tableType == TableTypeAOCS)</span>
+<span class="lineNum">     126 </span>                :            :                 {
+<span class="lineNum">     127 </span>                :<span class="lineNoCov">          0 :                         pfree(((AOCSFetchDesc)node-&gt;scanDesc)-&gt;proj);</span>
+<span class="lineNum">     128 </span>                :<span class="lineNoCov">          0 :                         aocs_fetch_finish(node-&gt;scanDesc);</span>
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     130 </span>                :            :                 else
+<span class="lineNum">     131 </span>                :            :                 {
+<span class="lineNum">     132 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(!&quot;Invalid table type&quot;);</span>
+<span class="lineNum">     133 </span>                :            :                 }
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                 pfree(node-&gt;scanDesc);</span>
+<span class="lineNum">     135 </span>                :<span class="lineNoCov">          0 :                 node-&gt;scanDesc = NULL;</span>
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     137 </span>                :            : 
+<span class="lineNum">     138 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (NULL != node-&gt;iterator)</span>
+<span class="lineNum">     139 </span>                :            :         {
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :                 pfree(node-&gt;iterator);</span>
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :                 node-&gt;iterator = NULL;</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     144 </span>                :            : 
+<span class="lineNum">     145 </span>                :            : /*
+<span class="lineNum">     146 </span>                :            :  * Returns the next matching tuple.
+<a name="147"><span class="lineNum">     147 </span>                :            :  */</a>
+<span class="lineNum">     148 </span>                :            : TupleTableSlot *
+<span class="lineNum">     149 </span>                :            : BitmapAOScanNext(ScanState *scanState)
+<span class="lineNum">     150 </span>                :            : {
+<span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :         BitmapTableScanState *node = (BitmapTableScanState *)scanState;</span>
+<span class="lineNum">     152 </span>                :            : 
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :         TupleTableSlot *slot = node-&gt;ss.ss_ScanTupleSlot;</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :<span class="lineNoCov">          0 :         TBMIterateResult *tbmres = (TBMIterateResult *)node-&gt;tbmres;</span>
+<span class="lineNum">     156 </span>                :            : 
+<span class="lineNum">     157 </span>                :            :         /* Make sure we never cross 15-bit offset number [MPP-24326] */
+<span class="lineNum">     158 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(tbmres-&gt;ntuples &lt;= INT16_MAX + 1);</span>
+<span class="lineNum">     159 </span>                :            : 
+<span class="lineNum">     160 </span>                :            :         OffsetNumber psuedoHeapOffset;
+<span class="lineNum">     161 </span>                :            :         ItemPointerData psudeoHeapTid;
+<span class="lineNum">     162 </span>                :            :         AOTupleId aoTid;
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(tbmres != NULL &amp;&amp; tbmres-&gt;ntuples != 0);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     165 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(node-&gt;needNewBitmapPage == false);</span>
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         AOIteratorState *iterator = (AOIteratorState *)node-&gt;iterator;</span>
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     169 </span>                :            :         {
+<span class="lineNum">     170 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 CHECK_FOR_INTERRUPTS();</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>][<span class="branchNoExec" title="Branch 10 was not executed"> # </span><span class="branchNoExec" title="Branch 11 was not executed"> # </span>]
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 12 was not executed"> # </span><span class="branchNoExec" title="Branch 13 was not executed"> # </span>][<span class="branchNoExec" title="Branch 14 was not executed"> # </span><span class="branchNoExec" title="Branch 15 was not executed"> # </span>]
+<span class="lineNum">     171 </span>                :            : 
+<span class="lineNum">     172 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (iterator == NULL)</span>
+<span class="lineNum">     173 </span>                :            :                 {
+<span class="lineNum">     174 </span>                :<span class="lineNoCov">          0 :                         iterator = palloc0(sizeof(AOIteratorState));</span>
+<span class="lineNum">     175 </span>                :            : 
+<span class="lineNum">     176 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (node-&gt;isLossyBitmapPage)</span>
+<span class="lineNum">     177 </span>                :            :                         {
+<span class="lineNum">     178 </span>                :            :                                 /* Iterate over the first 2^15 tuples [MPP-24326] */
+<span class="lineNum">     179 </span>                :<span class="lineNoCov">          0 :                                 iterator-&gt;nTuples = INT16_MAX + 1;</span>
+<span class="lineNum">     180 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     181 </span>                :            :                         else
+<span class="lineNum">     182 </span>                :            :                         {
+<span class="lineNum">     183 </span>                :<span class="lineNoCov">          0 :                                 iterator-&gt;nTuples = tbmres-&gt;ntuples;</span>
+<span class="lineNum">     184 </span>                :            :                         }
+<span class="lineNum">     185 </span>                :            :                         /* Start from the beginning of the page */
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :                         iterator-&gt;tupleIndex = 0;</span>
+<span class="lineNum">     187 </span>                :            : 
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                         node-&gt;iterator = iterator;</span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     190 </span>                :            :                 else
+<span class="lineNum">     191 </span>                :            :                 {
+<span class="lineNum">     192 </span>                :            :                         /*
+<span class="lineNum">     193 </span>                :            :                          * Continuing in previously obtained page; advance tupleIndex
+<span class="lineNum">     194 </span>                :            :                          */
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                         iterator-&gt;tupleIndex++;</span>
+<span class="lineNum">     196 </span>                :            :                 }
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :                 /*
+<span class="lineNum">     199 </span>                :            :                  * Out of range?  If so, nothing more to look at on this page
+<span class="lineNum">     200 </span>                :            :                  */
+<span class="lineNum">     201 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (iterator-&gt;tupleIndex &lt; 0 || iterator-&gt;tupleIndex &gt;= iterator-&gt;nTuples)</span>
+<span class="lineNum">     202 </span>                :            :                 {
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                         pfree(iterator);</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                         node-&gt;iterator = NULL;</span>
+<span class="lineNum">     206 </span>                :            : 
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                         node-&gt;needNewBitmapPage = true;</span>
+<span class="lineNum">     208 </span>                :            : 
+<span class="lineNum">     209 </span>                :<span class="lineNoCov">          0 :                         return ExecClearTuple(slot);</span>
+<span class="lineNum">     210 </span>                :            :                 }
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :            :                 /*
+<span class="lineNum">     213 </span>                :            :                  * Must account for lossy page info...
+<span class="lineNum">     214 </span>                :            :                  */
+<span class="lineNum">     215 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;isLossyBitmapPage)</span>
+<span class="lineNum">     216 </span>                :            :                 {
+<span class="lineNum">     217 </span>                :            :                         /* We are iterating through all items. */
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                         psuedoHeapOffset = iterator-&gt;tupleIndex;</span>
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     220 </span>                :            :                 else
+<span class="lineNum">     221 </span>                :            :                 {
+<span class="lineNum">     222 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(iterator-&gt;tupleIndex &lt;= tbmres-&gt;ntuples);</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :                         psuedoHeapOffset = tbmres-&gt;offsets[iterator-&gt;tupleIndex];</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :            :                         /*
+<span class="lineNum">     226 </span>                :            :                          * Ensure that the reserved 16-th bit is always ON for offsets from
+<span class="lineNum">     227 </span>                :            :                          * lossless bitmap pages [MPP-24326].
+<span class="lineNum">     228 </span>                :            :                          */
+<span class="lineNum">     229 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(((uint16)(psuedoHeapOffset &amp; 0x8000)) &gt; 0);</span>
+<span class="lineNum">     230 </span>                :            :                 }
+<span class="lineNum">     231 </span>                :            : 
+<span class="lineNum">     232 </span>                :            :                 /*
+<span class="lineNum">     233 </span>                :            :                  * Okay to fetch the tuple
+<span class="lineNum">     234 </span>                :            :                  */
+<span class="lineNum">     235 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ItemPointerSet(</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     236 </span>                :            :                                 &amp;psudeoHeapTid,
+<span class="lineNum">     237 </span>                :            :                                 tbmres-&gt;blockno,
+<span class="lineNum">     238 </span>                :            :                                 psuedoHeapOffset);
+<span class="lineNum">     239 </span>                :            : 
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                 tbm_convert_appendonly_tid_out(&amp;psudeoHeapTid, &amp;aoTid);</span>
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (scanState-&gt;tableType == TableTypeAppendOnly)</span>
+<span class="lineNum">     243 </span>                :            :                 {
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :                         appendonly_fetch((AppendOnlyFetchDesc)node-&gt;scanDesc, &amp;aoTid, slot);</span>
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     246 </span>                :            :                 else
+<span class="lineNum">     247 </span>                :            :                 {
+<span class="lineNum">     248 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(scanState-&gt;tableType == TableTypeAOCS);</span>
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         aocs_fetch((AOCSFetchDesc)node-&gt;scanDesc, &amp;aoTid, slot);</span>
+<span class="lineNum">     250 </span>                :            :                 }
+<span class="lineNum">     251 </span>                :            : 
+<span class="lineNum">     252 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (TupIsNull(slot))</span>
+<span class="lineNum">     253 </span>                :            :         {
+<span class="lineNum">     254 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     255 </span>                :            :         }
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(ItemPointerIsValid(slot_get_ctid(slot)));</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     258 </span>                :            : 
+<span class="lineNum">     259 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 pgstat_count_heap_fetch(node-&gt;ss.ss_currentRelation);</span>
+<span class="lineNum">     260 </span>                :            : 
+<span class="lineNum">     261 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!BitmapTableScanRecheckTuple(node, slot))</span>
+<span class="lineNum">     262 </span>                :            :                 {
+<span class="lineNum">     263 </span>                :<span class="lineNoCov">          0 :                         ExecClearTuple(slot);</span>
+<span class="lineNum">     264 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     265 </span>                :            :                 }
+<span class="lineNum">     266 </span>                :            : 
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                 return slot;</span>
+<span class="lineNum">     268 </span>                :            :         }
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :         /*
+<span class="lineNum">     271 </span>                :            :          * We should never reach here as the termination is handled
+<span class="lineNum">     272 </span>                :            :          * from nodeBitmapTableScan.
+<span class="lineNum">     273 </span>                :            :          */
+<span class="lineNum">     274 </span>                :            :         Assert(false);
+<span class="lineNum">     275 </span>                :            :         return NULL;
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     277 </span>                :            : 
+<span class="lineNum">     278 </span>                :            : /*
+<span class="lineNum">     279 </span>                :            :  * Prepares for a re-scan.
+<a name="280"><span class="lineNum">     280 </span>                :            :  */</a>
+<span class="lineNum">     281 </span>                :            : void
+<span class="lineNum">     282 </span>                :            : BitmapAOScanReScan(ScanState *scanState)
+<span class="lineNum">     283 </span>                :            : {
+<span class="lineNum">     284 </span>                :            :         /*
+<span class="lineNum">     285 </span>                :            :          * AO doesn't need rechecking every tuple once it resolves
+<span class="lineNum">     286 </span>                :            :          * from the bitmap page, except when it deals with lossy
+<span class="lineNum">     287 </span>                :            :          * bitmap, which is handled via scanState-&gt;isLossyBitmapPage.
+<span class="lineNum">     288 </span>                :            :          */
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :         BitmapTableScanState *node = (BitmapTableScanState *)(scanState);</span>
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :         node-&gt;recheckTuples = false;</span>
+<span class="lineNum">     291 </span>                :            : 
+<span class="lineNum">     292 </span>                :            :         /*
+<span class="lineNum">     293 </span>                :            :          * As per the existing implementation from nodeBitmapAppendOnlyScan.c
+<span class="lineNum">     294 </span>                :            :          * for rescanning of AO, we don't have anything else
+<span class="lineNum">     295 </span>                :            :          * to do here (the refactored BitmapTableScan takes care of everything).
+<span class="lineNum">     296 </span>                :            :          */
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     298 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

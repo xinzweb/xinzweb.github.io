@@ -1,0 +1,802 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - catalog/pg_appendonly.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">catalog</a> - pg_appendonly.c<span style="font-size: 80%;"> (source / <a href="pg_appendonly.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">272</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">210</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            : *
+<span class="lineNum">       3 </span>                :            : * pg_appendonly.c
+<span class="lineNum">       4 </span>                :            : *         routines to support manipulation of the pg_appendonly relation
+<span class="lineNum">       5 </span>                :            : *
+<span class="lineNum">       6 </span>                :            : * Portions Copyright (c) 2008, Greenplum Inc
+<span class="lineNum">       7 </span>                :            : * Portions Copyright (c) 1996-2006, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            : * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            : *
+<span class="lineNum">      10 </span>                :            : *-------------------------------------------------------------------------
+<span class="lineNum">      11 </span>                :            : */
+<span class="lineNum">      12 </span>                :            : 
+<span class="lineNum">      13 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : #include &quot;catalog/pg_appendonly.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;catalog/pg_appendonly_fn.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;catalog/pg_type.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;catalog/pg_proc.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;catalog/gp_fastsequence.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;catalog/dependency.h&quot;
+<span class="lineNum">      23 </span>                :            : #include &quot;catalog/indexing.h&quot;
+<span class="lineNum">      24 </span>                :            : #include &quot;utils/builtins.h&quot;
+<span class="lineNum">      25 </span>                :            : #include &quot;utils/inval.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;utils/syscache.h&quot;
+<span class="lineNum">      28 </span>                :            : #include &quot;utils/fmgroids.h&quot;
+<span class="lineNum">      29 </span>                :            : #include &quot;utils/guc.h&quot;
+<span class="lineNum">      30 </span>                :            : #include &quot;cdb/cdbpersistentfilesysobj.h&quot;
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :            : /*
+<span class="lineNum">      33 </span>                :            :  * Adds an entry into the pg_appendonly catalog table. The entry
+<span class="lineNum">      34 </span>                :            :  * includes the new relfilenode of the appendonly relation that 
+<span class="lineNum">      35 </span>                :            :  * was just created and an initial eof and reltuples values of 0
+<a name="36"><span class="lineNum">      36 </span>                :            :  */</a>
+<span class="lineNum">      37 </span>                :            : void
+<span class="lineNum">      38 </span>                :            : InsertAppendOnlyEntry(Oid relid, 
+<span class="lineNum">      39 </span>                :            :                                           int blocksize, 
+<span class="lineNum">      40 </span>                :            :                                           int safefswritesize, 
+<span class="lineNum">      41 </span>                :            :                                           int compresslevel,
+<span class="lineNum">      42 </span>                :            :                                           bool checksum,
+<span class="lineNum">      43 </span>                :            :                       bool columnstore,
+<span class="lineNum">      44 </span>                :            :                                           char* compresstype,
+<span class="lineNum">      45 </span>                :            :                                           Oid segrelid,
+<span class="lineNum">      46 </span>                :            :                                           Oid blkdirrelid,
+<span class="lineNum">      47 </span>                :            :                                           Oid blkdiridxid,
+<span class="lineNum">      48 </span>                :            :                                           Oid visimaprelid,
+<span class="lineNum">      49 </span>                :            :                                           Oid visimapidxid)
+<span class="lineNum">      50 </span>                :            : {
+<span class="lineNum">      51 </span>                :            :         Relation        pg_appendonly_rel;
+<span class="lineNum">      52 </span>                :<span class="lineNoCov">          0 :         HeapTuple       pg_appendonly_tuple = NULL;</span>
+<span class="lineNum">      53 </span>                :            :         NameData        compresstype_name;
+<span class="lineNum">      54 </span>                :            :         bool       *nulls;
+<span class="lineNum">      55 </span>                :            :         Datum      *values;
+<span class="lineNum">      56 </span>                :<span class="lineNoCov">          0 :         int                     natts = 0;</span>
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :            :     /*
+<span class="lineNum">      59 </span>                :            :      * Open and lock the pg_appendonly catalog.
+<span class="lineNum">      60 </span>                :            :      */
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_rel = heap_open(AppendOnlyRelationId, RowExclusiveLock);</span>
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :         natts = Natts_pg_appendonly;</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 :         values = palloc0(sizeof(Datum) * natts);</span>
+<span class="lineNum">      65 </span>                :<span class="lineNoCov">          0 :         nulls = palloc0(sizeof(bool) * natts);</span>
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (compresstype)</span>
+<span class="lineNum">      68 </span>                :<span class="lineNoCov">          0 :                 namestrcpy(&amp;compresstype_name, compresstype);</span>
+<span class="lineNum">      69 </span>                :            :         else
+<span class="lineNum">      70 </span>                :<span class="lineNoCov">          0 :                 namestrcpy(&amp;compresstype_name, &quot;&quot;);</span>
+<span class="lineNum">      71 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_relid - 1] = ObjectIdGetDatum(relid);</span>
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_blocksize - 1] = Int32GetDatum(blocksize);</span>
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_safefswritesize - 1] = Int32GetDatum(safefswritesize);</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_compresslevel - 1] = Int32GetDatum(compresslevel);</span>
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_checksum - 1] = BoolGetDatum(checksum);</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_compresstype - 1] = NameGetDatum(&amp;compresstype_name);</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_columnstore - 1] = BoolGetDatum(columnstore);</span>
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_segrelid - 1] = ObjectIdGetDatum(segrelid);</span>
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_blkdirrelid - 1] = ObjectIdGetDatum(blkdirrelid);</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_blkdiridxid - 1] = ObjectIdGetDatum(blkdiridxid);</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_visimaprelid - 1] = ObjectIdGetDatum(visimaprelid);</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_appendonly_visimapidxid - 1] = ObjectIdGetDatum(visimapidxid);</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            :         /*
+<span class="lineNum">      85 </span>                :            :          * form the tuple and insert it
+<span class="lineNum">      86 </span>                :            :          */
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_tuple = heap_form_tuple(RelationGetDescr(pg_appendonly_rel), values, nulls);</span>
+<span class="lineNum">      88 </span>                :            : 
+<span class="lineNum">      89 </span>                :            :         /* insert a new tuple */
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :         simple_heap_insert(pg_appendonly_rel, pg_appendonly_tuple);</span>
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(pg_appendonly_rel, pg_appendonly_tuple);</span>
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :            :         /*
+<span class="lineNum">      94 </span>                :            :      * Close the pg_appendonly_rel relcache entry without unlocking.
+<span class="lineNum">      95 </span>                :            :      * We have updated the catalog: consequently the lock must be 
+<span class="lineNum">      96 </span>                :            :          * held until end of transaction.
+<span class="lineNum">      97 </span>                :            :      */
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :     heap_close(pg_appendonly_rel, NoLock);</span>
+<span class="lineNum">      99 </span>                :            : 
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :         pfree(values);</span>
+<span class="lineNum">     101 </span>                :<span class="lineNoCov">          0 :         pfree(nulls);</span>
+<span class="lineNum">     102 </span>                :            : 
+<span class="lineNum">     103 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>                :            : /*
+<span class="lineNum">     106 </span>                :            :  * Get the OIDs of the auxiliary relations and their indexes for an appendonly
+<span class="lineNum">     107 </span>                :            :  * relation.
+<span class="lineNum">     108 </span>                :            :  *
+<span class="lineNum">     109 </span>                :            :  * The OIDs will be retrieved only when the corresponding output variable is
+<span class="lineNum">     110 </span>                :            :  * not NULL.
+<a name="111"><span class="lineNum">     111 </span>                :            :  */</a>
+<span class="lineNum">     112 </span>                :            : void
+<span class="lineNum">     113 </span>                :            : GetAppendOnlyEntryAuxOids(Oid relid,
+<span class="lineNum">     114 </span>                :            :                                                   Snapshot appendOnlyMetaDataSnapshot,
+<span class="lineNum">     115 </span>                :            :                                                   Oid *segrelid,
+<span class="lineNum">     116 </span>                :            :                                                   Oid *blkdirrelid,
+<span class="lineNum">     117 </span>                :            :                                                   Oid *blkdiridxid,
+<span class="lineNum">     118 </span>                :            :                                                   Oid *visimaprelid,
+<span class="lineNum">     119 </span>                :            :                                                   Oid *visimapidxid)
+<span class="lineNum">     120 </span>                :            : {
+<span class="lineNum">     121 </span>                :            :         Relation        pg_appendonly;
+<span class="lineNum">     122 </span>                :            :         TupleDesc       tupDesc;
+<span class="lineNum">     123 </span>                :            :         ScanKeyData key[1];
+<span class="lineNum">     124 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     125 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     126 </span>                :            :         Datum auxOid;
+<span class="lineNum">     127 </span>                :            :         bool isNull;
+<span class="lineNum">     128 </span>                :            :         
+<span class="lineNum">     129 </span>                :            :         /*
+<span class="lineNum">     130 </span>                :            :          * Check the pg_appendonly relation to be certain the ao table 
+<span class="lineNum">     131 </span>                :            :          * is there. 
+<span class="lineNum">     132 </span>                :            :          */
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :         pg_appendonly = heap_open(AppendOnlyRelationId, AccessShareLock);</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :         tupDesc = RelationGetDescr(pg_appendonly);</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;key[0],</span>
+<span class="lineNum">     137 </span>                :            :                                 Anum_pg_appendonly_relid,
+<span class="lineNum">     138 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(relid));</span>
+<span class="lineNum">     140 </span>                :            : 
+<span class="lineNum">     141 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(pg_appendonly, AppendOnlyRelidIndexId, true,</span>
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :                                                           appendOnlyMetaDataSnapshot, 1, key);</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     144 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     145 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     146 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     147 </span>                :            :                                  errmsg(&quot;missing pg_appendonly entry for relation \&quot;%s\&quot;&quot;,
+<span class="lineNum">     148 </span>                :            :                                                 get_rel_name(relid))));
+<span class="lineNum">     149 </span>                :            : 
+<span class="lineNum">     150 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (segrelid != NULL)</span>
+<span class="lineNum">     151 </span>                :            :         {
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                 auxOid = heap_getattr(tuple,</span>
+<span class="lineNum">     153 </span>                :            :                                                           Anum_pg_appendonly_segrelid,
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                                                           tupDesc,</span>
+<span class="lineNum">     155 </span>                :            :                                                           &amp;isNull);
+<span class="lineNum">     156 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isNull);</span>
+<span class="lineNum">     157 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(isNull)</span>
+<span class="lineNum">     158 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     159 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     160 </span>                :            :                                          errmsg(&quot;got invalid segrelid value: NULL&quot;)));        
+<span class="lineNum">     161 </span>                :            :                 
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                 *segrelid = DatumGetObjectId(auxOid);</span>
+<span class="lineNum">     163 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     164 </span>                :            : 
+<span class="lineNum">     165 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (blkdirrelid != NULL)</span>
+<span class="lineNum">     166 </span>                :            :         {
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :                 auxOid = heap_getattr(tuple,</span>
+<span class="lineNum">     168 </span>                :            :                                                           Anum_pg_appendonly_blkdirrelid,
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                                                           tupDesc,</span>
+<span class="lineNum">     170 </span>                :            :                                                           &amp;isNull);
+<span class="lineNum">     171 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isNull);</span>
+<span class="lineNum">     172 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(isNull)</span>
+<span class="lineNum">     173 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     174 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     175 </span>                :            :                                          errmsg(&quot;got invalid blkdirrelid value: NULL&quot;)));     
+<span class="lineNum">     176 </span>                :            :                 
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                 *blkdirrelid = DatumGetObjectId(auxOid);</span>
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     179 </span>                :            : 
+<span class="lineNum">     180 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (blkdiridxid != NULL)</span>
+<span class="lineNum">     181 </span>                :            :         {
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :                 auxOid = heap_getattr(tuple,</span>
+<span class="lineNum">     183 </span>                :            :                                                           Anum_pg_appendonly_blkdiridxid,
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :                                                           tupDesc,</span>
+<span class="lineNum">     185 </span>                :            :                                                           &amp;isNull);
+<span class="lineNum">     186 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isNull);</span>
+<span class="lineNum">     187 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(isNull)</span>
+<span class="lineNum">     188 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     189 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     190 </span>                :            :                                          errmsg(&quot;got invalid blkdiridxid value: NULL&quot;)));     
+<span class="lineNum">     191 </span>                :            :                 
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                 *blkdiridxid = DatumGetObjectId(auxOid);</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     194 </span>                :            : 
+<span class="lineNum">     195 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (visimaprelid != NULL)</span>
+<span class="lineNum">     196 </span>                :            :         {
+<span class="lineNum">     197 </span>                :<span class="lineNoCov">          0 :                 auxOid = heap_getattr(tuple,</span>
+<span class="lineNum">     198 </span>                :            :                                                           Anum_pg_appendonly_visimaprelid,
+<span class="lineNum">     199 </span>                :<span class="lineNoCov">          0 :                                                           tupDesc,</span>
+<span class="lineNum">     200 </span>                :            :                                                           &amp;isNull);
+<span class="lineNum">     201 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isNull);</span>
+<span class="lineNum">     202 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(isNull)</span>
+<span class="lineNum">     203 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     204 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     205 </span>                :            :                                          errmsg(&quot;got invalid visimaprelid value: NULL&quot;)));    
+<span class="lineNum">     206 </span>                :            :                 
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                 *visimaprelid = DatumGetObjectId(auxOid);</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     209 </span>                :            : 
+<span class="lineNum">     210 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (visimapidxid != NULL)</span>
+<span class="lineNum">     211 </span>                :            :         {
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                 auxOid = heap_getattr(tuple,</span>
+<span class="lineNum">     213 </span>                :            :                                                           Anum_pg_appendonly_visimapidxid,
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                                                           tupDesc,</span>
+<span class="lineNum">     215 </span>                :            :                                                           &amp;isNull);
+<span class="lineNum">     216 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isNull);</span>
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if(isNull)</span>
+<span class="lineNum">     218 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         ereport(ERROR,</span>
+<span class="lineNum">     219 </span>                :            :                                         (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     220 </span>                :            :                                          errmsg(&quot;got invalid visimapidxid value: NULL&quot;)));    
+<span class="lineNum">     221 </span>                :            :                 
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :                 *visimapidxid = DatumGetObjectId(auxOid);</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     224 </span>                :            :         /* Finish up scan and close pg_appendonly catalog. */
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :         heap_close(pg_appendonly, AccessShareLock);</span>
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     228 </span>                :            : 
+<span class="lineNum">     229 </span>                :            : /*
+<span class="lineNum">     230 </span>                :            :  * Update the segrelid and/or blkdirrelid if the input new values
+<span class="lineNum">     231 </span>                :            :  * are valid OIDs.
+<a name="232"><span class="lineNum">     232 </span>                :            :  */</a>
+<span class="lineNum">     233 </span>                :            : void
+<span class="lineNum">     234 </span>                :            : UpdateAppendOnlyEntryAuxOids(Oid relid,
+<span class="lineNum">     235 </span>                :            :                                                          Oid newSegrelid,
+<span class="lineNum">     236 </span>                :            :                                                          Oid newBlkdirrelid,
+<span class="lineNum">     237 </span>                :            :                                                          Oid newBlkdiridxid,
+<span class="lineNum">     238 </span>                :            :                                                          Oid newVisimaprelid,
+<span class="lineNum">     239 </span>                :            :                                                          Oid newVisimapidxid)
+<span class="lineNum">     240 </span>                :            : {
+<span class="lineNum">     241 </span>                :            :         Relation        pg_appendonly;
+<span class="lineNum">     242 </span>                :            :         ScanKeyData key[1];
+<span class="lineNum">     243 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     244 </span>                :            :         HeapTuple       tuple, newTuple;
+<span class="lineNum">     245 </span>                :            :         Datum           newValues[Natts_pg_appendonly];
+<span class="lineNum">     246 </span>                :            :         bool            newNulls[Natts_pg_appendonly];
+<span class="lineNum">     247 </span>                :            :         bool            replace[Natts_pg_appendonly];
+<span class="lineNum">     248 </span>                :            :         
+<span class="lineNum">     249 </span>                :            :         /*
+<span class="lineNum">     250 </span>                :            :          * Check the pg_appendonly relation to be certain the ao table 
+<span class="lineNum">     251 </span>                :            :          * is there. 
+<span class="lineNum">     252 </span>                :            :          */
+<span class="lineNum">     253 </span>                :<span class="lineNoCov">          0 :         pg_appendonly = heap_open(AppendOnlyRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     254 </span>                :            : 
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;key[0],</span>
+<span class="lineNum">     256 </span>                :            :                                 Anum_pg_appendonly_relid,
+<span class="lineNum">     257 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(relid));</span>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(pg_appendonly, AppendOnlyRelidIndexId, true,</span>
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :                                                           SnapshotNow, 1, key);</span>
+<span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     263 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     264 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     265 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     266 </span>                :            :                                  errmsg(&quot;missing pg_appendonly entry for relation \&quot;%s\&quot;&quot;,
+<span class="lineNum">     267 </span>                :            :                                                 get_rel_name(relid))));
+<span class="lineNum">     268 </span>                :            : 
+<span class="lineNum">     269 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(newValues, 0, sizeof(newValues));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     270 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(newNulls, false, sizeof(newNulls));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     271 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(replace, false, sizeof(replace));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     272 </span>                :            : 
+<span class="lineNum">     273 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(newSegrelid))</span>
+<span class="lineNum">     274 </span>                :            :         {
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :                 replace[Anum_pg_appendonly_segrelid - 1] = true;</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :                 newValues[Anum_pg_appendonly_segrelid - 1] = newSegrelid;</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(newBlkdirrelid))</span>
+<span class="lineNum">     280 </span>                :            :         {
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                 replace[Anum_pg_appendonly_blkdirrelid - 1] = true;</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                 newValues[Anum_pg_appendonly_blkdirrelid - 1] = newBlkdirrelid;</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     284 </span>                :            :         
+<span class="lineNum">     285 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(newBlkdiridxid))</span>
+<span class="lineNum">     286 </span>                :            :         {
+<span class="lineNum">     287 </span>                :<span class="lineNoCov">          0 :                 replace[Anum_pg_appendonly_blkdiridxid - 1] = true;</span>
+<span class="lineNum">     288 </span>                :<span class="lineNoCov">          0 :                 newValues[Anum_pg_appendonly_blkdiridxid - 1] = newBlkdiridxid;</span>
+<span class="lineNum">     289 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     290 </span>                :            :         
+<span class="lineNum">     291 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(newVisimaprelid))</span>
+<span class="lineNum">     292 </span>                :            :         {
+<span class="lineNum">     293 </span>                :<span class="lineNoCov">          0 :                 replace[Anum_pg_appendonly_visimaprelid - 1] = true;</span>
+<span class="lineNum">     294 </span>                :<span class="lineNoCov">          0 :                 newValues[Anum_pg_appendonly_visimaprelid - 1] = newVisimaprelid;</span>
+<span class="lineNum">     295 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     296 </span>                :            :         
+<span class="lineNum">     297 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(newVisimapidxid))</span>
+<span class="lineNum">     298 </span>                :            :         {
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                 replace[Anum_pg_appendonly_visimapidxid - 1] = true;</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :                 newValues[Anum_pg_appendonly_visimapidxid - 1] = newVisimapidxid;</span>
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         newTuple = heap_modify_tuple(tuple, RelationGetDescr(pg_appendonly),</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :                                                                  newValues, newNulls, replace);</span>
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :         simple_heap_update(pg_appendonly, &amp;newTuple-&gt;t_self, newTuple);</span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(pg_appendonly, newTuple);</span>
+<span class="lineNum">     306 </span>                :            : 
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(newTuple);</span>
+<span class="lineNum">     308 </span>                :            : 
+<span class="lineNum">     309 </span>                :            :         /* Finish up scan and close appendonly catalog. */
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     311 </span>                :<span class="lineNoCov">          0 :         heap_close(pg_appendonly, RowExclusiveLock);</span>
+<span class="lineNum">     312 </span>                :            : 
+<span class="lineNum">     313 </span>                :            :         /* Also cause flush the relcache entry for the parent relation. */
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :         CacheInvalidateRelcacheByRelid(relid);</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     316 </span>                :            : 
+<span class="lineNum">     317 </span>                :            : /*
+<span class="lineNum">     318 </span>                :            :  * Remove all pg_appendonly entries that the table we are DROPing
+<span class="lineNum">     319 </span>                :            :  * refers to (using the table's relfilenode)
+<span class="lineNum">     320 </span>                :            :  *
+<span class="lineNum">     321 </span>                :            :  * The gp_fastsequence entries associate with the table is also
+<span class="lineNum">     322 </span>                :            :  * deleted here.
+<a name="323"><span class="lineNum">     323 </span>                :            :  */</a>
+<span class="lineNum">     324 </span>                :            : void
+<span class="lineNum">     325 </span>                :            : RemoveAppendonlyEntry(Oid relid)
+<span class="lineNum">     326 </span>                :            : {
+<span class="lineNum">     327 </span>                :            :         Relation        pg_appendonly_rel;
+<span class="lineNum">     328 </span>                :            :         ScanKeyData key[1];
+<span class="lineNum">     329 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     330 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         Oid aosegrelid = InvalidOid;</span>
+<span class="lineNum">     332 </span>                :            :         
+<span class="lineNum">     333 </span>                :            :         /*
+<span class="lineNum">     334 </span>                :            :          * now remove the pg_appendonly entry 
+<span class="lineNum">     335 </span>                :            :          */
+<span class="lineNum">     336 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_rel = heap_open(AppendOnlyRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     337 </span>                :            : 
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;key[0],</span>
+<span class="lineNum">     339 </span>                :            :                                 Anum_pg_appendonly_relid,
+<span class="lineNum">     340 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(relid));</span>
+<span class="lineNum">     342 </span>                :            : 
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(pg_appendonly_rel, AppendOnlyRelidIndexId, true,</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                                                           SnapshotNow, 1, key);</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     346 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     347 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     348 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     349 </span>                :            :                                  errmsg(&quot;appendonly table relid \&quot;%d\&quot; does not exist in &quot;
+<span class="lineNum">     350 </span>                :            :                                                 &quot;pg_appendonly&quot;, relid)));
+<span class="lineNum">     351 </span>                :            :         
+<span class="lineNum">     352 </span>                :            :         {
+<span class="lineNum">     353 </span>                :            :                 bool isNull;
+<span class="lineNum">     354 </span>                :<span class="lineNoCov">          0 :                 Datum datum = heap_getattr(tuple,</span>
+<span class="lineNum">     355 </span>                :            :                                                                    Anum_pg_appendonly_segrelid,
+<span class="lineNum">     356 </span>                :<span class="lineNoCov">          0 :                                                                    RelationGetDescr(pg_appendonly_rel),</span>
+<span class="lineNum">     357 </span>                :            :                                                                    &amp;isNull);
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isNull);</span>
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                 aosegrelid = DatumGetObjectId(datum);</span>
+<span class="lineNum">     361 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(OidIsValid(aosegrelid));</span>
+<span class="lineNum">     362 </span>                :            :         }
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :            :         /* Piggyback here to remove gp_fastsequence entries */
+<span class="lineNum">     365 </span>                :<span class="lineNoCov">          0 :         RemoveFastSequenceEntry(aosegrelid);</span>
+<span class="lineNum">     366 </span>                :            : 
+<span class="lineNum">     367 </span>                :            :         /*
+<span class="lineNum">     368 </span>                :            :          * Delete the appendonly table entry from the catalog (pg_appendonly).
+<span class="lineNum">     369 </span>                :            :          */
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :         simple_heap_delete(pg_appendonly_rel, &amp;tuple-&gt;t_self);</span>
+<span class="lineNum">     371 </span>                :            :         
+<span class="lineNum">     372 </span>                :            :         /* Finish up scan and close appendonly catalog. */
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     374 </span>                :<span class="lineNoCov">          0 :         heap_close(pg_appendonly_rel, NoLock);</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="376"><span class="lineNum">     376 </span>                :            : </a>
+<span class="lineNum">     377 </span>                :            : static void
+<span class="lineNum">     378 </span>                :            : TransferDependencyLink(
+<span class="lineNum">     379 </span>                :            :         Oid baseOid, 
+<span class="lineNum">     380 </span>                :            :         Oid oid,
+<span class="lineNum">     381 </span>                :            :         const char *tabletype)
+<span class="lineNum">     382 </span>                :            : {
+<span class="lineNum">     383 </span>                :            :         ObjectAddress   baseobject;
+<span class="lineNum">     384 </span>                :            :         ObjectAddress   newobject;
+<span class="lineNum">     385 </span>                :            :         long                    count;
+<span class="lineNum">     386 </span>                :            : 
+<span class="lineNum">     387 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(&amp;baseobject, 0, sizeof(ObjectAddress));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     388 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         MemSet(&amp;newobject, 0, sizeof(ObjectAddress));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 8 was not executed"> # </span><span class="branchNoExec" title="Branch 9 was not executed"> # </span>]
+<span class="lineNum">     389 </span>                :            : 
+<span class="lineNum">     390 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(baseOid));</span>
+<span class="lineNum">     391 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(OidIsValid(oid));</span>
+<span class="lineNum">     392 </span>                :            : 
+<span class="lineNum">     393 </span>                :            :         /* Delete old dependency */
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         count = deleteDependencyRecordsFor(RelationRelationId, oid, false);</span>
+<span class="lineNum">     395 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (count != 1)</span>
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :                 elog(LOG, &quot;expected one dependency record for %s table, oid %u, found %ld&quot;,</span>
+<span class="lineNum">     397 </span>                :            :                          tabletype, oid, count);
+<span class="lineNum">     398 </span>                :            : 
+<span class="lineNum">     399 </span>                :            :         /* Register new dependencies */
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         baseobject.classId = RelationRelationId;</span>
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :         baseobject.objectId = baseOid;</span>
+<span class="lineNum">     402 </span>                :<span class="lineNoCov">          0 :         newobject.classId = RelationRelationId;</span>
+<span class="lineNum">     403 </span>                :<span class="lineNoCov">          0 :         newobject.objectId = oid;</span>
+<span class="lineNum">     404 </span>                :            :         
+<span class="lineNum">     405 </span>                :<span class="lineNoCov">          0 :         recordDependencyOn(&amp;newobject, &amp;baseobject, DEPENDENCY_INTERNAL);</span>
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="407"><span class="lineNum">     407 </span>                :            : </a>
+<span class="lineNum">     408 </span>                :            : static HeapTuple 
+<span class="lineNum">     409 </span>                :            : GetAppendEntryForMove(
+<span class="lineNum">     410 </span>                :            :         Relation        pg_appendonly_rel,
+<span class="lineNum">     411 </span>                :            :         TupleDesc       pg_appendonly_dsc,
+<span class="lineNum">     412 </span>                :            :         Oid             relId,
+<span class="lineNum">     413 </span>                :            :         Oid             *aosegrelid,
+<span class="lineNum">     414 </span>                :            :         Oid             *aoblkdirrelid,
+<span class="lineNum">     415 </span>                :            :         Oid         *aovisimaprelid)
+<span class="lineNum">     416 </span>                :            : {
+<span class="lineNum">     417 </span>                :            :         ScanKeyData key[1];
+<span class="lineNum">     418 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     419 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     420 </span>                :            :         bool            isNull;
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;key[0],</span>
+<span class="lineNum">     423 </span>                :            :                                 Anum_pg_appendonly_relid,
+<span class="lineNum">     424 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(relId));</span>
+<span class="lineNum">     426 </span>                :            : 
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(pg_appendonly_rel, AppendOnlyRelidIndexId, true,</span>
+<span class="lineNum">     428 </span>                :<span class="lineNoCov">          0 :                                                           SnapshotNow, 1, key);</span>
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :         tuple = systable_getnext(scan);</span>
+<span class="lineNum">     430 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!HeapTupleIsValid(tuple))</span>
+<span class="lineNum">     431 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     432 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     433 </span>                :            :                                  errmsg(&quot;appendonly table relid \&quot;%d\&quot; does not exist in &quot;
+<span class="lineNum">     434 </span>                :            :                                                 &quot;pg_appendonly&quot;, relId)));
+<span class="lineNum">     435 </span>                :            : 
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :     *aosegrelid = heap_getattr(tuple,</span>
+<span class="lineNum">     437 </span>                :            :                                                            Anum_pg_appendonly_segrelid,
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                                                            pg_appendonly_dsc,</span>
+<span class="lineNum">     439 </span>                :            :                                                            &amp;isNull);
+<span class="lineNum">     440 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(!isNull);</span>
+<span class="lineNum">     441 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(isNull)</span>
+<span class="lineNum">     442 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     443 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     444 </span>                :            :                                  errmsg(&quot;got invalid segrelid value: NULL&quot;)));        
+<span class="lineNum">     445 </span>                :            : 
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :     *aoblkdirrelid = heap_getattr(tuple,</span>
+<span class="lineNum">     447 </span>                :            :                                                                   Anum_pg_appendonly_blkdirrelid,
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 :                                                                   pg_appendonly_dsc,</span>
+<span class="lineNum">     449 </span>                :            :                                                                   &amp;isNull);
+<span class="lineNum">     450 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(!isNull);</span>
+<span class="lineNum">     451 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(isNull)</span>
+<span class="lineNum">     452 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     453 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     454 </span>                :            :                                  errmsg(&quot;got invalid blkdirrelid value: NULL&quot;)));     
+<span class="lineNum">     455 </span>                :            :  
+<span class="lineNum">     456 </span>                :<span class="lineNoCov">          0 :         *aovisimaprelid = heap_getattr(tuple,</span>
+<span class="lineNum">     457 </span>                :            :                                                                    Anum_pg_appendonly_visimaprelid,
+<span class="lineNum">     458 </span>                :<span class="lineNoCov">          0 :                                                                    pg_appendonly_dsc,</span>
+<span class="lineNum">     459 </span>                :            :                                                                    &amp;isNull);
+<span class="lineNum">     460 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :     Assert(!isNull);</span>
+<span class="lineNum">     461 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if(isNull)</span>
+<span class="lineNum">     462 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 ereport(ERROR,</span>
+<span class="lineNum">     463 </span>                :            :                                 (errcode(ERRCODE_UNDEFINED_OBJECT),
+<span class="lineNum">     464 </span>                :            :                                  errmsg(&quot;got invalid visimaprelid value: NULL&quot;)));    
+<span class="lineNum">     465 </span>                :            : 
+<span class="lineNum">     466 </span>                :<span class="lineNoCov">          0 :         tuple = heap_copytuple(tuple);</span>
+<span class="lineNum">     467 </span>                :            : 
+<span class="lineNum">     468 </span>                :            :         /* Finish up the scan. */
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     470 </span>                :            : 
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 :         return tuple;</span>
+<span class="lineNum">     472 </span>                :            : }
+<span class="lineNum">     473 </span>                :            : 
+<span class="lineNum">     474 </span>                :            : /*
+<span class="lineNum">     475 </span>                :            :  * Transfer pg_appendonly entry from one table to another.
+<a name="476"><span class="lineNum">     476 </span>                :            :  */</a>
+<span class="lineNum">     477 </span>                :            : void
+<span class="lineNum">     478 </span>                :            : TransferAppendonlyEntry(Oid sourceRelId, Oid targetRelId)
+<span class="lineNum">     479 </span>                :            : {
+<span class="lineNum">     480 </span>                :            :         Relation        pg_appendonly_rel;
+<span class="lineNum">     481 </span>                :            :         TupleDesc       pg_appendonly_dsc;
+<span class="lineNum">     482 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     483 </span>                :            :         HeapTuple       tupleCopy;
+<span class="lineNum">     484 </span>                :            :         Datum           *newValues;
+<span class="lineNum">     485 </span>                :            :         bool            *newNulls;
+<span class="lineNum">     486 </span>                :            :         bool            *replace;
+<span class="lineNum">     487 </span>                :            :         Oid                     aosegrelid;
+<span class="lineNum">     488 </span>                :            :         Oid                     aoblkdirrelid;
+<span class="lineNum">     489 </span>                :            :         Oid                     aovisimaprelid;
+<span class="lineNum">     490 </span>                :            :         
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :            :         /*
+<span class="lineNum">     493 </span>                :            :          * Fetch the pg_appendonly entry 
+<span class="lineNum">     494 </span>                :            :          */
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_rel = heap_open(AppendOnlyRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     496 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_dsc = RelationGetDescr(pg_appendonly_rel);</span>
+<span class="lineNum">     497 </span>                :            :         
+<span class="lineNum">     498 </span>                :<span class="lineNoCov">          0 :         tuple = GetAppendEntryForMove(</span>
+<span class="lineNum">     499 </span>                :<span class="lineNoCov">          0 :                                                         pg_appendonly_rel,</span>
+<span class="lineNum">     500 </span>                :<span class="lineNoCov">          0 :                                                         pg_appendonly_dsc,</span>
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                                                         sourceRelId,</span>
+<span class="lineNum">     502 </span>                :            :                                                         &amp;aosegrelid,
+<span class="lineNum">     503 </span>                :            :                                                         &amp;aoblkdirrelid,
+<span class="lineNum">     504 </span>                :            :                                                         &amp;aovisimaprelid);
+<span class="lineNum">     505 </span>                :            : 
+<span class="lineNum">     506 </span>                :            :         /* Since gp_fastsequence entry is referenced by aosegrelid, it rides along  */
+<span class="lineNum">     507 </span>                :            : 
+<span class="lineNum">     508 </span>                :            :         /*
+<span class="lineNum">     509 </span>                :            :          * Delete the appendonly table entry from the catalog (pg_appendonly).
+<span class="lineNum">     510 </span>                :            :          */
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :         tupleCopy = heap_copytuple(tuple);</span>
+<span class="lineNum">     512 </span>                :<span class="lineNoCov">          0 :         simple_heap_delete(pg_appendonly_rel, &amp;tuple-&gt;t_self);</span>
+<span class="lineNum">     513 </span>                :            :         
+<span class="lineNum">     514 </span>                :<span class="lineNoCov">          0 :         newValues = palloc0(pg_appendonly_dsc-&gt;natts * sizeof(Datum));</span>
+<span class="lineNum">     515 </span>                :<span class="lineNoCov">          0 :         newNulls = palloc0(pg_appendonly_dsc-&gt;natts * sizeof(bool));</span>
+<span class="lineNum">     516 </span>                :<span class="lineNoCov">          0 :         replace = palloc0(pg_appendonly_dsc-&gt;natts * sizeof(bool));</span>
+<span class="lineNum">     517 </span>                :            : 
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :         replace[Anum_pg_appendonly_relid - 1] = true;</span>
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         newValues[Anum_pg_appendonly_relid - 1] = targetRelId;</span>
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>                :<span class="lineNoCov">          0 :         tupleCopy = heap_modify_tuple(tupleCopy, pg_appendonly_dsc,</span>
+<span class="lineNum">     522 </span>                :<span class="lineNoCov">          0 :                                                                   newValues, newNulls, replace);</span>
+<span class="lineNum">     523 </span>                :            : 
+<span class="lineNum">     524 </span>                :<span class="lineNoCov">          0 :         simple_heap_insert(pg_appendonly_rel, tupleCopy);</span>
+<span class="lineNum">     525 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(pg_appendonly_rel, tupleCopy);</span>
+<span class="lineNum">     526 </span>                :            : 
+<span class="lineNum">     527 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tupleCopy);</span>
+<span class="lineNum">     528 </span>                :            : 
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :         heap_close(pg_appendonly_rel, NoLock);</span>
+<span class="lineNum">     530 </span>                :            : 
+<span class="lineNum">     531 </span>                :<span class="lineNoCov">          0 :         pfree(newValues);</span>
+<span class="lineNum">     532 </span>                :<span class="lineNoCov">          0 :         pfree(newNulls);</span>
+<span class="lineNum">     533 </span>                :<span class="lineNoCov">          0 :         pfree(replace);</span>
+<span class="lineNum">     534 </span>                :            : 
+<span class="lineNum">     535 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(aosegrelid))</span>
+<span class="lineNum">     536 </span>                :            :         {
+<span class="lineNum">     537 </span>                :<span class="lineNoCov">          0 :                 TransferDependencyLink(targetRelId, aosegrelid, &quot;aoseg&quot;);</span>
+<span class="lineNum">     538 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     539 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(aoblkdirrelid))</span>
+<span class="lineNum">     540 </span>                :            :         {
+<span class="lineNum">     541 </span>                :<span class="lineNoCov">          0 :                 TransferDependencyLink(targetRelId, aoblkdirrelid, &quot;aoblkdir&quot;);</span>
+<span class="lineNum">     542 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     543 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (OidIsValid(aovisimaprelid))</span>
+<span class="lineNum">     544 </span>                :            :         {
+<span class="lineNum">     545 </span>                :<span class="lineNoCov">          0 :                 TransferDependencyLink(targetRelId, aovisimaprelid, &quot;aovisimap&quot;);</span>
+<span class="lineNum">     546 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     547 </span>                :            : 
+<span class="lineNum">     548 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_print)</span>
+<span class="lineNum">     549 </span>                :<span class="lineNoCov">          0 :                 elog(Persistent_DebugPrintLevel(), </span>
+<span class="lineNum">     550 </span>                :            :                          &quot;TransferAppendonlyEntry: source relation id %u, target relation id %u, aosegrelid %u, aoblkdirrelid %u, aovisimaprelid %u&quot;,
+<span class="lineNum">     551 </span>                :            :                          sourceRelId,
+<span class="lineNum">     552 </span>                :            :                          targetRelId,
+<span class="lineNum">     553 </span>                :            :                          aosegrelid,
+<span class="lineNum">     554 </span>                :            :                          aoblkdirrelid,
+<span class="lineNum">     555 </span>                :            :                          aovisimaprelid);
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     557 </span>                :            : 
+<span class="lineNum">     558 </span>                :            : /*
+<span class="lineNum">     559 </span>                :            :  * Swap pg_appendonly entries between tables.
+<a name="560"><span class="lineNum">     560 </span>                :            :  */</a>
+<span class="lineNum">     561 </span>                :            : void
+<span class="lineNum">     562 </span>                :            : SwapAppendonlyEntries(Oid entryRelId1, Oid entryRelId2)
+<span class="lineNum">     563 </span>                :            : {
+<span class="lineNum">     564 </span>                :            :         Relation        pg_appendonly_rel;
+<span class="lineNum">     565 </span>                :            :         TupleDesc       pg_appendonly_dsc;
+<span class="lineNum">     566 </span>                :            :         HeapTuple       tuple;
+<span class="lineNum">     567 </span>                :            :         HeapTuple       tupleCopy1;
+<span class="lineNum">     568 </span>                :            :         HeapTuple       tupleCopy2;
+<span class="lineNum">     569 </span>                :            :         Datum           *newValues;
+<span class="lineNum">     570 </span>                :            :         bool            *newNulls;
+<span class="lineNum">     571 </span>                :            :         bool            *replace;
+<span class="lineNum">     572 </span>                :            :         Oid                     aosegrelid1;
+<span class="lineNum">     573 </span>                :            :         Oid                     aoblkdirrelid1;
+<span class="lineNum">     574 </span>                :            :         Oid                     aovisimaprelid1;
+<span class="lineNum">     575 </span>                :            :         Oid                     aosegrelid2;
+<span class="lineNum">     576 </span>                :            :         Oid                     aoblkdirrelid2;
+<span class="lineNum">     577 </span>                :            :         Oid                     aovisimaprelid2;
+<span class="lineNum">     578 </span>                :            : 
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_rel = heap_open(AppendOnlyRelationId, RowExclusiveLock);</span>
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :         pg_appendonly_dsc = RelationGetDescr(pg_appendonly_rel);</span>
+<span class="lineNum">     581 </span>                :            :         
+<span class="lineNum">     582 </span>                :<span class="lineNoCov">          0 :         tuple = GetAppendEntryForMove(</span>
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 :                                                         pg_appendonly_rel,</span>
+<span class="lineNum">     584 </span>                :<span class="lineNoCov">          0 :                                                         pg_appendonly_dsc,</span>
+<span class="lineNum">     585 </span>                :<span class="lineNoCov">          0 :                                                         entryRelId1,</span>
+<span class="lineNum">     586 </span>                :            :                                                         &amp;aosegrelid1,
+<span class="lineNum">     587 </span>                :            :                                                         &amp;aoblkdirrelid1,
+<span class="lineNum">     588 </span>                :            :                                                         &amp;aovisimaprelid1);
+<span class="lineNum">     589 </span>                :            : 
+<span class="lineNum">     590 </span>                :            :         /* Since gp_fastsequence entry is referenced by aosegrelid, it rides along  */
+<span class="lineNum">     591 </span>                :            : 
+<span class="lineNum">     592 </span>                :            :         /*
+<span class="lineNum">     593 </span>                :            :          * Delete the appendonly table entry from the catalog (pg_appendonly).
+<span class="lineNum">     594 </span>                :            :          */
+<span class="lineNum">     595 </span>                :<span class="lineNoCov">          0 :         tupleCopy1 = heap_copytuple(tuple);</span>
+<span class="lineNum">     596 </span>                :<span class="lineNoCov">          0 :         simple_heap_delete(pg_appendonly_rel, &amp;tuple-&gt;t_self);</span>
+<span class="lineNum">     597 </span>                :            :         
+<span class="lineNum">     598 </span>                :<span class="lineNoCov">          0 :         tuple = GetAppendEntryForMove(</span>
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                                                         pg_appendonly_rel,</span>
+<span class="lineNum">     600 </span>                :<span class="lineNoCov">          0 :                                                         pg_appendonly_dsc,</span>
+<span class="lineNum">     601 </span>                :<span class="lineNoCov">          0 :                                                         entryRelId2,</span>
+<span class="lineNum">     602 </span>                :            :                                                         &amp;aosegrelid2,
+<span class="lineNum">     603 </span>                :            :                                                         &amp;aoblkdirrelid2,
+<span class="lineNum">     604 </span>                :            :                                                         &amp;aovisimaprelid2);
+<span class="lineNum">     605 </span>                :            : 
+<span class="lineNum">     606 </span>                :            :         /* Since gp_fastsequence entry is referenced by aosegrelid, it rides along  */
+<span class="lineNum">     607 </span>                :            : 
+<span class="lineNum">     608 </span>                :            :         /*
+<span class="lineNum">     609 </span>                :            :          * Delete the appendonly table entry from the catalog (pg_appendonly).
+<span class="lineNum">     610 </span>                :            :          */
+<span class="lineNum">     611 </span>                :<span class="lineNoCov">          0 :         tupleCopy2 = heap_copytuple(tuple);</span>
+<span class="lineNum">     612 </span>                :<span class="lineNoCov">          0 :         simple_heap_delete(pg_appendonly_rel, &amp;tuple-&gt;t_self);</span>
+<span class="lineNum">     613 </span>                :            : 
+<span class="lineNum">     614 </span>                :            :         /*
+<span class="lineNum">     615 </span>                :            :          * (Re)insert.
+<span class="lineNum">     616 </span>                :            :          */
+<span class="lineNum">     617 </span>                :<span class="lineNoCov">          0 :         newValues = palloc0(pg_appendonly_dsc-&gt;natts * sizeof(Datum));</span>
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :         newNulls = palloc0(pg_appendonly_dsc-&gt;natts * sizeof(bool));</span>
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :         replace = palloc0(pg_appendonly_dsc-&gt;natts * sizeof(bool));</span>
+<span class="lineNum">     620 </span>                :            : 
+<span class="lineNum">     621 </span>                :<span class="lineNoCov">          0 :         replace[Anum_pg_appendonly_relid - 1] = true;</span>
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :         newValues[Anum_pg_appendonly_relid - 1] = entryRelId2;</span>
+<span class="lineNum">     623 </span>                :            : 
+<span class="lineNum">     624 </span>                :<span class="lineNoCov">          0 :         tupleCopy1 = heap_modify_tuple(tupleCopy1, pg_appendonly_dsc,</span>
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :                                                                   newValues, newNulls, replace);</span>
+<span class="lineNum">     626 </span>                :            : 
+<span class="lineNum">     627 </span>                :<span class="lineNoCov">          0 :         simple_heap_insert(pg_appendonly_rel, tupleCopy1);</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(pg_appendonly_rel, tupleCopy1);</span>
+<span class="lineNum">     629 </span>                :            : 
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tupleCopy1);</span>
+<span class="lineNum">     631 </span>                :            : 
+<span class="lineNum">     632 </span>                :<span class="lineNoCov">          0 :         newValues[Anum_pg_appendonly_relid - 1] = entryRelId1;</span>
+<span class="lineNum">     633 </span>                :            : 
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :         tupleCopy2 = heap_modify_tuple(tupleCopy2, pg_appendonly_dsc,</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :                                                                   newValues, newNulls, replace);</span>
+<span class="lineNum">     636 </span>                :            : 
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :         simple_heap_insert(pg_appendonly_rel, tupleCopy2);</span>
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(pg_appendonly_rel, tupleCopy2);</span>
+<span class="lineNum">     639 </span>                :            : 
+<span class="lineNum">     640 </span>                :<span class="lineNoCov">          0 :         heap_freetuple(tupleCopy2);</span>
+<span class="lineNum">     641 </span>                :            : 
+<span class="lineNum">     642 </span>                :<span class="lineNoCov">          0 :         heap_close(pg_appendonly_rel, NoLock);</span>
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :         pfree(newValues);</span>
+<span class="lineNum">     645 </span>                :<span class="lineNoCov">          0 :         pfree(newNulls);</span>
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :         pfree(replace);</span>
+<span class="lineNum">     647 </span>                :            : 
+<span class="lineNum">     648 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((aosegrelid1 || aosegrelid2) &amp;&amp; (aosegrelid1 != aosegrelid2))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     649 </span>                :            :         {
+<span class="lineNum">     650 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (OidIsValid(aosegrelid1))</span>
+<span class="lineNum">     651 </span>                :            :                 {
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :                         TransferDependencyLink(entryRelId2, aosegrelid1, &quot;aoseg&quot;);</span>
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     654 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (OidIsValid(aosegrelid2))</span>
+<span class="lineNum">     655 </span>                :            :                 {
+<span class="lineNum">     656 </span>                :<span class="lineNoCov">          0 :                         TransferDependencyLink(entryRelId1, aosegrelid2, &quot;aoseg&quot;);</span>
+<span class="lineNum">     657 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     658 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     659 </span>                :            :         
+<span class="lineNum">     660 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((aoblkdirrelid1 || aoblkdirrelid2) &amp;&amp; (aoblkdirrelid1 != aoblkdirrelid2))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     661 </span>                :            :         {
+<span class="lineNum">     662 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (OidIsValid(aoblkdirrelid1))</span>
+<span class="lineNum">     663 </span>                :            :                 {
+<span class="lineNum">     664 </span>                :<span class="lineNoCov">          0 :                         TransferDependencyLink(entryRelId2, aoblkdirrelid1, &quot;aoblkdir&quot;);</span>
+<span class="lineNum">     665 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     666 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (OidIsValid(aoblkdirrelid2))</span>
+<span class="lineNum">     667 </span>                :            :                 {
+<span class="lineNum">     668 </span>                :<span class="lineNoCov">          0 :                         TransferDependencyLink(entryRelId1, aoblkdirrelid2, &quot;aoblkdir&quot;);</span>
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     671 </span>                :            :         
+<span class="lineNum">     672 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if ((aovisimaprelid1 || aovisimaprelid2) &amp;&amp; (aovisimaprelid1 != aovisimaprelid2))</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     673 </span>                :            :         {
+<span class="lineNum">     674 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (OidIsValid(aovisimaprelid1))</span>
+<span class="lineNum">     675 </span>                :            :                 {
+<span class="lineNum">     676 </span>                :<span class="lineNoCov">          0 :                         TransferDependencyLink(entryRelId2, aovisimaprelid1, &quot;aovisimap&quot;);</span>
+<span class="lineNum">     677 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     678 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (OidIsValid(aovisimaprelid2))</span>
+<span class="lineNum">     679 </span>                :            :                 {
+<span class="lineNum">     680 </span>                :<span class="lineNoCov">          0 :                         TransferDependencyLink(entryRelId1, aovisimaprelid2, &quot;aovisimap&quot;);</span>
+<span class="lineNum">     681 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     682 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     683 </span>                :            : 
+<span class="lineNum">     684 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (Debug_persistent_print)</span>
+<span class="lineNum">     685 </span>                :<span class="lineNoCov">          0 :                 elog(Persistent_DebugPrintLevel(), </span>
+<span class="lineNum">     686 </span>                :            :                          &quot;SwapAppendonlyEntries: relation id #1 %u, aosegrelid1 %u, aoblkdirrelid1 %u, aovisimaprelid1 %u&quot;
+<span class="lineNum">     687 </span>                :            :                          &quot;relation id #2 %u, aosegrelid2 %u, aoblkdirrelid2 %u, aovisimaprelid2 %u&quot;,
+<span class="lineNum">     688 </span>                :            :                          entryRelId1,
+<span class="lineNum">     689 </span>                :            :                          aosegrelid1,
+<span class="lineNum">     690 </span>                :            :                          aoblkdirrelid1,
+<span class="lineNum">     691 </span>                :            :                          aovisimaprelid1,
+<span class="lineNum">     692 </span>                :            :                          entryRelId2,
+<span class="lineNum">     693 </span>                :            :                          aosegrelid2,
+<span class="lineNum">     694 </span>                :            :                          aoblkdirrelid2,
+<span class="lineNum">     695 </span>                :            :                          aovisimaprelid2);
+<span class="lineNum">     696 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     697 </span>                :            : 
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

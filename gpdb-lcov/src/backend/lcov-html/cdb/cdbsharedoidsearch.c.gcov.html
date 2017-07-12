@@ -1,0 +1,491 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - cdb/cdbsharedoidsearch.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">cdb</a> - cdbsharedoidsearch.c<span style="font-size: 80%;"> (source / <a href="cdbsharedoidsearch.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">33</td>
+            <td class="headerCovTableEntry">165</td>
+            <td class="headerCovTableEntryLo">20.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntry">13</td>
+            <td class="headerCovTableEntryLo">23.1 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">4</td>
+            <td class="headerCovTableEntry">74</td>
+            <td class="headerCovTableEntryLo">5.4 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * cdbsharedoidsearch.c
+<span class="lineNum">       4 </span>                :            :  *
+<span class="lineNum">       5 </span>                :            :  * Copyright (c) 2009-2010, Greenplum inc
+<span class="lineNum">       6 </span>                :            :  *
+<span class="lineNum">       7 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">       8 </span>                :            :  */
+<span class="lineNum">       9 </span>                :            : 
+<span class="lineNum">      10 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      11 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      12 </span>                :            : #include &quot;cdb/cdbshareddoublylinked.h&quot;
+<span class="lineNum">      13 </span>                :            : #include &quot;cdb/cdbsharedoidsearch.h&quot;
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : // -----------------------------------------------------------------------------
+<span class="lineNum">      16 </span>                :            : // Free Pool 
+<a name="17"><span class="lineNum">      17 </span>                :            : // -----------------------------------------------------------------------------</a>
+<span class="lineNum">      18 </span>                :            : 
+<span class="lineNum">      19 </span>                :            : static void SharedOidSearch_MakeFreeObjPool(
+<span class="lineNum">      20 </span>                :            :         SharedOidSearchFreeObjPool      *sharedFreeObjPool,
+<span class="lineNum">      21 </span>                :            :                                 /* The shared free object pool to initialize. */
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            :         void *freeObjectArray,
+<span class="lineNum">      24 </span>                :            :                                 /* The shared-memory to use. */
+<span class="lineNum">      25 </span>                :            : 
+<span class="lineNum">      26 </span>                :            :         int32 freeObjectCount,
+<span class="lineNum">      27 </span>                :            :                                 /* The byte length of the shared-memory. */
+<span class="lineNum">      28 </span>                :            : 
+<span class="lineNum">      29 </span>                :            :         int32 objectLen)
+<span class="lineNum">      30 </span>                :            :                                 /* 
+<span class="lineNum">      31 </span>                :            :                                  * The total length of the objects that includes the embedded header
+<span class="lineNum">      32 </span>                :            :                                  * SharedOidSearchObjHeader.
+<span class="lineNum">      33 </span>                :            :                                  */
+<span class="lineNum">      34 </span>                :            : {
+<span class="lineNum">      35 </span>                :            :         int32 i;
+<span class="lineNum">      36 </span>                :            : 
+<span class="lineNum">      37 </span>                :<span class="lineCov">         51 :         SharedListBase_Init(</span>
+<span class="lineNum">      38 </span>                :<span class="lineCov">         51 :                 &amp;sharedFreeObjPool-&gt;listBase,</span>
+<span class="lineNum">      39 </span>                :<span class="lineCov">         51 :                 freeObjectArray,</span>
+<span class="lineNum">      40 </span>                :<span class="lineCov">         51 :                 objectLen,</span>
+<span class="lineNum">      41 </span>                :            :                 offsetof(SharedOidSearchObjHeader,private.links));
+<span class="lineNum">      42 </span>                :            : 
+<span class="lineNum">      43 </span>                :<span class="lineCov">         51 :         SharedDoublyLinkedHead_Init(&amp;sharedFreeObjPool-&gt;freeList);</span>
+<span class="lineNum">      44 </span>                :            : 
+<span class="lineNum">      45 </span>                :            :         /*
+<span class="lineNum">      46 </span>                :            :          * Initalize the free objects.
+<span class="lineNum">      47 </span>                :            :          */
+<span class="lineNum">      48 </span>        [<span class="branchCov" title="Branch 0 was taken 13056 times"> + </span><span class="branchCov" title="Branch 1 was taken 51 times"> + </span>]:<span class="lineCov">      13107 :         for (i = 0; i &lt; freeObjectCount; i++)</span>
+<span class="lineNum">      49 </span>                :            :         {
+<span class="lineNum">      50 </span>                :            :                 SharedOidSearchObjHeader *ele;
+<span class="lineNum">      51 </span>                :            : 
+<span class="lineNum">      52 </span>                :<span class="lineCov">      13056 :                 ele = (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">      53 </span>                :<span class="lineCov">      13056 :                                         SharedListBase_ToElement(</span>
+<span class="lineNum">      54 </span>                :<span class="lineCov">      13056 :                                                         &amp;sharedFreeObjPool-&gt;listBase, i);</span>
+<span class="lineNum">      55 </span>                :            :                 
+<span class="lineNum">      56 </span>                :<span class="lineCov">      13056 :                 SharedDoubleLinks_Init(&amp;ele-&gt;private.links, i);</span>
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>                :<span class="lineCov">      13056 :                 SharedDoublyLinkedHead_AddLast(</span>
+<span class="lineNum">      59 </span>                :<span class="lineCov">      13056 :                         &amp;sharedFreeObjPool-&gt;listBase,</span>
+<span class="lineNum">      60 </span>                :<span class="lineCov">      13056 :                         &amp;sharedFreeObjPool-&gt;freeList,</span>
+<span class="lineNum">      61 </span>                :<span class="lineCov">      13056 :                         ele);</span>
+<span class="lineNum">      62 </span>                :<span class="lineCov">      13056 :         }</span>
+<span class="lineNum">      63 </span>                :<span class="lineCov">         51 : }</span>
+<span class="lineNum">      64 </span>                :            : 
+<span class="lineNum">      65 </span>                :            : // -----------------------------------------------------------------------------
+<span class="lineNum">      66 </span>                :            : // Initialize
+<a name="67"><span class="lineNum">      67 </span>                :            : // -----------------------------------------------------------------------------</a>
+<span class="lineNum">      68 </span>                :            : 
+<span class="lineNum">      69 </span>                :            : int32 SharedOidSearch_TableLen(
+<span class="lineNum">      70 </span>                :            :         int32 hashSize,
+<span class="lineNum">      71 </span>                :            :                                 /* The hash array size */
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            :         int32 freeObjectCount,
+<span class="lineNum">      74 </span>                :            : 
+<span class="lineNum">      75 </span>                :            :         int32 objectLen)
+<span class="lineNum">      76 </span>                :            :                                 /* 
+<span class="lineNum">      77 </span>                :            :                                  * The total length of the objects that includes the embedded header
+<span class="lineNum">      78 </span>                :            :                                  * SharedOidSearchObjHeader.
+<span class="lineNum">      79 </span>                :            :                                  */
+<span class="lineNum">      80 </span>                :            : {
+<span class="lineNum">      81 </span>                :<span class="lineCov">        102 :         return MAXALIGN(offsetof(SharedOidSearchTable,private.buckets)) +</span>
+<span class="lineNum">      82 </span>                :<span class="lineCov">        102 :                    MAXALIGN(hashSize * sizeof(SharedOidSearchHashBucket)) +</span>
+<span class="lineNum">      83 </span>                :<span class="lineCov">        102 :                    MAXALIGN(freeObjectCount * objectLen);</span>
+<a name="84"><span class="lineNum">      84 </span>                :            : }</a>
+<span class="lineNum">      85 </span>                :            : 
+<span class="lineNum">      86 </span>                :            : void SharedOidSearch_InitTable(
+<span class="lineNum">      87 </span>                :            :         SharedOidSearchTable *table,
+<span class="lineNum">      88 </span>                :            :                                 /* The shared search tables to initialize. */
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            :         int32 hashSize,
+<span class="lineNum">      91 </span>                :            :                                 /* The hash array size */
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :            :         int32 freeObjectCount,
+<span class="lineNum">      94 </span>                :            : 
+<span class="lineNum">      95 </span>                :            :         int32 objectLen)
+<span class="lineNum">      96 </span>                :            :                                 /* 
+<span class="lineNum">      97 </span>                :            :                                  * The total length of the objects that includes the embedded header
+<span class="lineNum">      98 </span>                :            :                                  * SharedOidSearchObjHeader.
+<span class="lineNum">      99 </span>                :            :                                  */
+<span class="lineNum">     100 </span>                :            : {
+<span class="lineNum">     101 </span>                :            :         SharedOidSearchHashBucket       *bucketArray;
+<span class="lineNum">     102 </span>                :            :         int32                                           freePoolObjectArrayOffset;
+<span class="lineNum">     103 </span>                :            :         void                                            *freePoolObjectArray;
+<span class="lineNum">     104 </span>                :            : 
+<span class="lineNum">     105 </span>                :            :         int32 i;
+<span class="lineNum">     106 </span>                :            : 
+<span class="lineNum">     107 </span>                :<span class="lineCov">         51 :         table-&gt;private.hashSize = hashSize;</span>
+<span class="lineNum">     108 </span>                :            : 
+<span class="lineNum">     109 </span>                :<span class="lineCov">         51 :         bucketArray = &amp;table-&gt;private.buckets[0];</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>        [<span class="branchCov" title="Branch 0 was taken 6477 times"> + </span><span class="branchCov" title="Branch 1 was taken 51 times"> + </span>]:<span class="lineCov">       6528 :         for (i = 0; i &lt; hashSize; i++)</span>
+<span class="lineNum">     112 </span>                :<span class="lineCov">       6477 :                 SharedDoublyLinkedHead_Init(&amp;bucketArray[i].bucketListHead);</span>
+<span class="lineNum">     113 </span>                :            : 
+<span class="lineNum">     114 </span>                :<span class="lineCov">         51 :         freePoolObjectArrayOffset =</span>
+<span class="lineNum">     115 </span>                :<span class="lineCov">         51 :                                         MAXALIGN(</span>
+<span class="lineNum">     116 </span>                :            :                                                 (int32)
+<span class="lineNum">     117 </span>                :            :                                                         ((uint8*)&amp;table-&gt;private.buckets[hashSize] - (uint8*)table));
+<span class="lineNum">     118 </span>                :            : 
+<span class="lineNum">     119 </span>                :<span class="lineCov">         51 :         freePoolObjectArray = </span>
+<span class="lineNum">     120 </span>                :            :                                         (void*)
+<span class="lineNum">     121 </span>                :<span class="lineCov">         51 :                                                 (((uint8*)table) + freePoolObjectArrayOffset);</span>
+<span class="lineNum">     122 </span>                :            :         
+<span class="lineNum">     123 </span>                :<span class="lineCov">         51 :         SharedOidSearch_MakeFreeObjPool(</span>
+<span class="lineNum">     124 </span>                :<span class="lineCov">         51 :                                                 &amp;table-&gt;private.freePool,</span>
+<span class="lineNum">     125 </span>                :<span class="lineCov">         51 :                                                 freePoolObjectArray,</span>
+<span class="lineNum">     126 </span>                :<span class="lineCov">         51 :                                                 freeObjectCount,</span>
+<span class="lineNum">     127 </span>                :<span class="lineCov">         51 :                                                 objectLen);     </span>
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>                :<span class="lineCov">         51 : }</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :            : 
+<span class="lineNum">     132 </span>                :            : // -----------------------------------------------------------------------------
+<span class="lineNum">     133 </span>                :            : // Helpers
+<a name="134"><span class="lineNum">     134 </span>                :            : // -----------------------------------------------------------------------------</a>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>                :            : static SharedOidSearchHashBucket *SharedOidSearch_GetBucket(
+<span class="lineNum">     137 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     138 </span>                :            :         Oid                                             oid1)
+<span class="lineNum">     139 </span>                :            : {
+<span class="lineNum">     140 </span>                :            :         int32 bucketNum;
+<span class="lineNum">     141 </span>                :            :         
+<span class="lineNum">     142 </span>                :<span class="lineNoCov">          0 :         bucketNum = oid1 % table-&gt;private.hashSize;</span>
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :         return &amp;table-&gt;private.buckets[bucketNum];</span>
+<a name="144"><span class="lineNum">     144 </span>                :            : }</a>
+<span class="lineNum">     145 </span>                :            : 
+<span class="lineNum">     146 </span>                :            : static SharedOidSearchObjHeader *SharedOidSearch_FindInBucket(
+<span class="lineNum">     147 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     148 </span>                :            :         SharedOidSearchHashBucket       *bucket,
+<span class="lineNum">     149 </span>                :            :         Oid                                             oid1,
+<span class="lineNum">     150 </span>                :            :         Oid                                                     oid2)
+<span class="lineNum">     151 </span>                :            : {
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :         SharedListBase                          *listBase = &amp;table-&gt;private.freePool.listBase;</span>
+<span class="lineNum">     153 </span>                :            :         SharedDoublyLinkedHead          *listHead;
+<span class="lineNum">     154 </span>                :            :         SharedOidSearchObjHeader        *ele;
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :         listHead = &amp;bucket-&gt;bucketListHead;</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :         ele = (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                                         SharedDoublyLinkedHead_First(listBase, listHead);</span>
+<span class="lineNum">     159 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (ele != NULL)</span>
+<span class="lineNum">     160 </span>                :            :         {
+<span class="lineNum">     161 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ele-&gt;oid1 == oid1 &amp;&amp; ele-&gt;oid2 == oid2)</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :                         return ele;</span>
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :                 ele = (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">     165 </span>                :<span class="lineNoCov">          0 :                                         SharedDoubleLinks_Next(listBase, listHead, ele);</span>
+<span class="lineNum">     166 </span>                :            :         }
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :         return NULL;</span>
+<a name="169"><span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     170 </span>                :            : 
+<span class="lineNum">     171 </span>                :            : static void SharedOidSearch_RemoveFromBucket(
+<span class="lineNum">     172 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     173 </span>                :            :         SharedOidSearchHashBucket       *bucket,
+<span class="lineNum">     174 </span>                :            :         SharedOidSearchObjHeader        *ele)
+<span class="lineNum">     175 </span>                :            : {
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :         SharedListBase                          *listBase = &amp;table-&gt;private.freePool.listBase;</span>
+<span class="lineNum">     177 </span>                :            :         SharedDoublyLinkedHead          *listHead;
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ele-&gt;private.isDeleted);</span>
+<span class="lineNum">     180 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(ele-&gt;private.pinCount == 0);</span>
+<span class="lineNum">     181 </span>                :            : 
+<span class="lineNum">     182 </span>                :<span class="lineNoCov">          0 :         listHead = &amp;bucket-&gt;bucketListHead;</span>
+<span class="lineNum">     183 </span>                :            : 
+<span class="lineNum">     184 </span>                :<span class="lineNoCov">          0 :         SharedDoubleLinks_Remove(listBase, listHead, ele);</span>
+<span class="lineNum">     185 </span>                :            :         
+<span class="lineNum">     186 </span>                :<span class="lineNoCov">          0 :         SharedDoublyLinkedHead_AddLast(</span>
+<span class="lineNum">     187 </span>                :<span class="lineNoCov">          0 :                                         &amp;table-&gt;private.freePool.listBase,</span>
+<span class="lineNum">     188 </span>                :<span class="lineNoCov">          0 :                                         &amp;table-&gt;private.freePool.freeList,</span>
+<span class="lineNum">     189 </span>                :<span class="lineNoCov">          0 :                                         ele);</span>
+<span class="lineNum">     190 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     191 </span>                :            : 
+<span class="lineNum">     192 </span>                :            : 
+<span class="lineNum">     193 </span>                :            : // -----------------------------------------------------------------------------
+<span class="lineNum">     194 </span>                :            : // Add, Find, Probe, and Delete
+<a name="195"><span class="lineNum">     195 </span>                :            : // -----------------------------------------------------------------------------</a>
+<span class="lineNum">     196 </span>                :            : 
+<span class="lineNum">     197 </span>                :            : SharedOidSearchAddResult SharedOidSearch_Add(
+<span class="lineNum">     198 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     199 </span>                :            :         Oid                                             oid1,
+<span class="lineNum">     200 </span>                :            :         Oid                                             oid2,
+<span class="lineNum">     201 </span>                :            :         SharedOidSearchObjHeader        **header)
+<span class="lineNum">     202 </span>                :            : {
+<span class="lineNum">     203 </span>                :            :         SharedOidSearchHashBucket       *bucket;
+<span class="lineNum">     204 </span>                :            :         SharedOidSearchObjHeader        *ele;
+<span class="lineNum">     205 </span>                :            : 
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :         bucket = SharedOidSearch_GetBucket(table, oid1);</span>
+<span class="lineNum">     207 </span>                :            : 
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :         ele = SharedOidSearch_FindInBucket(table, bucket, oid1, oid2);</span>
+<span class="lineNum">     209 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ele != NULL)</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                 return SharedOidSearchAddResult_Exists;</span>
+<span class="lineNum">     211 </span>                :            : 
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :         ele = </span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                 (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                                 SharedDoublyLinkedHead_RemoveFirst(</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                                                                 &amp;table-&gt;private.freePool.listBase,</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                                                                 &amp;table-&gt;private.freePool.freeList);</span>
+<span class="lineNum">     217 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ele == NULL)</span>
+<span class="lineNum">     218 </span>                :<span class="lineNoCov">          0 :                 return SharedOidSearchAddResult_NoMemory;</span>
+<span class="lineNum">     219 </span>                :            : 
+<span class="lineNum">     220 </span>                :<span class="lineNoCov">          0 :         ele-&gt;private.pinCount = 0;</span>
+<span class="lineNum">     221 </span>                :<span class="lineNoCov">          0 :         ele-&gt;private.isDeleted = false;</span>
+<span class="lineNum">     222 </span>                :<span class="lineNoCov">          0 :         ele-&gt;oid1 = oid1;</span>
+<span class="lineNum">     223 </span>                :<span class="lineNoCov">          0 :         ele-&gt;oid2 = oid2;</span>
+<span class="lineNum">     224 </span>                :            : 
+<span class="lineNum">     225 </span>                :<span class="lineNoCov">          0 :         SharedDoublyLinkedHead_AddLast(</span>
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :                                                         &amp;table-&gt;private.freePool.listBase,</span>
+<span class="lineNum">     227 </span>                :<span class="lineNoCov">          0 :                                                     &amp;bucket-&gt;bucketListHead,</span>
+<span class="lineNum">     228 </span>                :<span class="lineNoCov">          0 :                                                     ele);</span>
+<span class="lineNum">     229 </span>                :            : 
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :         *header = ele;</span>
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :         return SharedOidSearchAddResult_Ok;</span>
+<a name="232"><span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>                :            : SharedOidSearchObjHeader *SharedOidSearch_Find(
+<span class="lineNum">     235 </span>                :            :         SharedOidSearchTable    *table,
+<span class="lineNum">     236 </span>                :            :         Oid                                     oid1,
+<span class="lineNum">     237 </span>                :            :         Oid                                     oid2)
+<span class="lineNum">     238 </span>                :            : {
+<span class="lineNum">     239 </span>                :            :         SharedOidSearchHashBucket       *bucket;
+<span class="lineNum">     240 </span>                :            :         SharedOidSearchObjHeader        *ele;
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :         bucket = SharedOidSearch_GetBucket(table, oid1);</span>
+<span class="lineNum">     243 </span>                :            : 
+<span class="lineNum">     244 </span>                :<span class="lineNoCov">          0 :         ele = SharedOidSearch_FindInBucket(table, bucket, oid1, oid2);</span>
+<span class="lineNum">     245 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (ele == NULL)</span>
+<span class="lineNum">     246 </span>                :<span class="lineNoCov">          0 :                 return NULL;</span>
+<span class="lineNum">     247 </span>                :            : 
+<span class="lineNum">     248 </span>                :<span class="lineNoCov">          0 :         return ele;</span>
+<a name="249"><span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     250 </span>                :            : 
+<span class="lineNum">     251 </span>                :            : static bool SharedOidSearch_NextBucket(
+<span class="lineNum">     252 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     253 </span>                :            :         SharedOidSearchHashBucket       **bucket)
+<span class="lineNum">     254 </span>                :            : {
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :         int32 hashSize = table-&gt;private.hashSize;</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (*bucket == &amp;table-&gt;private.buckets[hashSize-1])</span>
+<span class="lineNum">     258 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     259 </span>                :            : 
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :         (*bucket)++;</span>
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :         return true;</span>
+<a name="262"><span class="lineNum">     262 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     263 </span>                :            : 
+<span class="lineNum">     264 </span>                :            : static bool SharedOidSearch_FindNonDeletedInBucket(
+<span class="lineNum">     265 </span>                :            :         SharedListBase                          *listBase,
+<span class="lineNum">     266 </span>                :            :         SharedDoublyLinkedHead          *listHead,
+<span class="lineNum">     267 </span>                :            :         SharedOidSearchObjHeader        **header)
+<span class="lineNum">     268 </span>                :            : {
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :         while (true)</span>
+<span class="lineNum">     270 </span>                :            :         {
+<span class="lineNum">     271 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!(*header)-&gt;private.isDeleted)</span>
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     273 </span>                :            :                 
+<span class="lineNum">     274 </span>                :<span class="lineNoCov">          0 :                 *header = </span>
+<span class="lineNum">     275 </span>                :<span class="lineNoCov">          0 :                         (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :                                         SharedDoubleLinks_Next(</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 :                                                                                 listBase,</span>
+<span class="lineNum">     278 </span>                :<span class="lineNoCov">          0 :                                                                                 listHead,</span>
+<span class="lineNum">     279 </span>                :<span class="lineNoCov">          0 :                                                                                 *header);</span>
+<span class="lineNum">     280 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*header == NULL)</span>
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                         return false;</span>
+<span class="lineNum">     282 </span>                :            :         }
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="284"><span class="lineNum">     284 </span>                :            : </a>
+<span class="lineNum">     285 </span>                :            : 
+<span class="lineNum">     286 </span>                :            : void SharedOidSearch_Iterate(
+<span class="lineNum">     287 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     288 </span>                :            :         SharedOidSearchObjHeader        **header)
+<span class="lineNum">     289 </span>                :            : {
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :         SharedListBase                          *listBase = &amp;table-&gt;private.freePool.listBase;</span>
+<span class="lineNum">     291 </span>                :            :         SharedOidSearchHashBucket       *bucket;
+<span class="lineNum">     292 </span>                :<span class="lineNoCov">          0 :         SharedOidSearchObjHeader        *current = *header;</span>
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (current != NULL)</span>
+<span class="lineNum">     295 </span>                :            :         {
+<span class="lineNum">     296 </span>                :            :                 /*
+<span class="lineNum">     297 </span>                :            :                  * Try to get next element in current bucket.
+<span class="lineNum">     298 </span>                :            :                  */
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :                 bucket = SharedOidSearch_GetBucket(table, current-&gt;oid1);</span>
+<span class="lineNum">     300 </span>                :            : 
+<span class="lineNum">     301 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(current-&gt;private.pinCount &gt; 0);</span>
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :                 current-&gt;private.pinCount--;</span>
+<span class="lineNum">     303 </span>                :            :                         
+<span class="lineNum">     304 </span>                :<span class="lineNoCov">          0 :                 *header = </span>
+<span class="lineNum">     305 </span>                :<span class="lineNoCov">          0 :                         (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                                         SharedDoubleLinks_Next(</span>
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :                                                                                 listBase,</span>
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                                                                                 &amp;bucket-&gt;bucketListHead,</span>
+<span class="lineNum">     309 </span>                :<span class="lineNoCov">          0 :                                                                                 current);</span>
+<span class="lineNum">     310 </span>                :            : 
+<span class="lineNum">     311 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (current-&gt;private.isDeleted &amp;&amp;</span>
+<span class="lineNum">     312 </span>                :<span class="lineNoCov">          0 :                         current-&gt;private.pinCount == 0)</span>
+<span class="lineNum">     313 </span>                :<span class="lineNoCov">          0 :                         SharedOidSearch_RemoveFromBucket(table, bucket, current);</span>
+<span class="lineNum">     314 </span>                :            :                         
+<span class="lineNum">     315 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*header != NULL &amp;&amp;</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :                         SharedOidSearch_FindNonDeletedInBucket(</span>
+<span class="lineNum">     317 </span>                :<span class="lineNoCov">          0 :                                                                                         listBase,</span>
+<span class="lineNum">     318 </span>                :<span class="lineNoCov">          0 :                                                                                         &amp;bucket-&gt;bucketListHead,</span>
+<span class="lineNum">     319 </span>                :<span class="lineNoCov">          0 :                                                                                         header))</span>
+<span class="lineNum">     320 </span>                :            :                 {
+<span class="lineNum">     321 </span>                :<span class="lineNoCov">          0 :                         (*header)-&gt;private.pinCount++;</span>
+<span class="lineNum">     322 </span>                :<span class="lineNoCov">          0 :                         return;</span>
+<span class="lineNum">     323 </span>                :            :                 }
+<span class="lineNum">     324 </span>                :            : 
+<span class="lineNum">     325 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(*header == NULL);</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!SharedOidSearch_NextBucket(</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                                                                         table,</span>
+<span class="lineNum">     329 </span>                :            :                                                                         &amp;bucket))
+<span class="lineNum">     330 </span>                :<span class="lineNoCov">          0 :                         return;         // No more buckets.</span>
+<span class="lineNum">     331 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     332 </span>                :            :         else
+<span class="lineNum">     333 </span>                :<span class="lineNoCov">          0 :                 bucket = &amp;table-&gt;private.buckets[0];</span>
+<span class="lineNum">     334 </span>                :            : 
+<span class="lineNum">     335 </span>                :            :         /*
+<span class="lineNum">     336 </span>                :            :          * Find next non-empty bucket.
+<span class="lineNum">     337 </span>                :            :          */
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :          while (true)</span>
+<span class="lineNum">     339 </span>                :            :         {
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :                 *header = </span>
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                                 (SharedOidSearchObjHeader*)</span>
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                                                 SharedDoublyLinkedHead_First(</span>
+<span class="lineNum">     343 </span>                :<span class="lineNoCov">          0 :                                                                                                 listBase,</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                                                                                                 &amp;bucket-&gt;bucketListHead);</span>
+<span class="lineNum">     345 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (*header != NULL &amp;&amp;</span>
+<span class="lineNum">     346 </span>                :<span class="lineNoCov">          0 :                         SharedOidSearch_FindNonDeletedInBucket(</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                                                                                         listBase,</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 :                                                                                         &amp;bucket-&gt;bucketListHead,</span>
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                                                                                         header))</span>
+<span class="lineNum">     350 </span>                :            :                 {
+<span class="lineNum">     351 </span>                :<span class="lineNoCov">          0 :                         (*header)-&gt;private.pinCount++;</span>
+<span class="lineNum">     352 </span>                :<span class="lineNoCov">          0 :                         return;</span>
+<span class="lineNum">     353 </span>                :            :                 }
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(*header == NULL);</span>
+<span class="lineNum">     356 </span>                :            : 
+<span class="lineNum">     357 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!SharedOidSearch_NextBucket(</span>
+<span class="lineNum">     358 </span>                :<span class="lineNoCov">          0 :                                                                         table,</span>
+<span class="lineNum">     359 </span>                :            :                                                                         &amp;bucket))
+<span class="lineNum">     360 </span>                :<span class="lineNoCov">          0 :                         return;         // No more buckets.</span>
+<span class="lineNum">     361 </span>                :            :         }
+<a name="362"><span class="lineNum">     362 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     363 </span>                :            : 
+<span class="lineNum">     364 </span>                :            : void SharedOidSearch_ReleaseIterator(
+<span class="lineNum">     365 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     366 </span>                :            :         SharedOidSearchObjHeader        **header)
+<span class="lineNum">     367 </span>                :            : {
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         SharedOidSearchObjHeader        *current = *header;</span>
+<span class="lineNum">     369 </span>                :            :         SharedOidSearchHashBucket       *bucket;
+<span class="lineNum">     370 </span>                :            :         
+<span class="lineNum">     371 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(current-&gt;private.pinCount &gt; 0);</span>
+<span class="lineNum">     372 </span>                :<span class="lineNoCov">          0 :         current-&gt;private.pinCount--;</span>
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (current-&gt;private.isDeleted &amp;&amp;</span>
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :                 current-&gt;private.pinCount == 0)</span>
+<span class="lineNum">     376 </span>                :            :         {
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :                 bucket = SharedOidSearch_GetBucket(table, current-&gt;oid1);</span>
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :                 SharedOidSearch_RemoveFromBucket(table, bucket, current);</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     380 </span>                :            :         
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         *header = NULL;</span>
+<a name="382"><span class="lineNum">     382 </span>                :<span class="lineNoCov">          0 : }</span></a>
+<span class="lineNum">     383 </span>                :            : 
+<span class="lineNum">     384 </span>                :            : void SharedOidSearch_Delete(
+<span class="lineNum">     385 </span>                :            :         SharedOidSearchTable            *table,
+<span class="lineNum">     386 </span>                :            :         SharedOidSearchObjHeader        *header)
+<span class="lineNum">     387 </span>                :            : {
+<span class="lineNum">     388 </span>                :            :         SharedOidSearchHashBucket       *bucket;
+<span class="lineNum">     389 </span>                :            : 
+<span class="lineNum">     390 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!header-&gt;private.isDeleted);</span>
+<span class="lineNum">     391 </span>                :<span class="lineNoCov">          0 :         header-&gt;private.isDeleted = true;</span>
+<span class="lineNum">     392 </span>                :            : 
+<span class="lineNum">     393 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (header-&gt;private.pinCount &gt; 0)</span>
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :                 return;         // Let the last iterator turn out the light.</span>
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>                :<span class="lineNoCov">          0 :         bucket = SharedOidSearch_GetBucket(table, header-&gt;oid1);</span>
+<span class="lineNum">     397 </span>                :            : 
+<span class="lineNum">     398 </span>                :<span class="lineNoCov">          0 :         SharedOidSearch_RemoveFromBucket(table, bucket, header);</span>
+<span class="lineNum">     399 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

@@ -1,0 +1,731 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - optimizer/util/restrictinfo.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">optimizer/util</a> - restrictinfo.c<span style="font-size: 80%;"> (source / <a href="restrictinfo.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">216</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">10</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">124</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * restrictinfo.c
+<span class="lineNum">       4 </span>                :            :  *        RestrictInfo node manipulation routines.
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       8 </span>                :            :  *
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      11 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/optimizer/util/restrictinfo.c,v 1.55.2.1 2009/04/16 20:42:28 tgl Exp $
+<span class="lineNum">      12 </span>                :            :  *
+<span class="lineNum">      13 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      14 </span>                :            :  */
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : 
+<span class="lineNum">      17 </span>                :            : #include &quot;optimizer/clauses.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;optimizer/cost.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;optimizer/paths.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;optimizer/predtest.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;optimizer/restrictinfo.h&quot;
+<span class="lineNum">      22 </span>                :            : #include &quot;optimizer/var.h&quot;
+<span class="lineNum">      23 </span>                :            : 
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : static RestrictInfo *make_restrictinfo_internal(Expr *clause,
+<span class="lineNum">      26 </span>                :            :                                                    Expr *orclause,
+<span class="lineNum">      27 </span>                :            :                                                    bool is_pushed_down,
+<span class="lineNum">      28 </span>                :            :                                                    bool outerjoin_delayed,
+<span class="lineNum">      29 </span>                :            :                                                    bool pseudoconstant,
+<span class="lineNum">      30 </span>                :            :                                                    Relids required_relids,
+<span class="lineNum">      31 </span>                :            :                                                    Relids nullable_relids,
+<span class="lineNum">      32 </span>                :            :                                                    Relids ojscope_relids);
+<span class="lineNum">      33 </span>                :            : static Expr *make_sub_restrictinfos(Expr *clause,
+<span class="lineNum">      34 </span>                :            :                                            bool is_pushed_down,
+<span class="lineNum">      35 </span>                :            :                                            bool outerjoin_delayed,
+<span class="lineNum">      36 </span>                :            :                                            bool pseudoconstant,
+<span class="lineNum">      37 </span>                :            :                                            Relids required_relids,
+<span class="lineNum">      38 </span>                :            :                                            Relids nullable_relids,
+<span class="lineNum">      39 </span>                :            :                                            Relids ojscope_relids);
+<span class="lineNum">      40 </span>                :            : static bool join_clause_is_redundant(PlannerInfo *root,
+<span class="lineNum">      41 </span>                :            :                                                  RestrictInfo *rinfo,
+<span class="lineNum">      42 </span>                :            :                                                  List *reference_list);
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : /*
+<span class="lineNum">      45 </span>                :            :  * make_restrictinfo
+<span class="lineNum">      46 </span>                :            :  *
+<span class="lineNum">      47 </span>                :            :  * Build a RestrictInfo node containing the given subexpression.
+<span class="lineNum">      48 </span>                :            :  *
+<span class="lineNum">      49 </span>                :            :  * The is_pushed_down, outerjoin_delayed, and pseudoconstant flags for the
+<span class="lineNum">      50 </span>                :            :  * RestrictInfo must be supplied by the caller, as well as the correct value
+<span class="lineNum">      51 </span>                :            :  * for nullable_relids.  required_relids can be NULL, in which case it
+<span class="lineNum">      52 </span>                :            :  * defaults to the actual clause contents (i.e., clause_relids).
+<span class="lineNum">      53 </span>                :            :  *
+<span class="lineNum">      54 </span>                :            :  * We initialize fields that depend only on the given subexpression, leaving
+<span class="lineNum">      55 </span>                :            :  * others that depend on context (or may never be needed at all) to be filled
+<span class="lineNum">      56 </span>                :            :  * later.
+<a name="57"><span class="lineNum">      57 </span>                :            :  */</a>
+<span class="lineNum">      58 </span>                :            : RestrictInfo *
+<span class="lineNum">      59 </span>                :            : make_restrictinfo(Expr *clause,
+<span class="lineNum">      60 </span>                :            :                                   bool is_pushed_down,
+<span class="lineNum">      61 </span>                :            :                                   bool outerjoin_delayed,
+<span class="lineNum">      62 </span>                :            :                                   bool pseudoconstant,
+<span class="lineNum">      63 </span>                :            :                                   Relids required_relids,
+<span class="lineNum">      64 </span>                :            :                                   Relids nullable_relids,
+<span class="lineNum">      65 </span>                :            :                                   Relids ojscope_relids)
+<span class="lineNum">      66 </span>                :            : {
+<span class="lineNum">      67 </span>                :            :         /*
+<span class="lineNum">      68 </span>                :            :          * If it's an OR clause, build a modified copy with RestrictInfos inserted
+<span class="lineNum">      69 </span>                :            :          * above each subclause of the top-level AND/OR structure.
+<span class="lineNum">      70 </span>                :            :          */
+<span class="lineNum">      71 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (or_clause((Node *) clause))</span>
+<span class="lineNum">      72 </span>                :<span class="lineNoCov">          0 :                 return (RestrictInfo *) make_sub_restrictinfos(clause,</span>
+<span class="lineNum">      73 </span>                :<span class="lineNoCov">          0 :                                                                                                            is_pushed_down,</span>
+<span class="lineNum">      74 </span>                :<span class="lineNoCov">          0 :                                                                                                            outerjoin_delayed,</span>
+<span class="lineNum">      75 </span>                :<span class="lineNoCov">          0 :                                                                                                            pseudoconstant,</span>
+<span class="lineNum">      76 </span>                :<span class="lineNoCov">          0 :                                                                                                            required_relids,</span>
+<span class="lineNum">      77 </span>                :<span class="lineNoCov">          0 :                                                                                                            nullable_relids,</span>
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :                                                                                                            ojscope_relids);</span>
+<span class="lineNum">      79 </span>                :            : 
+<span class="lineNum">      80 </span>                :            :         /* Shouldn't be an AND clause, else AND/OR flattening messed up */
+<span class="lineNum">      81 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!and_clause((Node *) clause));</span>
+<span class="lineNum">      82 </span>                :            : 
+<span class="lineNum">      83 </span>                :<span class="lineNoCov">          0 :         return make_restrictinfo_internal(clause,</span>
+<span class="lineNum">      84 </span>                :            :                                                                           NULL,
+<span class="lineNum">      85 </span>                :<span class="lineNoCov">          0 :                                                                           is_pushed_down,</span>
+<span class="lineNum">      86 </span>                :<span class="lineNoCov">          0 :                                                                           outerjoin_delayed,</span>
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :                                                                           pseudoconstant,</span>
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :                                                                           required_relids,</span>
+<span class="lineNum">      89 </span>                :<span class="lineNoCov">          0 :                                                                           nullable_relids,</span>
+<span class="lineNum">      90 </span>                :<span class="lineNoCov">          0 :                                                                           ojscope_relids);</span>
+<span class="lineNum">      91 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      92 </span>                :            : 
+<span class="lineNum">      93 </span>                :            : /*
+<span class="lineNum">      94 </span>                :            :  * make_restrictinfo_from_bitmapqual
+<span class="lineNum">      95 </span>                :            :  *
+<span class="lineNum">      96 </span>                :            :  * Given the bitmapqual Path structure for a bitmap indexscan, generate
+<span class="lineNum">      97 </span>                :            :  * RestrictInfo node(s) equivalent to the condition represented by the
+<span class="lineNum">      98 </span>                :            :  * indexclauses of the Path structure.
+<span class="lineNum">      99 </span>                :            :  *
+<span class="lineNum">     100 </span>                :            :  * The result is a List (effectively, implicit-AND representation) of
+<span class="lineNum">     101 </span>                :            :  * RestrictInfos.
+<span class="lineNum">     102 </span>                :            :  *
+<span class="lineNum">     103 </span>                :            :  * The caller must pass is_pushed_down, but we assume outerjoin_delayed
+<span class="lineNum">     104 </span>                :            :  * and pseudoconstant are false and nullable_relids is NULL (no other
+<span class="lineNum">     105 </span>                :            :  * kind of qual should ever get into a bitmapqual).
+<span class="lineNum">     106 </span>                :            :  *
+<span class="lineNum">     107 </span>                :            :  * If include_predicates is true, we add any partial index predicates to
+<span class="lineNum">     108 </span>                :            :  * the explicit index quals.  When this is not true, we return a condition
+<span class="lineNum">     109 </span>                :            :  * that might be weaker than the actual scan represents.
+<span class="lineNum">     110 </span>                :            :  *
+<span class="lineNum">     111 </span>                :            :  * To do this through the normal make_restrictinfo() API, callers would have
+<span class="lineNum">     112 </span>                :            :  * to strip off the RestrictInfo nodes present in the indexclauses lists, and
+<span class="lineNum">     113 </span>                :            :  * then make_restrictinfo() would have to build new ones.  It's better to have
+<span class="lineNum">     114 </span>                :            :  * a specialized routine to allow sharing of RestrictInfos.
+<span class="lineNum">     115 </span>                :            :  *
+<span class="lineNum">     116 </span>                :            :  * The qual manipulations here are much the same as in create_bitmap_subplan;
+<span class="lineNum">     117 </span>                :            :  * keep the two routines in sync!
+<a name="118"><span class="lineNum">     118 </span>                :            :  */</a>
+<span class="lineNum">     119 </span>                :            : List *
+<span class="lineNum">     120 </span>                :            : make_restrictinfo_from_bitmapqual(Path *bitmapqual,
+<span class="lineNum">     121 </span>                :            :                                                                   bool is_pushed_down,
+<span class="lineNum">     122 </span>                :            :                                                                   bool include_predicates)
+<span class="lineNum">     123 </span>                :            : {
+<span class="lineNum">     124 </span>                :            :         List       *result;
+<span class="lineNum">     125 </span>                :            :         ListCell   *l;
+<span class="lineNum">     126 </span>                :            : 
+<span class="lineNum">     127 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(bitmapqual, BitmapAndPath))</span>
+<span class="lineNum">     128 </span>                :            :         {
+<span class="lineNum">     129 </span>                :<span class="lineNoCov">          0 :                 BitmapAndPath *apath = (BitmapAndPath *) bitmapqual;</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :            :                 /*
+<span class="lineNum">     132 </span>                :            :                  * There may well be redundant quals among the subplans, since a
+<span class="lineNum">     133 </span>                :            :                  * top-level WHERE qual might have gotten used to form several
+<span class="lineNum">     134 </span>                :            :                  * different index quals.  We don't try exceedingly hard to eliminate
+<span class="lineNum">     135 </span>                :            :                  * redundancies, but we do eliminate obvious duplicates by using
+<span class="lineNum">     136 </span>                :            :                  * list_concat_unique.
+<span class="lineNum">     137 </span>                :            :                  */
+<span class="lineNum">     138 </span>                :<span class="lineNoCov">          0 :                 result = NIL;</span>
+<span class="lineNum">     139 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(l, apath-&gt;bitmapquals)</span>
+<span class="lineNum">     140 </span>                :            :                 {
+<span class="lineNum">     141 </span>                :            :                         List       *sublist;
+<span class="lineNum">     142 </span>                :            : 
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                         sublist = make_restrictinfo_from_bitmapqual((Path *) lfirst(l),</span>
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :                                                                                                                 is_pushed_down,</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                                                                                                                 include_predicates);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :                         result = list_concat_unique(result, sublist);</span>
+<span class="lineNum">     147 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     149 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (IsA(bitmapqual, BitmapOrPath))</span>
+<span class="lineNum">     150 </span>                :            :         {
+<span class="lineNum">     151 </span>                :<span class="lineNoCov">          0 :                 BitmapOrPath *opath = (BitmapOrPath *) bitmapqual;</span>
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                 List       *withris = NIL;</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 List       *withoutris = NIL;</span>
+<span class="lineNum">     154 </span>                :            : 
+<span class="lineNum">     155 </span>                :            :                 /*
+<span class="lineNum">     156 </span>                :            :                  * Here, we only detect qual-free subplans.  A qual-free subplan would
+<span class="lineNum">     157 </span>                :            :                  * cause us to generate &quot;... OR true ...&quot;  which we may as well reduce
+<span class="lineNum">     158 </span>                :            :                  * to just &quot;true&quot;.    We do not try to eliminate redundant subclauses
+<span class="lineNum">     159 </span>                :            :                  * because (a) it's not as likely as in the AND case, and (b) we might
+<span class="lineNum">     160 </span>                :            :                  * well be working with hundreds or even thousands of OR conditions,
+<span class="lineNum">     161 </span>                :            :                  * perhaps from a long IN list.  The performance of list_append_unique
+<span class="lineNum">     162 </span>                :            :                  * would be unacceptable.
+<span class="lineNum">     163 </span>                :            :                  */
+<span class="lineNum">     164 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(l, opath-&gt;bitmapquals)</span>
+<span class="lineNum">     165 </span>                :            :                 {
+<span class="lineNum">     166 </span>                :            :                         List       *sublist;
+<span class="lineNum">     167 </span>                :            : 
+<span class="lineNum">     168 </span>                :<span class="lineNoCov">          0 :                         sublist = make_restrictinfo_from_bitmapqual((Path *) lfirst(l),</span>
+<span class="lineNum">     169 </span>                :<span class="lineNoCov">          0 :                                                                                                                 is_pushed_down,</span>
+<span class="lineNum">     170 </span>                :<span class="lineNoCov">          0 :                                                                                                                 include_predicates);</span>
+<span class="lineNum">     171 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (sublist == NIL)</span>
+<span class="lineNum">     172 </span>                :            :                         {
+<span class="lineNum">     173 </span>                :            :                                 /*
+<span class="lineNum">     174 </span>                :            :                                  * If we find a qual-less subscan, it represents a constant
+<span class="lineNum">     175 </span>                :            :                                  * TRUE, and hence the OR result is also constant TRUE, so we
+<span class="lineNum">     176 </span>                :            :                                  * can stop here.
+<span class="lineNum">     177 </span>                :            :                                  */
+<span class="lineNum">     178 </span>                :<span class="lineNoCov">          0 :                                 return NIL;</span>
+<span class="lineNum">     179 </span>                :            :                         }
+<span class="lineNum">     180 </span>                :            : 
+<span class="lineNum">     181 </span>                :            :                         /*
+<span class="lineNum">     182 </span>                :            :                          * If the sublist contains multiple RestrictInfos, we create an
+<span class="lineNum">     183 </span>                :            :                          * AND subclause.  If there's just one, we have to check if it's
+<span class="lineNum">     184 </span>                :            :                          * an OR clause, and if so flatten it to preserve AND/OR flatness
+<span class="lineNum">     185 </span>                :            :                          * of our output.
+<span class="lineNum">     186 </span>                :            :                          *
+<span class="lineNum">     187 </span>                :            :                          * We construct lists with and without sub-RestrictInfos, so as
+<span class="lineNum">     188 </span>                :            :                          * not to have to regenerate duplicate RestrictInfos below.
+<span class="lineNum">     189 </span>                :            :                          */
+<span class="lineNum">     190 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (list_length(sublist) &gt; 1)</span>
+<span class="lineNum">     191 </span>                :            :                         {
+<span class="lineNum">     192 </span>                :<span class="lineNoCov">          0 :                                 withris = lappend(withris, make_andclause(sublist));</span>
+<span class="lineNum">     193 </span>                :<span class="lineNoCov">          0 :                                 sublist = get_actual_clauses(sublist);</span>
+<span class="lineNum">     194 </span>                :<span class="lineNoCov">          0 :                                 withoutris = lappend(withoutris, make_andclause(sublist));</span>
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     196 </span>                :            :                         else
+<span class="lineNum">     197 </span>                :            :                         {
+<span class="lineNum">     198 </span>                :<span class="lineNoCov">          0 :                                 RestrictInfo *subri = (RestrictInfo *) linitial(sublist);</span>
+<span class="lineNum">     199 </span>                :            : 
+<span class="lineNum">     200 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(IsA(subri, RestrictInfo));</span>
+<span class="lineNum">     201 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (restriction_is_or_clause(subri))</span>
+<span class="lineNum">     202 </span>                :            :                                 {
+<span class="lineNum">     203 </span>                :<span class="lineNoCov">          0 :                                         BoolExpr   *subor = (BoolExpr *) subri-&gt;orclause;</span>
+<span class="lineNum">     204 </span>                :            : 
+<span class="lineNum">     205 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(or_clause((Node *) subor));</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                                         withris = list_concat(withris,</span>
+<span class="lineNum">     207 </span>                :<span class="lineNoCov">          0 :                                                                                   list_copy(subor-&gt;args));</span>
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                                         subor = (BoolExpr *) subri-&gt;clause;</span>
+<span class="lineNum">     209 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                         Assert(or_clause((Node *) subor));</span>
+<span class="lineNum">     210 </span>                :<span class="lineNoCov">          0 :                                         withoutris = list_concat(withoutris,</span>
+<span class="lineNum">     211 </span>                :<span class="lineNoCov">          0 :                                                                                          list_copy(subor-&gt;args));</span>
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     213 </span>                :            :                                 else
+<span class="lineNum">     214 </span>                :            :                                 {
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                                         withris = lappend(withris, subri);</span>
+<span class="lineNum">     216 </span>                :<span class="lineNoCov">          0 :                                         withoutris = lappend(withoutris, subri-&gt;clause);</span>
+<span class="lineNum">     217 </span>                :            :                                 }
+<span class="lineNum">     218 </span>                :            :                         }
+<span class="lineNum">     219 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     220 </span>                :            : 
+<span class="lineNum">     221 </span>                :            :                 /*
+<span class="lineNum">     222 </span>                :            :                  * Avoid generating one-element ORs, which could happen due to
+<span class="lineNum">     223 </span>                :            :                  * redundancy elimination or ScalarArrayOpExpr quals.
+<span class="lineNum">     224 </span>                :            :                  */
+<span class="lineNum">     225 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (list_length(withris) &lt;= 1)</span>
+<span class="lineNum">     226 </span>                :<span class="lineNoCov">          0 :                         result = withris;</span>
+<span class="lineNum">     227 </span>                :            :                 else
+<span class="lineNum">     228 </span>                :            :                 {
+<span class="lineNum">     229 </span>                :            :                         /* Here's the magic part not available to outside callers */
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                         result =</span>
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :                                 list_make1(make_restrictinfo_internal(make_orclause(withoutris),</span>
+<span class="lineNum">     232 </span>                :            :                                                                                                           make_orclause(withris),
+<span class="lineNum">     233 </span>                :            :                                                                                                           is_pushed_down,
+<span class="lineNum">     234 </span>                :            :                                                                                                           false,
+<span class="lineNum">     235 </span>                :            :                                                                                                           false,
+<span class="lineNum">     236 </span>                :            :                                                                                                           NULL,
+<span class="lineNum">     237 </span>                :            :                                                                                                           NULL,
+<span class="lineNum">     238 </span>                :            :                                                                                                           NULL));
+<span class="lineNum">     239 </span>                :            :                 }
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     241 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (IsA(bitmapqual, IndexPath))</span>
+<span class="lineNum">     242 </span>                :            :         {
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 IndexPath  *ipath = (IndexPath *) bitmapqual;</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>                :<span class="lineNoCov">          0 :                 result = list_copy(ipath-&gt;indexclauses);</span>
+<span class="lineNum">     246 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (include_predicates &amp;&amp; ipath-&gt;indexinfo-&gt;indpred != NIL)</span>
+<span class="lineNum">     247 </span>                :            :                 {
+<span class="lineNum">     248 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(l, ipath-&gt;indexinfo-&gt;indpred)</span>
+<span class="lineNum">     249 </span>                :            :                         {
+<span class="lineNum">     250 </span>                :<span class="lineNoCov">          0 :                                 Expr       *pred = (Expr *) lfirst(l);</span>
+<span class="lineNum">     251 </span>                :            : 
+<span class="lineNum">     252 </span>                :            :                                 /*
+<span class="lineNum">     253 </span>                :            :                                  * We know that the index predicate must have been implied by
+<span class="lineNum">     254 </span>                :            :                                  * the query condition as a whole, but it may or may not be
+<span class="lineNum">     255 </span>                :            :                                  * implied by the conditions that got pushed into the
+<span class="lineNum">     256 </span>                :            :                                  * bitmapqual.  Avoid generating redundant conditions.
+<span class="lineNum">     257 </span>                :            :                                  */
+<span class="lineNum">     258 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!predicate_implied_by(list_make1(pred), result))</span>
+<span class="lineNum">     259 </span>                :<span class="lineNoCov">          0 :                                         result = lappend(result,</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :                                                                          make_restrictinfo(pred,</span>
+<span class="lineNum">     261 </span>                :<span class="lineNoCov">          0 :                                                                                                            is_pushed_down,</span>
+<span class="lineNum">     262 </span>                :            :                                                                                                            false,
+<span class="lineNum">     263 </span>                :            :                                                                                                            false,
+<span class="lineNum">     264 </span>                :            :                                                                                                            NULL,
+<span class="lineNum">     265 </span>                :            :                                                                                                            NULL,
+<span class="lineNum">     266 </span>                :            :                                                                                                            NULL));
+<span class="lineNum">     267 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     269 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     270 </span>                :            :         else
+<span class="lineNum">     271 </span>                :            :         {
+<span class="lineNum">     272 </span>                :<span class="lineNoCov">          0 :                 elog(ERROR, &quot;unrecognized node type: %d&quot;, nodeTag(bitmapqual));</span>
+<span class="lineNum">     273 </span>                :<span class="lineNoCov">          0 :                 result = NIL;                   /* keep compiler quiet */</span>
+<span class="lineNum">     274 </span>                :            :         }
+<span class="lineNum">     275 </span>                :            : 
+<span class="lineNum">     276 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     277 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     278 </span>                :            : 
+<span class="lineNum">     279 </span>                :            : /*
+<span class="lineNum">     280 </span>                :            :  * make_restrictinfo_internal
+<span class="lineNum">     281 </span>                :            :  *
+<span class="lineNum">     282 </span>                :            :  * Common code for the main entry points and the recursive cases.
+<a name="283"><span class="lineNum">     283 </span>                :            :  */</a>
+<span class="lineNum">     284 </span>                :            : static RestrictInfo *
+<span class="lineNum">     285 </span>                :            : make_restrictinfo_internal(Expr *clause,
+<span class="lineNum">     286 </span>                :            :                                                    Expr *orclause,
+<span class="lineNum">     287 </span>                :            :                                                    bool is_pushed_down,
+<span class="lineNum">     288 </span>                :            :                                                    bool outerjoin_delayed,
+<span class="lineNum">     289 </span>                :            :                                                    bool pseudoconstant,
+<span class="lineNum">     290 </span>                :            :                                                    Relids required_relids,
+<span class="lineNum">     291 </span>                :            :                                                    Relids nullable_relids,
+<span class="lineNum">     292 </span>                :            :                                                    Relids ojscope_relids)
+<span class="lineNum">     293 </span>                :            : {
+<span class="lineNum">     294 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         RestrictInfo *restrictinfo = makeNode(RestrictInfo);</span>
+<span class="lineNum">     295 </span>                :            : 
+<span class="lineNum">     296 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;clause = clause;</span>
+<span class="lineNum">     297 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;orclause = orclause;</span>
+<span class="lineNum">     298 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;is_pushed_down = is_pushed_down;</span>
+<span class="lineNum">     299 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;outerjoin_delayed = outerjoin_delayed;</span>
+<span class="lineNum">     300 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;pseudoconstant = pseudoconstant;</span>
+<span class="lineNum">     301 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;can_join = false;              /* may get set below */</span>
+<span class="lineNum">     302 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;nullable_relids = nullable_relids;</span>
+<span class="lineNum">     303 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;ojscope_relids = ojscope_relids;</span>
+<span class="lineNum">     304 </span>                :            : 
+<span class="lineNum">     305 </span>                :            :         /**
+<span class="lineNum">     306 </span>                :            :          * If this is a IS NOT FALSE boolean test, we can peek underneath.
+<span class="lineNum">     307 </span>                :            :          */
+<span class="lineNum">     308 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (IsA(clause, BooleanTest))</span>
+<span class="lineNum">     309 </span>                :            :         {
+<span class="lineNum">     310 </span>                :<span class="lineNoCov">          0 :                 BooleanTest *bt = (BooleanTest *) clause;</span>
+<span class="lineNum">     311 </span>                :            : 
+<span class="lineNum">     312 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (bt-&gt;booltesttype == IS_NOT_FALSE)</span>
+<span class="lineNum">     313 </span>                :            :                 {
+<span class="lineNum">     314 </span>                :<span class="lineNoCov">          0 :                         clause = bt-&gt;arg;</span>
+<span class="lineNum">     315 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     316 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     317 </span>                :            : 
+<span class="lineNum">     318 </span>                :            :         /*
+<span class="lineNum">     319 </span>                :            :          * If it's a binary opclause, set up left/right relids info. In any case
+<span class="lineNum">     320 </span>                :            :          * set up the total clause relids info.
+<span class="lineNum">     321 </span>                :            :          */
+<span class="lineNum">     322 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (is_opclause(clause) &amp;&amp; list_length(((OpExpr *) clause)-&gt;args) == 2)</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     323 </span>                :            :         {
+<span class="lineNum">     324 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;left_relids = pull_varnos(get_leftop(clause));</span>
+<span class="lineNum">     325 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;right_relids = pull_varnos(get_rightop(clause));</span>
+<span class="lineNum">     326 </span>                :            : 
+<span class="lineNum">     327 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;clause_relids = bms_union(restrictinfo-&gt;left_relids,</span>
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                                                                                                 restrictinfo-&gt;right_relids);</span>
+<span class="lineNum">     329 </span>                :            : 
+<span class="lineNum">     330 </span>                :            :                 /*
+<span class="lineNum">     331 </span>                :            :                  * Does it look like a normal join clause, i.e., a binary operator
+<span class="lineNum">     332 </span>                :            :                  * relating expressions that come from distinct relations? If so we
+<span class="lineNum">     333 </span>                :            :                  * might be able to use it in a join algorithm.  Note that this is a
+<span class="lineNum">     334 </span>                :            :                  * purely syntactic test that is made regardless of context.
+<span class="lineNum">     335 </span>                :            :                  */
+<span class="lineNum">     336 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!bms_is_empty(restrictinfo-&gt;left_relids) &amp;&amp;</span>
+<span class="lineNum">     337 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         !bms_is_empty(restrictinfo-&gt;right_relids) &amp;&amp;</span>
+<span class="lineNum">     338 </span>                :<span class="lineNoCov">          0 :                         !bms_overlap(restrictinfo-&gt;left_relids,</span>
+<span class="lineNum">     339 </span>                :<span class="lineNoCov">          0 :                                                  restrictinfo-&gt;right_relids))</span>
+<span class="lineNum">     340 </span>                :            :                 {
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                         restrictinfo-&gt;can_join = true;</span>
+<span class="lineNum">     342 </span>                :            :                         /* pseudoconstant should certainly not be true */
+<span class="lineNum">     343 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(!restrictinfo-&gt;pseudoconstant);</span>
+<span class="lineNum">     344 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     345 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     346 </span>                :            :         else
+<span class="lineNum">     347 </span>                :            :         {
+<span class="lineNum">     348 </span>                :            :                 /* Not a binary opclause, so mark left/right relid sets as empty */
+<span class="lineNum">     349 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;left_relids = NULL;</span>
+<span class="lineNum">     350 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;right_relids = NULL;</span>
+<span class="lineNum">     351 </span>                :            :                 /* and get the total relid set the hard way */
+<span class="lineNum">     352 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;clause_relids = pull_varnos((Node *) clause);</span>
+<span class="lineNum">     353 </span>                :            :         }
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :            :         /* required_relids defaults to clause_relids */
+<span class="lineNum">     356 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (required_relids != NULL)</span>
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;required_relids = required_relids;</span>
+<span class="lineNum">     358 </span>                :            :         else
+<span class="lineNum">     359 </span>                :<span class="lineNoCov">          0 :                 restrictinfo-&gt;required_relids = restrictinfo-&gt;clause_relids;</span>
+<span class="lineNum">     360 </span>                :            : 
+<span class="lineNum">     361 </span>                :            :         /*
+<span class="lineNum">     362 </span>                :            :          * Fill in all the cacheable fields with &quot;not yet set&quot; markers. None of
+<span class="lineNum">     363 </span>                :            :          * these will be computed until/unless needed.  Note in particular that we
+<span class="lineNum">     364 </span>                :            :          * don't mark a binary opclause as mergejoinable or hashjoinable here;
+<span class="lineNum">     365 </span>                :            :          * that happens only if it appears in the right context (top level of a
+<span class="lineNum">     366 </span>                :            :          * joinclause list).
+<span class="lineNum">     367 </span>                :            :          */
+<span class="lineNum">     368 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;parent_ec = NULL;</span>
+<span class="lineNum">     369 </span>                :            : 
+<span class="lineNum">     370 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;eval_cost.startup = -1;</span>
+<span class="lineNum">     371 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;this_selec = -1;</span>
+<span class="lineNum">     372 </span>                :            : 
+<span class="lineNum">     373 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;mergeopfamilies = NIL;</span>
+<span class="lineNum">     374 </span>                :            : 
+<span class="lineNum">     375 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;left_ec = NULL;</span>
+<span class="lineNum">     376 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;right_ec = NULL;</span>
+<span class="lineNum">     377 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;left_em = NULL;</span>
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;right_em = NULL;</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;scansel_cache = NIL;</span>
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;outer_is_left = false;</span>
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;hashjoinoperator = InvalidOid;</span>
+<span class="lineNum">     384 </span>                :            : 
+<span class="lineNum">     385 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;left_bucketsize = -1;</span>
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :         restrictinfo-&gt;right_bucketsize = -1;</span>
+<span class="lineNum">     387 </span>                :            : 
+<span class="lineNum">     388 </span>                :<span class="lineNoCov">          0 :         return restrictinfo;</span>
+<span class="lineNum">     389 </span>                :            : }
+<span class="lineNum">     390 </span>                :            : 
+<span class="lineNum">     391 </span>                :            : /*
+<span class="lineNum">     392 </span>                :            :  * Recursively insert sub-RestrictInfo nodes into a boolean expression.
+<span class="lineNum">     393 </span>                :            :  *
+<span class="lineNum">     394 </span>                :            :  * We put RestrictInfos above simple (non-AND/OR) clauses and above
+<span class="lineNum">     395 </span>                :            :  * sub-OR clauses, but not above sub-AND clauses, because there's no need.
+<span class="lineNum">     396 </span>                :            :  * This may seem odd but it is closely related to the fact that we use
+<span class="lineNum">     397 </span>                :            :  * implicit-AND lists at top level of RestrictInfo lists.  Only ORs and
+<span class="lineNum">     398 </span>                :            :  * simple clauses are valid RestrictInfos.
+<span class="lineNum">     399 </span>                :            :  *
+<span class="lineNum">     400 </span>                :            :  * The same is_pushed_down, outerjoin_delayed, and pseudoconstant flag
+<span class="lineNum">     401 </span>                :            :  * values can be applied to all RestrictInfo nodes in the result.  Likewise
+<span class="lineNum">     402 </span>                :            :  * for nullable_relids.
+<span class="lineNum">     403 </span>                :            :  *
+<span class="lineNum">     404 </span>                :            :  * The given required_relids are attached to our top-level output,
+<span class="lineNum">     405 </span>                :            :  * but any OR-clause constituents are allowed to default to just the
+<span class="lineNum">     406 </span>                :            :  * contained rels.
+<a name="407"><span class="lineNum">     407 </span>                :            :  */</a>
+<span class="lineNum">     408 </span>                :            : static Expr *
+<span class="lineNum">     409 </span>                :            : make_sub_restrictinfos(Expr *clause,
+<span class="lineNum">     410 </span>                :            :                                            bool is_pushed_down,
+<span class="lineNum">     411 </span>                :            :                                            bool outerjoin_delayed,
+<span class="lineNum">     412 </span>                :            :                                            bool pseudoconstant,
+<span class="lineNum">     413 </span>                :            :                                            Relids required_relids,
+<span class="lineNum">     414 </span>                :            :                                            Relids nullable_relids,
+<span class="lineNum">     415 </span>                :            :                                            Relids ojscope_relids)
+<span class="lineNum">     416 </span>                :            : {
+<span class="lineNum">     417 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (or_clause((Node *) clause))</span>
+<span class="lineNum">     418 </span>                :            :         {
+<span class="lineNum">     419 </span>                :<span class="lineNoCov">          0 :                 List       *orlist = NIL;</span>
+<span class="lineNum">     420 </span>                :            :                 ListCell   *temp;
+<span class="lineNum">     421 </span>                :            : 
+<span class="lineNum">     422 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(temp, ((BoolExpr *) clause)-&gt;args)</span>
+<span class="lineNum">     423 </span>                :<span class="lineNoCov">          0 :                         orlist = lappend(orlist,</span>
+<span class="lineNum">     424 </span>                :<span class="lineNoCov">          0 :                                                          make_sub_restrictinfos(lfirst(temp),</span>
+<span class="lineNum">     425 </span>                :<span class="lineNoCov">          0 :                                                                                                         is_pushed_down,</span>
+<span class="lineNum">     426 </span>                :<span class="lineNoCov">          0 :                                                                                                         outerjoin_delayed,</span>
+<span class="lineNum">     427 </span>                :<span class="lineNoCov">          0 :                                                                                                         pseudoconstant,</span>
+<span class="lineNum">     428 </span>                :            :                                                                                                         NULL,
+<span class="lineNum">     429 </span>                :<span class="lineNoCov">          0 :                                                                                                         nullable_relids,</span>
+<span class="lineNum">     430 </span>                :<span class="lineNoCov">          0 :                                                                                                         ojscope_relids));</span>
+<span class="lineNum">     431 </span>                :<span class="lineNoCov">          0 :                 return (Expr *) make_restrictinfo_internal(clause,</span>
+<span class="lineNum">     432 </span>                :<span class="lineNoCov">          0 :                                                                                                    make_orclause(orlist),</span>
+<span class="lineNum">     433 </span>                :<span class="lineNoCov">          0 :                                                                                                    is_pushed_down,</span>
+<span class="lineNum">     434 </span>                :<span class="lineNoCov">          0 :                                                                                                    outerjoin_delayed,</span>
+<span class="lineNum">     435 </span>                :<span class="lineNoCov">          0 :                                                                                                    pseudoconstant,</span>
+<span class="lineNum">     436 </span>                :<span class="lineNoCov">          0 :                                                                                                    required_relids,</span>
+<span class="lineNum">     437 </span>                :<span class="lineNoCov">          0 :                                                                                                    nullable_relids,</span>
+<span class="lineNum">     438 </span>                :<span class="lineNoCov">          0 :                                                                                                    ojscope_relids);</span>
+<span class="lineNum">     439 </span>                :            :         }
+<span class="lineNum">     440 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         else if (and_clause((Node *) clause))</span>
+<span class="lineNum">     441 </span>                :            :         {
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                 List       *andlist = NIL;</span>
+<span class="lineNum">     443 </span>                :            :                 ListCell   *temp;
+<span class="lineNum">     444 </span>                :            : 
+<span class="lineNum">     445 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 foreach(temp, ((BoolExpr *) clause)-&gt;args)</span>
+<span class="lineNum">     446 </span>                :<span class="lineNoCov">          0 :                         andlist = lappend(andlist,</span>
+<span class="lineNum">     447 </span>                :<span class="lineNoCov">          0 :                                                           make_sub_restrictinfos(lfirst(temp),</span>
+<span class="lineNum">     448 </span>                :<span class="lineNoCov">          0 :                                                                                                          is_pushed_down,</span>
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :                                                                                                          outerjoin_delayed,</span>
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 :                                                                                                          pseudoconstant,</span>
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :                                                                                                          required_relids,</span>
+<span class="lineNum">     452 </span>                :<span class="lineNoCov">          0 :                                                                                                          nullable_relids,</span>
+<span class="lineNum">     453 </span>                :<span class="lineNoCov">          0 :                                                                                                          ojscope_relids));</span>
+<span class="lineNum">     454 </span>                :<span class="lineNoCov">          0 :                 return make_andclause(andlist);</span>
+<span class="lineNum">     455 </span>                :            :         }
+<span class="lineNum">     456 </span>                :            :         else
+<span class="lineNum">     457 </span>                :<span class="lineNoCov">          0 :                 return (Expr *) make_restrictinfo_internal(clause,</span>
+<span class="lineNum">     458 </span>                :            :                                                                                                    NULL,
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :                                                                                                    is_pushed_down,</span>
+<span class="lineNum">     460 </span>                :<span class="lineNoCov">          0 :                                                                                                    outerjoin_delayed,</span>
+<span class="lineNum">     461 </span>                :<span class="lineNoCov">          0 :                                                                                                    pseudoconstant,</span>
+<span class="lineNum">     462 </span>                :<span class="lineNoCov">          0 :                                                                                                    required_relids,</span>
+<span class="lineNum">     463 </span>                :<span class="lineNoCov">          0 :                                                                                                    nullable_relids,</span>
+<span class="lineNum">     464 </span>                :<span class="lineNoCov">          0 :                                                                                                    ojscope_relids);</span>
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     466 </span>                :            : 
+<span class="lineNum">     467 </span>                :            : /*
+<span class="lineNum">     468 </span>                :            :  * restriction_is_or_clause
+<span class="lineNum">     469 </span>                :            :  *
+<span class="lineNum">     470 </span>                :            :  * Returns t iff the restrictinfo node contains an 'or' clause.
+<a name="471"><span class="lineNum">     471 </span>                :            :  */</a>
+<span class="lineNum">     472 </span>                :            : bool
+<span class="lineNum">     473 </span>                :            : restriction_is_or_clause(RestrictInfo *restrictinfo)
+<span class="lineNum">     474 </span>                :            : {
+<span class="lineNum">     475 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (restrictinfo-&gt;orclause != NULL)</span>
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :                 return true;</span>
+<span class="lineNum">     477 </span>                :            :         else
+<span class="lineNum">     478 </span>                :<span class="lineNoCov">          0 :                 return false;</span>
+<span class="lineNum">     479 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     480 </span>                :            : 
+<span class="lineNum">     481 </span>                :            : /*
+<span class="lineNum">     482 </span>                :            :  * get_actual_clauses
+<span class="lineNum">     483 </span>                :            :  *
+<span class="lineNum">     484 </span>                :            :  * Returns a list containing the bare clauses from 'restrictinfo_list'.
+<span class="lineNum">     485 </span>                :            :  *
+<span class="lineNum">     486 </span>                :            :  * This is only to be used in cases where none of the RestrictInfos can
+<span class="lineNum">     487 </span>                :            :  * be pseudoconstant clauses (for instance, it's OK on indexqual lists).
+<a name="488"><span class="lineNum">     488 </span>                :            :  */</a>
+<span class="lineNum">     489 </span>                :            : List *
+<span class="lineNum">     490 </span>                :            : get_actual_clauses(List *restrictinfo_list)
+<span class="lineNum">     491 </span>                :            : {
+<span class="lineNum">     492 </span>                :<span class="lineNoCov">          0 :         List       *result = NIL;</span>
+<span class="lineNum">     493 </span>                :            :         ListCell   *l;
+<span class="lineNum">     494 </span>                :            : 
+<span class="lineNum">     495 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, restrictinfo_list)</span>
+<span class="lineNum">     496 </span>                :            :         {
+<span class="lineNum">     497 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);</span>
+<span class="lineNum">     498 </span>                :            : 
+<span class="lineNum">     499 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(IsA(rinfo, RestrictInfo));</span>
+<span class="lineNum">     500 </span>                :            : 
+<span class="lineNum">     501 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!rinfo-&gt;pseudoconstant);</span>
+<span class="lineNum">     502 </span>                :            : 
+<span class="lineNum">     503 </span>                :<span class="lineNoCov">          0 :                 result = lappend(result, rinfo-&gt;clause);</span>
+<span class="lineNum">     504 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     506 </span>                :            : }
+<span class="lineNum">     507 </span>                :            : 
+<span class="lineNum">     508 </span>                :            : /*
+<span class="lineNum">     509 </span>                :            :  * extract_actual_clauses
+<span class="lineNum">     510 </span>                :            :  *
+<span class="lineNum">     511 </span>                :            :  * Extract bare clauses from 'restrictinfo_list', returning either the
+<span class="lineNum">     512 </span>                :            :  * regular ones or the pseudoconstant ones per 'pseudoconstant'.
+<a name="513"><span class="lineNum">     513 </span>                :            :  */</a>
+<span class="lineNum">     514 </span>                :            : List *
+<span class="lineNum">     515 </span>                :            : extract_actual_clauses(List *restrictinfo_list,
+<span class="lineNum">     516 </span>                :            :                                            bool pseudoconstant)
+<span class="lineNum">     517 </span>                :            : {
+<span class="lineNum">     518 </span>                :<span class="lineNoCov">          0 :         List       *result = NIL;</span>
+<span class="lineNum">     519 </span>                :            :         ListCell   *l;
+<span class="lineNum">     520 </span>                :            : 
+<span class="lineNum">     521 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, restrictinfo_list)</span>
+<span class="lineNum">     522 </span>                :            :         {
+<span class="lineNum">     523 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);</span>
+<span class="lineNum">     524 </span>                :            : 
+<span class="lineNum">     525 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(IsA(rinfo, RestrictInfo));</span>
+<span class="lineNum">     526 </span>                :            : 
+<span class="lineNum">     527 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rinfo-&gt;pseudoconstant == pseudoconstant)</span>
+<span class="lineNum">     528 </span>                :<span class="lineNoCov">          0 :                         result = lappend(result, rinfo-&gt;clause);</span>
+<span class="lineNum">     529 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     530 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     531 </span>                :            : }
+<span class="lineNum">     532 </span>                :            : 
+<span class="lineNum">     533 </span>                :            : /*
+<span class="lineNum">     534 </span>                :            :  * extract_actual_join_clauses
+<span class="lineNum">     535 </span>                :            :  *
+<span class="lineNum">     536 </span>                :            :  * Extract bare clauses from 'restrictinfo_list', separating those that
+<span class="lineNum">     537 </span>                :            :  * syntactically match the join level from those that were pushed down.
+<span class="lineNum">     538 </span>                :            :  * Pseudoconstant clauses are excluded from the results.
+<span class="lineNum">     539 </span>                :            :  *
+<span class="lineNum">     540 </span>                :            :  * This is only used at outer joins, since for plain joins we don't care
+<span class="lineNum">     541 </span>                :            :  * about pushed-down-ness.
+<a name="542"><span class="lineNum">     542 </span>                :            :  */</a>
+<span class="lineNum">     543 </span>                :            : void
+<span class="lineNum">     544 </span>                :            : extract_actual_join_clauses(List *restrictinfo_list,
+<span class="lineNum">     545 </span>                :            :                                                         List **joinquals,
+<span class="lineNum">     546 </span>                :            :                                                         List **otherquals)
+<span class="lineNum">     547 </span>                :            : {
+<span class="lineNum">     548 </span>                :            :         ListCell   *l;
+<span class="lineNum">     549 </span>                :            : 
+<span class="lineNum">     550 </span>                :<span class="lineNoCov">          0 :         *joinquals = NIL;</span>
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :         *otherquals = NIL;</span>
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(l, restrictinfo_list)</span>
+<span class="lineNum">     554 </span>                :            :         {
+<span class="lineNum">     555 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *rinfo = (RestrictInfo *) lfirst(l);</span>
+<span class="lineNum">     556 </span>                :            : 
+<span class="lineNum">     557 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(IsA(rinfo, RestrictInfo));</span>
+<span class="lineNum">     558 </span>                :            : 
+<span class="lineNum">     559 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rinfo-&gt;is_pushed_down)</span>
+<span class="lineNum">     560 </span>                :            :                 {
+<span class="lineNum">     561 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!rinfo-&gt;pseudoconstant)</span>
+<span class="lineNum">     562 </span>                :<span class="lineNoCov">          0 :                                 *otherquals = lappend(*otherquals, rinfo-&gt;clause);</span>
+<span class="lineNum">     563 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     564 </span>                :            :                 else
+<span class="lineNum">     565 </span>                :            :                 {
+<span class="lineNum">     566 </span>                :            :                         /* joinquals shouldn't have been marked pseudoconstant */
+<span class="lineNum">     567 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         Assert(!rinfo-&gt;pseudoconstant);</span>
+<span class="lineNum">     568 </span>                :<span class="lineNoCov">          0 :                         *joinquals = lappend(*joinquals, rinfo-&gt;clause);</span>
+<span class="lineNum">     569 </span>                :            :                 }
+<span class="lineNum">     570 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     571 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     572 </span>                :            : 
+<span class="lineNum">     573 </span>                :            : /*
+<span class="lineNum">     574 </span>                :            :  * select_nonredundant_join_clauses
+<span class="lineNum">     575 </span>                :            :  *
+<span class="lineNum">     576 </span>                :            :  * Given a list of RestrictInfo clauses that are to be applied in a join,
+<span class="lineNum">     577 </span>                :            :  * select the ones that are not redundant with any clause in the
+<span class="lineNum">     578 </span>                :            :  * reference_list.      This is used only for nestloop-with-inner-indexscan
+<span class="lineNum">     579 </span>                :            :  * joins: any clauses being checked by the index should be removed from
+<span class="lineNum">     580 </span>                :            :  * the qpquals list.
+<span class="lineNum">     581 </span>                :            :  *
+<span class="lineNum">     582 </span>                :            :  * &quot;Redundant&quot; means either equal() or derived from the same EquivalenceClass.
+<span class="lineNum">     583 </span>                :            :  * We have to check the latter because indxqual.c may select different derived
+<span class="lineNum">     584 </span>                :            :  * clauses than were selected by generate_join_implied_equalities().
+<span class="lineNum">     585 </span>                :            :  *
+<span class="lineNum">     586 </span>                :            :  * Note that we assume the given restrictinfo_list has already been checked
+<span class="lineNum">     587 </span>                :            :  * for local redundancies, so we don't check again.
+<a name="588"><span class="lineNum">     588 </span>                :            :  */</a>
+<span class="lineNum">     589 </span>                :            : List *
+<span class="lineNum">     590 </span>                :            : select_nonredundant_join_clauses(PlannerInfo *root,
+<span class="lineNum">     591 </span>                :            :                                                                  List *restrictinfo_list,
+<span class="lineNum">     592 </span>                :            :                                                                  List *reference_list)
+<span class="lineNum">     593 </span>                :            : {
+<span class="lineNum">     594 </span>                :<span class="lineNoCov">          0 :         List       *result = NIL;</span>
+<span class="lineNum">     595 </span>                :            :         ListCell   *item;
+<span class="lineNum">     596 </span>                :            : 
+<span class="lineNum">     597 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(item, restrictinfo_list)</span>
+<span class="lineNum">     598 </span>                :            :         {
+<span class="lineNum">     599 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *rinfo = (RestrictInfo *) lfirst(item);</span>
+<span class="lineNum">     600 </span>                :            : 
+<span class="lineNum">     601 </span>                :            :                 /* drop it if redundant with any reference clause */
+<span class="lineNum">     602 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (join_clause_is_redundant(root, rinfo, reference_list))</span>
+<span class="lineNum">     603 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     604 </span>                :            : 
+<span class="lineNum">     605 </span>                :            :                 /* otherwise, add it to result list */
+<span class="lineNum">     606 </span>                :<span class="lineNoCov">          0 :                 result = lappend(result, rinfo);</span>
+<span class="lineNum">     607 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     608 </span>                :            : 
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     610 </span>                :            : }
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>                :            : /*
+<span class="lineNum">     613 </span>                :            :  * join_clause_is_redundant
+<span class="lineNum">     614 </span>                :            :  *              Test whether rinfo is redundant with any clause in reference_list.
+<a name="615"><span class="lineNum">     615 </span>                :            :  */</a>
+<span class="lineNum">     616 </span>                :            : static bool
+<span class="lineNum">     617 </span>                :            : join_clause_is_redundant(PlannerInfo *root,
+<span class="lineNum">     618 </span>                :            :                                                  RestrictInfo *rinfo,
+<span class="lineNum">     619 </span>                :            :                                                  List *reference_list)
+<span class="lineNum">     620 </span>                :            : {
+<span class="lineNum">     621 </span>                :            :         ListCell   *refitem;
+<span class="lineNum">     622 </span>                :            : 
+<span class="lineNum">     623 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(refitem, reference_list)</span>
+<span class="lineNum">     624 </span>                :            :         {
+<span class="lineNum">     625 </span>                :<span class="lineNoCov">          0 :                 RestrictInfo *refrinfo = (RestrictInfo *) lfirst(refitem);</span>
+<span class="lineNum">     626 </span>                :            : 
+<span class="lineNum">     627 </span>                :            :                 /* always consider exact duplicates redundant */
+<span class="lineNum">     628 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (equal(rinfo, refrinfo))</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     630 </span>                :            : 
+<span class="lineNum">     631 </span>                :            :                 /* check if derived from same EquivalenceClass */
+<span class="lineNum">     632 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (rinfo-&gt;parent_ec != NULL &amp;&amp;</span>
+<span class="lineNum">     633 </span>                :<span class="lineNoCov">          0 :                         rinfo-&gt;parent_ec == refrinfo-&gt;parent_ec)</span>
+<span class="lineNum">     634 </span>                :<span class="lineNoCov">          0 :                         return true;</span>
+<span class="lineNum">     635 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     636 </span>                :            : 
+<span class="lineNum">     637 </span>                :<span class="lineNoCov">          0 :         return false;</span>
+<span class="lineNum">     638 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

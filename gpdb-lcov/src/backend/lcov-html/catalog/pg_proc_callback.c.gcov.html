@@ -1,0 +1,257 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - catalog/pg_proc_callback.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">catalog</a> - pg_proc_callback.c<span style="font-size: 80%;"> (source / <a href="pg_proc_callback.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">43</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">3</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * pg_proc_callback.c
+<span class="lineNum">       4 </span>                :            :  *        
+<span class="lineNum">       5 </span>                :            :  *   Auxillary extension to pg_proc to enable defining additional callback
+<span class="lineNum">       6 </span>                :            :  *   functions.  Currently the list of allowable callback functions is small
+<span class="lineNum">       7 </span>                :            :  *   and consists of:
+<span class="lineNum">       8 </span>                :            :  *     - DESCRIBE() - to support more complex pseudotype resolution
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * Copyright (c) EMC, 2011
+<span class="lineNum">      11 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      12 </span>                :            :  */
+<span class="lineNum">      13 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : #include &quot;access/genam.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;access/heapam.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;catalog/indexing.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;catalog/pg_proc_callback.h&quot;
+<span class="lineNum">      19 </span>                :            : #include &quot;utils/fmgroids.h&quot;
+<span class="lineNum">      20 </span>                :            : #include &quot;utils/lsyscache.h&quot;
+<span class="lineNum">      21 </span>                :            : #include &quot;utils/tqual.h&quot;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : /* ---------------------
+<span class="lineNum">      24 </span>                :            :  * deleteProcCallbacks() - Remove callbacks from pg_proc_callback
+<span class="lineNum">      25 </span>                :            :  *
+<span class="lineNum">      26 </span>                :            :  * Parameters:
+<span class="lineNum">      27 </span>                :            :  *    profnoid - remove all callbacks for this function oid
+<span class="lineNum">      28 </span>                :            :  *
+<span class="lineNum">      29 </span>                :            :  * Notes:
+<span class="lineNum">      30 </span>                :            :  *    This function does not maintain dependencies in pg_depend, that behavior
+<span class="lineNum">      31 </span>                :            :  *    is currently controlled in pg_proc.c
+<span class="lineNum">      32 </span>                :            :  * ---------------------
+<a name="33"><span class="lineNum">      33 </span>                :            :  */</a>
+<span class="lineNum">      34 </span>                :            : void 
+<span class="lineNum">      35 </span>                :            : deleteProcCallbacks(Oid profnoid)
+<span class="lineNum">      36 </span>                :            : {
+<span class="lineNum">      37 </span>                :            :         Relation        rel;
+<span class="lineNum">      38 </span>                :            :         ScanKeyData skey;
+<span class="lineNum">      39 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">      40 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">      41 </span>                :            : 
+<span class="lineNum">      42 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Insist(OidIsValid(profnoid));</span>
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            :         /*
+<span class="lineNum">      45 </span>                :            :          * This is equivalent to:
+<span class="lineNum">      46 </span>                :            :          *
+<span class="lineNum">      47 </span>                :            :          * DELETE FROM pg_proc_callback WHERE profnoid = :1
+<span class="lineNum">      48 </span>                :            :          */
+<span class="lineNum">      49 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ProcCallbackRelationId, RowExclusiveLock);</span>
+<span class="lineNum">      50 </span>                :            : 
+<span class="lineNum">      51 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;skey,</span>
+<span class="lineNum">      52 </span>                :            :                                 Anum_pg_proc_callback_profnoid,
+<span class="lineNum">      53 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">      54 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(profnoid));</span>
+<span class="lineNum">      55 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, ProcCallbackProfnoidPromethodIndexId, true,</span>
+<span class="lineNum">      56 </span>                :            :                                                           SnapshotNow, 1, &amp;skey);
+<span class="lineNum">      57 </span>                :            : 
+<span class="lineNum">      58 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         while (HeapTupleIsValid(tup = systable_getnext(scan)))</span>
+<span class="lineNum">      59 </span>                :<span class="lineNoCov">          0 :                 simple_heap_delete(rel, &amp;tup-&gt;t_self);</span>
+<span class="lineNum">      60 </span>                :            : 
+<span class="lineNum">      61 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">      62 </span>                :            : 
+<span class="lineNum">      63 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">      64 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">      65 </span>                :            : 
+<span class="lineNum">      66 </span>                :            : 
+<span class="lineNum">      67 </span>                :            : /* ---------------------
+<span class="lineNum">      68 </span>                :            :  * addProcCallback() - Add a new callback to pg_proc_callback
+<span class="lineNum">      69 </span>                :            :  *
+<span class="lineNum">      70 </span>                :            :  * Parameters:
+<span class="lineNum">      71 </span>                :            :  *    profnoid    - oid of the function that has a callback
+<span class="lineNum">      72 </span>                :            :  *    procallback - oid of the callback function
+<span class="lineNum">      73 </span>                :            :  *    promethod   - role the callback function plays
+<span class="lineNum">      74 </span>                :            :  *
+<span class="lineNum">      75 </span>                :            :  * Notes:
+<span class="lineNum">      76 </span>                :            :  *    This function does not maintain dependencies in pg_depend, that behavior
+<span class="lineNum">      77 </span>                :            :  *    is currently controlled in pg_proc.c
+<span class="lineNum">      78 </span>                :            :  * ---------------------
+<a name="79"><span class="lineNum">      79 </span>                :            :  */</a>
+<span class="lineNum">      80 </span>                :            : void 
+<span class="lineNum">      81 </span>                :            : addProcCallback(Oid profnoid, Oid procallback, char promethod)
+<span class="lineNum">      82 </span>                :            : {
+<span class="lineNum">      83 </span>                :            :         Relation        rel;
+<span class="lineNum">      84 </span>                :            :         bool            nulls[Natts_pg_proc_callback];
+<span class="lineNum">      85 </span>                :            :         Datum           values[Natts_pg_proc_callback];
+<span class="lineNum">      86 </span>                :            :         HeapTuple   tup;
+<span class="lineNum">      87 </span>                :            :         
+<span class="lineNum">      88 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Insist(OidIsValid(profnoid));</span>
+<span class="lineNum">      89 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Insist(OidIsValid(procallback));</span>
+<span class="lineNum">      90 </span>                :            : 
+<span class="lineNum">      91 </span>                :            :         /* open pg_proc_callback */
+<span class="lineNum">      92 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ProcCallbackRelationId, RowExclusiveLock);</span>
+<span class="lineNum">      93 </span>                :            : 
+<span class="lineNum">      94 </span>                :            :         /* Build the tuple and insert it */
+<span class="lineNum">      95 </span>                :<span class="lineNoCov">          0 :         nulls[Anum_pg_proc_callback_profnoid - 1]         = false;</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :         nulls[Anum_pg_proc_callback_procallback - 1]  = false;</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :         nulls[Anum_pg_proc_callback_promethod - 1]        = false;</span>
+<span class="lineNum">      98 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_proc_callback_profnoid - 1]        = ObjectIdGetDatum(profnoid);</span>
+<span class="lineNum">      99 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_proc_callback_procallback - 1] = ObjectIdGetDatum(procallback);</span>
+<span class="lineNum">     100 </span>                :<span class="lineNoCov">          0 :         values[Anum_pg_proc_callback_promethod - 1]       = CharGetDatum(promethod);</span>
+<span class="lineNum">     101 </span>                :            : 
+<span class="lineNum">     102 </span>                :<span class="lineNoCov">          0 :         tup = heap_form_tuple(RelationGetDescr(rel), values, nulls);</span>
+<span class="lineNum">     103 </span>                :            :         
+<span class="lineNum">     104 </span>                :            :         /* Insert tuple into the relation */
+<span class="lineNum">     105 </span>                :<span class="lineNoCov">          0 :         simple_heap_insert(rel, tup);</span>
+<span class="lineNum">     106 </span>                :<span class="lineNoCov">          0 :         CatalogUpdateIndexes(rel, tup);</span>
+<span class="lineNum">     107 </span>                :            : 
+<span class="lineNum">     108 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, RowExclusiveLock);</span>
+<span class="lineNum">     109 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     110 </span>                :            : 
+<span class="lineNum">     111 </span>                :            : 
+<span class="lineNum">     112 </span>                :            : /* ---------------------
+<span class="lineNum">     113 </span>                :            :  * lookupProcCallback() - Find a specified callback for a specified function
+<span class="lineNum">     114 </span>                :            :  *
+<span class="lineNum">     115 </span>                :            :  * Parameters:
+<span class="lineNum">     116 </span>                :            :  *    profnoid    - oid of the function that has a callback
+<span class="lineNum">     117 </span>                :            :  *    promethod   - which callback to find
+<span class="lineNum">     118 </span>                :            :  * ---------------------
+<a name="119"><span class="lineNum">     119 </span>                :            :  */</a>
+<span class="lineNum">     120 </span>                :            : Oid  
+<span class="lineNum">     121 </span>                :            : lookupProcCallback(Oid profnoid, char promethod)
+<span class="lineNum">     122 </span>                :            : {
+<span class="lineNum">     123 </span>                :            :         Relation        rel;
+<span class="lineNum">     124 </span>                :            :         ScanKeyData skey[2];
+<span class="lineNum">     125 </span>                :            :         SysScanDesc scan;
+<span class="lineNum">     126 </span>                :            :         HeapTuple       tup;
+<span class="lineNum">     127 </span>                :            :         Oid         result;
+<span class="lineNum">     128 </span>                :            : 
+<span class="lineNum">     129 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Insist(OidIsValid(profnoid));</span>
+<span class="lineNum">     130 </span>                :            : 
+<span class="lineNum">     131 </span>                :            :         /* open pg_proc_callback */
+<span class="lineNum">     132 </span>                :<span class="lineNoCov">          0 :         rel = heap_open(ProcCallbackRelationId, AccessShareLock);</span>
+<span class="lineNum">     133 </span>                :            : 
+<span class="lineNum">     134 </span>                :            :         /* Lookup (profnoid, promethod) from index */
+<span class="lineNum">     135 </span>                :            :         /* (profnoid, promethod) is guaranteed unique by the index */
+<span class="lineNum">     136 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;skey[0],</span>
+<span class="lineNum">     137 </span>                :            :                                 Anum_pg_proc_callback_profnoid,
+<span class="lineNum">     138 </span>                :            :                                 BTEqualStrategyNumber, F_OIDEQ,
+<span class="lineNum">     139 </span>                :<span class="lineNoCov">          0 :                                 ObjectIdGetDatum(profnoid));</span>
+<span class="lineNum">     140 </span>                :<span class="lineNoCov">          0 :         ScanKeyInit(&amp;skey[1],</span>
+<span class="lineNum">     141 </span>                :            :                                 Anum_pg_proc_callback_promethod,
+<span class="lineNum">     142 </span>                :            :                                 BTEqualStrategyNumber, F_CHAREQ,
+<span class="lineNum">     143 </span>                :<span class="lineNoCov">          0 :                                 CharGetDatum(promethod));</span>
+<span class="lineNum">     144 </span>                :<span class="lineNoCov">          0 :         scan = systable_beginscan(rel, ProcCallbackProfnoidPromethodIndexId, true,</span>
+<span class="lineNum">     145 </span>                :<span class="lineNoCov">          0 :                                                           SnapshotNow, 2, skey);</span>
+<span class="lineNum">     146 </span>                :<span class="lineNoCov">          0 :         tup = systable_getnext(scan);</span>
+<span class="lineNum">     147 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (HeapTupleIsValid(tup))</span>
+<span class="lineNum">     148 </span>                :            :         {
+<span class="lineNum">     149 </span>                :            :                 Datum           d;
+<span class="lineNum">     150 </span>                :            :                 bool            isnull;
+<span class="lineNum">     151 </span>                :            : 
+<span class="lineNum">     152 </span>                :<span class="lineNoCov">          0 :                 d = heap_getattr(tup, Anum_pg_proc_callback_procallback,</span>
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                                                  RelationGetDescr(rel), &amp;isnull);</span>
+<span class="lineNum">     154 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 Assert(!isnull);</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                 result = DatumGetObjectId(d);</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     158 </span>                :            :         else
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :                 result = InvalidOid;</span>
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :<span class="lineNoCov">          0 :         systable_endscan(scan);</span>
+<span class="lineNum">     162 </span>                :<span class="lineNoCov">          0 :         heap_close(rel, AccessShareLock);</span>
+<span class="lineNum">     163 </span>                :            : 
+<span class="lineNum">     164 </span>                :<span class="lineNoCov">          0 :         return result;</span>
+<span class="lineNum">     165 </span>                :            : }
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

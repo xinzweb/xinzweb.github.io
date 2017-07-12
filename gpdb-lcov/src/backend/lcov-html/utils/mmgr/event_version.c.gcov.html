@@ -1,0 +1,174 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - utils/mmgr/event_version.c</title>
+  <link rel="stylesheet" type="text/css" href="../../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../../index.html">top level</a> - <a href="index.html">utils/mmgr</a> - event_version.c<span style="font-size: 80%;"> (source / <a href="event_version.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntry">15</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntry">1</td>
+            <td class="headerCovTableEntryHi">100.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">16</td>
+            <td class="headerCovTableEntry">26</td>
+            <td class="headerCovTableEntryLo">61.5 %</td>
+          </tr>
+          <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * event_version.c
+<span class="lineNum">       4 </span>                :            :  *       Implementation of the event version provider. This module does not provide
+<span class="lineNum">       5 </span>                :            :  *       any API. Instead it just sets up shared memory variables so that other
+<span class="lineNum">       6 </span>                :            :  *       modules can track and update event versions as necessary. Event versions
+<span class="lineNum">       7 </span>                :            :  *       are used to provide a temporal ordering of runaway events and cleanup events,
+<span class="lineNum">       8 </span>                :            :  *       as well as the idle and the activation events of different processes.
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  * Copyright (c) 2014 Pivotal Inc. All Rights Reserved
+<span class="lineNum">      11 </span>                :            :  *
+<span class="lineNum">      12 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      13 </span>                :            :  */
+<span class="lineNum">      14 </span>                :            : 
+<span class="lineNum">      15 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      16 </span>                :            : #include &quot;cdb/cdbvars.h&quot;
+<span class="lineNum">      17 </span>                :            : #include &quot;miscadmin.h&quot;
+<span class="lineNum">      18 </span>                :            : #include &quot;utils/vmem_tracker.h&quot;
+<span class="lineNum">      19 </span>                :            : 
+<span class="lineNum">      20 </span>                :            : /* External dependencies within the runaway cleanup framework */
+<span class="lineNum">      21 </span>                :            : extern bool vmemTrackerInited;
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : #define SHMEM_EVENT_VERSION_PROVIDER &quot;The shared counter for event version provider&quot;
+<span class="lineNum">      24 </span>                :            : #define SHMEM_RUNAWAY_EVENT_VERSION &quot;Most recent runaway detection version&quot;
+<span class="lineNum">      25 </span>                :            : 
+<span class="lineNum">      26 </span>                :            : /*
+<span class="lineNum">      27 </span>                :            :  * A shared memory counter that provides a set of monotonically
+<span class="lineNum">      28 </span>                :            :  * increasing values. The counter is only incremented by the runaway
+<span class="lineNum">      29 </span>                :            :  * detector, at the time of a new runaway event. In fact, at the time
+<span class="lineNum">      30 </span>                :            :  * of runaway event, the detector would increment it by 2, using the
+<span class="lineNum">      31 </span>                :            :  * skipped value as the version of the runaway event. This ensures
+<span class="lineNum">      32 </span>                :            :  * that the runaway version doesn't overlap with any other version
+<span class="lineNum">      33 </span>                :            :  * as used by other processes on the segment as activation and
+<span class="lineNum">      34 </span>                :            :  * deactivation version.
+<span class="lineNum">      35 </span>                :            :  *
+<span class="lineNum">      36 </span>                :            :  * The current version would be used by processes during activation
+<span class="lineNum">      37 </span>                :            :  * or deactivation to identify when it becmes idle/active.
+<span class="lineNum">      38 </span>                :            :  */
+<span class="lineNum">      39 </span>                :            : volatile EventVersion *CurrentVersion = NULL;
+<span class="lineNum">      40 </span>                :            : 
+<span class="lineNum">      41 </span>                :            : /* The event version of the latest runaway event */
+<span class="lineNum">      42 </span>                :            : volatile EventVersion *latestRunawayVersion = 0;
+<span class="lineNum">      43 </span>                :            : 
+<span class="lineNum">      44 </span>                :            : void EventVersion_ShmemInit(void);
+<span class="lineNum">      45 </span>                :            : 
+<span class="lineNum">      46 </span>                :            : /*
+<span class="lineNum">      47 </span>                :            :  * Initializes the event version provider's shared memory states.
+<a name="48"><span class="lineNum">      48 </span>                :            :  */</a>
+<span class="lineNum">      49 </span>                :            : void
+<span class="lineNum">      50 </span>                :            : EventVersion_ShmemInit()
+<span class="lineNum">      51 </span>                :            : {
+<span class="lineNum">      52 </span>[<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 28 times"> + </span>]:<span class="lineCov">         28 :         Assert(!vmemTrackerInited);</span>
+<span class="lineNum">      53 </span>                :            : 
+<span class="lineNum">      54 </span>                :<span class="lineCov">         28 :         bool            alreadyInShmem = false;</span>
+<span class="lineNum">      55 </span>                :            : 
+<span class="lineNum">      56 </span>                :<span class="lineCov">         28 :         CurrentVersion = (EventVersion *)</span>
+<span class="lineNum">      57 </span>                :<span class="lineCov">         28 :                                                                 ShmemInitStruct(SHMEM_EVENT_VERSION_PROVIDER,</span>
+<span class="lineNum">      58 </span>                :            :                                                                                 sizeof(EventVersion),
+<span class="lineNum">      59 </span>                :            :                                                                                 &amp;alreadyInShmem);
+<span class="lineNum">      60 </span>[<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 26 times"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">         28 :         Assert(alreadyInShmem || !IsUnderPostmaster);</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 26 times"> + </span>]
+<span class="lineNum">      61 </span>                :            : 
+<span class="lineNum">      62 </span>                :<span class="lineCov">         28 :         latestRunawayVersion = (EventVersion *)</span>
+<span class="lineNum">      63 </span>                :<span class="lineCov">         28 :                                                                 ShmemInitStruct(SHMEM_RUNAWAY_EVENT_VERSION,</span>
+<span class="lineNum">      64 </span>                :            :                                                                                 sizeof(EventVersion),
+<span class="lineNum">      65 </span>                :            :                                                                                 &amp;alreadyInShmem);
+<span class="lineNum">      66 </span>[<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchCov" title="Branch 2 was taken 26 times"> + </span><span class="branchCov" title="Branch 3 was taken 2 times"> + </span>]:<span class="lineCov">         28 :         Assert(alreadyInShmem || !IsUnderPostmaster);</span>
+<span class="lineNum">         </span>        [<span class="branchNoCov" title="Branch 4 was not taken"> - </span><span class="branchCov" title="Branch 5 was taken 26 times"> + </span>]
+<span class="lineNum">      67 </span>                :            : 
+<span class="lineNum">      68 </span>[<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 28 times"> + </span>]:<span class="lineCov">         28 :         Assert(NULL != CurrentVersion);</span>
+<span class="lineNum">      69 </span>[<span class="branchCov" title="Branch 0 was taken 28 times"> + </span><span class="branchNoCov" title="Branch 1 was not taken"> - </span>][<span class="branchNoCov" title="Branch 2 was not taken"> - </span><span class="branchCov" title="Branch 3 was taken 28 times"> + </span>]:<span class="lineCov">         28 :         Assert(NULL != latestRunawayVersion);</span>
+<span class="lineNum">      70 </span>                :            : 
+<span class="lineNum">      71 </span>        [<span class="branchCov" title="Branch 0 was taken 26 times"> + </span><span class="branchCov" title="Branch 1 was taken 2 times"> + </span>]:<span class="lineCov">         28 :         if(!IsUnderPostmaster)</span>
+<span class="lineNum">      72 </span>                :            :         {
+<span class="lineNum">      73 </span>                :<span class="lineCov">         26 :                 *latestRunawayVersion = 0;</span>
+<span class="lineNum">      74 </span>                :            :                 /*
+<span class="lineNum">      75 </span>                :            :                  * As no runaway event has happened yet, we must make sure that
+<span class="lineNum">      76 </span>                :            :                  * the CurrentVersion is larger than latestRunawayVersion
+<span class="lineNum">      77 </span>                :            :                  */
+<span class="lineNum">      78 </span>                :<span class="lineCov">         26 :                 *CurrentVersion = *latestRunawayVersion + 1;</span>
+<span class="lineNum">      79 </span>                :<span class="lineCov">         26 :         }</span>
+<span class="lineNum">      80 </span>                :<span class="lineCov">         28 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>

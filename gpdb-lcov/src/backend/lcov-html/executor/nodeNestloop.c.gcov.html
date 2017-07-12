@@ -1,0 +1,766 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+
+<html lang="en">
+
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <title>LCOV - lcov.info - executor/nodeNestloop.c</title>
+  <link rel="stylesheet" type="text/css" href="../gcov.css">
+</head>
+
+<body>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="title">LCOV - code coverage report</td></tr>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+
+    <tr>
+      <td width="100%">
+        <table cellpadding=1 border=0 width="100%">
+          <tr>
+            <td width="10%" class="headerItem">Current view:</td>
+            <td width="35%" class="headerValue"><a href="../index.html">top level</a> - <a href="index.html">executor</a> - nodeNestloop.c<span style="font-size: 80%;"> (source / <a href="nodeNestloop.c.func-sort-c.html">functions</a>)</span></td>
+            <td width="5%"></td>
+            <td width="15%"></td>
+            <td width="10%" class="headerCovTableHead">Hit</td>
+            <td width="10%" class="headerCovTableHead">Total</td>
+            <td width="15%" class="headerCovTableHead">Coverage</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Test:</td>
+            <td class="headerValue">lcov.info</td>
+            <td></td>
+            <td class="headerItem">Lines:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">193</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Date:</td>
+            <td class="headerValue">2017-07-06 09:21:47</td>
+            <td></td>
+            <td class="headerItem">Functions:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">8</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr>
+            <td class="headerItem">Legend:</td>
+            <td class="headerValueLeg">            Lines:
+            <span class="coverLegendCov">hit</span>
+            <span class="coverLegendNoCov">not hit</span>
+            | Branches:
+            <span class="coverLegendCov">+</span> taken
+            <span class="coverLegendNoCov">-</span> not taken
+            <span class="coverLegendNoCov">#</span> not executed
+</td>
+            <td></td>
+            <td class="headerItem">Branches:</td>
+            <td class="headerCovTableEntry">0</td>
+            <td class="headerCovTableEntry">114</td>
+            <td class="headerCovTableEntryLo">0.0 %</td>
+          </tr>
+          <tr><td><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+        </table>
+      </td>
+    </tr>
+
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+  </table>
+
+  <table cellpadding=0 cellspacing=0 border=0>
+    <tr>
+      <td><br></td>
+    </tr>
+    <tr>
+      <td>
+<pre class="sourceHeading">           Branch data     Line data    Source code</pre>
+<pre class="source">
+<a name="1"><span class="lineNum">       1 </span>                :            : /*-------------------------------------------------------------------------</a>
+<span class="lineNum">       2 </span>                :            :  *
+<span class="lineNum">       3 </span>                :            :  * nodeNestloop.c
+<span class="lineNum">       4 </span>                :            :  *        routines to support nest-loop joins
+<span class="lineNum">       5 </span>                :            :  *
+<span class="lineNum">       6 </span>                :            :  * Portions Copyright (c) 2005-2008, Greenplum inc
+<span class="lineNum">       7 </span>                :            :  * Portions Copyright (c) 1996-2008, PostgreSQL Global Development Group
+<span class="lineNum">       8 </span>                :            :  * Portions Copyright (c) 1994, Regents of the University of California
+<span class="lineNum">       9 </span>                :            :  *
+<span class="lineNum">      10 </span>                :            :  *
+<span class="lineNum">      11 </span>                :            :  * IDENTIFICATION
+<span class="lineNum">      12 </span>                :            :  *        $PostgreSQL: pgsql/src/backend/executor/nodeNestloop.c,v 1.46 2008/01/01 19:45:49 momjian Exp $
+<span class="lineNum">      13 </span>                :            :  *
+<span class="lineNum">      14 </span>                :            :  *-------------------------------------------------------------------------
+<span class="lineNum">      15 </span>                :            :  */
+<span class="lineNum">      16 </span>                :            : /*
+<span class="lineNum">      17 </span>                :            :  *       INTERFACE ROUTINES
+<span class="lineNum">      18 </span>                :            :  *              ExecNestLoop     - process a nestloop join of two plans
+<span class="lineNum">      19 </span>                :            :  *              ExecInitNestLoop - initialize the join
+<span class="lineNum">      20 </span>                :            :  *              ExecEndNestLoop  - shut down the join
+<span class="lineNum">      21 </span>                :            :  */
+<span class="lineNum">      22 </span>                :            : 
+<span class="lineNum">      23 </span>                :            : #include &quot;postgres.h&quot;
+<span class="lineNum">      24 </span>                :            : 
+<span class="lineNum">      25 </span>                :            : #include &quot;executor/execdebug.h&quot;
+<span class="lineNum">      26 </span>                :            : #include &quot;executor/nodeNestloop.h&quot;
+<span class="lineNum">      27 </span>                :            : #include &quot;utils/memutils.h&quot;
+<span class="lineNum">      28 </span>                :            : 
+<span class="lineNum">      29 </span>                :            : static void splitJoinQualExpr(NestLoopState *nlstate);
+<span class="lineNum">      30 </span>                :            : static void extractFuncExprArgs(FuncExprState *fstate, List **lclauses, List **rclauses);
+<span class="lineNum">      31 </span>                :            : 
+<span class="lineNum">      32 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">      33 </span>                :            :  *              ExecNestLoop(node)
+<span class="lineNum">      34 </span>                :            :  *
+<span class="lineNum">      35 </span>                :            :  * old comments
+<span class="lineNum">      36 </span>                :            :  *              Returns the tuple joined from inner and outer tuples which
+<span class="lineNum">      37 </span>                :            :  *              satisfies the qualification clause.
+<span class="lineNum">      38 </span>                :            :  *
+<span class="lineNum">      39 </span>                :            :  *              It scans the inner relation to join with current outer tuple.
+<span class="lineNum">      40 </span>                :            :  *
+<span class="lineNum">      41 </span>                :            :  *              If none is found, next tuple from the outer relation is retrieved
+<span class="lineNum">      42 </span>                :            :  *              and the inner relation is scanned from the beginning again to join
+<span class="lineNum">      43 </span>                :            :  *              with the outer tuple.
+<span class="lineNum">      44 </span>                :            :  *
+<span class="lineNum">      45 </span>                :            :  *              NULL is returned if all the remaining outer tuples are tried and
+<span class="lineNum">      46 </span>                :            :  *              all fail to join with the inner tuples.
+<span class="lineNum">      47 </span>                :            :  *
+<span class="lineNum">      48 </span>                :            :  *              NULL is also returned if there is no tuple from inner relation.
+<span class="lineNum">      49 </span>                :            :  *
+<span class="lineNum">      50 </span>                :            :  *              Conditions:
+<span class="lineNum">      51 </span>                :            :  *                -- outerTuple contains current tuple from outer relation and
+<span class="lineNum">      52 </span>                :            :  *                       the right son(inner relation) maintains &quot;cursor&quot; at the tuple
+<span class="lineNum">      53 </span>                :            :  *                       returned previously.
+<span class="lineNum">      54 </span>                :            :  *                              This is achieved by maintaining a scan position on the outer
+<span class="lineNum">      55 </span>                :            :  *                              relation.
+<span class="lineNum">      56 </span>                :            :  *
+<span class="lineNum">      57 </span>                :            :  *              Initial States:
+<span class="lineNum">      58 </span>                :            :  *                -- the outer child and the inner child
+<span class="lineNum">      59 </span>                :            :  *                         are prepared to return the first tuple.
+<span class="lineNum">      60 </span>                :            :  * ----------------------------------------------------------------
+<a name="61"><span class="lineNum">      61 </span>                :            :  */</a>
+<span class="lineNum">      62 </span>                :            : TupleTableSlot *
+<span class="lineNum">      63 </span>                :            : ExecNestLoop(NestLoopState *node)
+<span class="lineNum">      64 </span>                :            : {
+<span class="lineNum">      65 </span>                :            :         PlanState  *innerPlan;
+<span class="lineNum">      66 </span>                :            :         PlanState  *outerPlan;
+<span class="lineNum">      67 </span>                :            :         TupleTableSlot *outerTupleSlot;
+<span class="lineNum">      68 </span>                :            :         TupleTableSlot *innerTupleSlot;
+<span class="lineNum">      69 </span>                :            :         List       *joinqual;
+<span class="lineNum">      70 </span>                :            :         List       *otherqual;
+<span class="lineNum">      71 </span>                :            :         ExprContext *econtext;
+<span class="lineNum">      72 </span>                :            : 
+<span class="lineNum">      73 </span>                :            :         /*
+<span class="lineNum">      74 </span>                :            :          * get information from the node
+<span class="lineNum">      75 </span>                :            :          */
+<span class="lineNum">      76 </span>                :            :         ENL1_printf(&quot;getting info from node&quot;);
+<span class="lineNum">      77 </span>                :            : 
+<span class="lineNum">      78 </span>                :<span class="lineNoCov">          0 :         joinqual = node-&gt;js.joinqual;</span>
+<span class="lineNum">      79 </span>                :<span class="lineNoCov">          0 :         otherqual = node-&gt;js.ps.qual;</span>
+<span class="lineNum">      80 </span>                :<span class="lineNoCov">          0 :         outerPlan = outerPlanState(node);</span>
+<span class="lineNum">      81 </span>                :<span class="lineNoCov">          0 :         innerPlan = innerPlanState(node);</span>
+<span class="lineNum">      82 </span>                :<span class="lineNoCov">          0 :         econtext = node-&gt;js.ps.ps_ExprContext;</span>
+<span class="lineNum">      83 </span>                :            : 
+<span class="lineNum">      84 </span>                :            :         /*
+<span class="lineNum">      85 </span>                :            :          * get the current outer tuple
+<span class="lineNum">      86 </span>                :            :          */
+<span class="lineNum">      87 </span>                :<span class="lineNoCov">          0 :         outerTupleSlot = node-&gt;js.ps.ps_OuterTupleSlot;</span>
+<span class="lineNum">      88 </span>                :<span class="lineNoCov">          0 :         econtext-&gt;ecxt_outertuple = outerTupleSlot;</span>
+<span class="lineNum">      89 </span>                :            : 
+<span class="lineNum">      90 </span>                :            :         /*
+<span class="lineNum">      91 </span>                :            :          * If we're doing an IN join, we want to return at most one row per outer
+<span class="lineNum">      92 </span>                :            :          * tuple; so we can stop scanning the inner scan if we matched on the
+<span class="lineNum">      93 </span>                :            :          * previous try.
+<span class="lineNum">      94 </span>                :            :          */
+<span class="lineNum">      95 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;js.jointype == JOIN_IN &amp;&amp;</span>
+<span class="lineNum">      96 </span>                :<span class="lineNoCov">          0 :                 node-&gt;nl_MatchedOuter)</span>
+<span class="lineNum">      97 </span>                :<span class="lineNoCov">          0 :                 node-&gt;nl_NeedNewOuter = true;</span>
+<span class="lineNum">      98 </span>                :            : 
+<span class="lineNum">      99 </span>                :            :         /*
+<span class="lineNum">     100 </span>                :            :          * Reset per-tuple memory context to free any expression evaluation
+<span class="lineNum">     101 </span>                :            :          * storage allocated in the previous tuple cycle.  Note this can't happen
+<span class="lineNum">     102 </span>                :            :          * until we're done projecting out tuples from a join tuple.
+<span class="lineNum">     103 </span>                :            :          */
+<span class="lineNum">     104 </span>                :<span class="lineNoCov">          0 :         ResetExprContext(econtext);</span>
+<span class="lineNum">     105 </span>                :            : 
+<span class="lineNum">     106 </span>                :            :         /*
+<span class="lineNum">     107 </span>                :            :          * MPP-4165: My fix for MPP-3300 was correct in that we avoided
+<span class="lineNum">     108 </span>                :            :          * the *deadlock* but had very unexpected (and painful)
+<span class="lineNum">     109 </span>                :            :          * performance characteristics: we basically de-pipeline and
+<span class="lineNum">     110 </span>                :            :          * de-parallelize execution of any query which has motion below
+<span class="lineNum">     111 </span>                :            :          * us.
+<span class="lineNum">     112 </span>                :            :          *
+<span class="lineNum">     113 </span>                :            :          * So now prefetch_inner is set (see createplan.c) if we have *any* motion
+<span class="lineNum">     114 </span>                :            :          * below us. If we don't have any motion, it doesn't matter.
+<span class="lineNum">     115 </span>                :            :          *
+<span class="lineNum">     116 </span>                :            :          * See motion_sanity_walker() for details on how a deadlock may occur.
+<span class="lineNum">     117 </span>                :            :          */
+<span class="lineNum">     118 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (node-&gt;prefetch_inner)</span>
+<span class="lineNum">     119 </span>                :            :         {
+<span class="lineNum">     120 </span>                :<span class="lineNoCov">          0 :                 innerTupleSlot = ExecProcNode(innerPlan);</span>
+<span class="lineNum">     121 </span>                :<span class="lineNoCov">          0 :                 Gpmon_Incr_Rows_In(GpmonPktFromNLJState(node));</span>
+<span class="lineNum">     122 </span>                :            : 
+<span class="lineNum">     123 </span>                :<span class="lineNoCov">          0 :                 node-&gt;reset_inner = true;</span>
+<span class="lineNum">     124 </span>                :<span class="lineNoCov">          0 :                 econtext-&gt;ecxt_innertuple = innerTupleSlot;</span>
+<span class="lineNum">     125 </span>                :            : 
+<span class="lineNum">     126 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (TupIsNull(innerTupleSlot))</span>
+<span class="lineNum">     127 </span>                :            :                 {
+<span class="lineNum">     128 </span>                :            :                         /*
+<span class="lineNum">     129 </span>                :            :                          * Finished one complete scan of the inner side. Mark it here
+<span class="lineNum">     130 </span>                :            :                          * so that we don't keep checking for inner nulls at subsequent
+<span class="lineNum">     131 </span>                :            :                          * iterations.
+<span class="lineNum">     132 </span>                :            :                          */
+<span class="lineNum">     133 </span>                :<span class="lineNoCov">          0 :                         node-&gt;nl_innerSideScanned = true;</span>
+<span class="lineNum">     134 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     135 </span>                :            : 
+<span class="lineNum">     136 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((node-&gt;js.jointype == JOIN_LASJ_NOTIN) &amp;&amp;</span>
+<span class="lineNum">     137 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (!node-&gt;nl_innerSideScanned) &amp;&amp;</span>
+<span class="lineNum">     138 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (node-&gt;nl_InnerJoinKeys &amp;&amp; isJoinExprNull(node-&gt;nl_InnerJoinKeys, econtext)))</span>
+<span class="lineNum">     139 </span>                :            :                 {
+<span class="lineNum">     140 </span>                :            :                         /*
+<span class="lineNum">     141 </span>                :            :                          * If LASJ_NOTIN and a null was found on the inner side, then clean out.
+<span class="lineNum">     142 </span>                :            :                          * We'll read no more from either inner or outer subtree. To keep our
+<span class="lineNum">     143 </span>                :            :                          * sibling QEs from being starved, tell source QEs not to
+<span class="lineNum">     144 </span>                :            :                          * clog up the pipeline with our never-to-be-consumed
+<span class="lineNum">     145 </span>                :            :                          * data.
+<span class="lineNum">     146 </span>                :            :                          */
+<span class="lineNum">     147 </span>                :            :                         ENL1_printf(&quot;Found NULL tuple on the inner side, clean out&quot;);
+<span class="lineNum">     148 </span>                :<span class="lineNoCov">          0 :                         ExecSquelchNode(outerPlan);</span>
+<span class="lineNum">     149 </span>                :<span class="lineNoCov">          0 :                         ExecSquelchNode(innerPlan);</span>
+<span class="lineNum">     150 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     151 </span>                :            :                 }
+<span class="lineNum">     152 </span>                :            : 
+<span class="lineNum">     153 </span>                :<span class="lineNoCov">          0 :                 ExecReScan(innerPlan, econtext);</span>
+<span class="lineNum">     154 </span>                :<span class="lineNoCov">          0 :                 ResetExprContext(econtext);</span>
+<span class="lineNum">     155 </span>                :            : 
+<span class="lineNum">     156 </span>                :<span class="lineNoCov">          0 :                 node-&gt;nl_innerSquelchNeeded = false; /* no need to squelch inner since it was completely prefetched */</span>
+<span class="lineNum">     157 </span>                :<span class="lineNoCov">          0 :                 node-&gt;prefetch_inner = false;</span>
+<span class="lineNum">     158 </span>                :<span class="lineNoCov">          0 :                 node-&gt;reset_inner = false;</span>
+<span class="lineNum">     159 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     160 </span>                :            : 
+<span class="lineNum">     161 </span>                :            :         /*
+<span class="lineNum">     162 </span>                :            :          * Ok, everything is setup for the join so now loop until we return a
+<span class="lineNum">     163 </span>                :            :          * qualifying join tuple.
+<span class="lineNum">     164 </span>                :            :          */
+<span class="lineNum">     165 </span>                :            :         ENL1_printf(&quot;entering main loop&quot;);
+<span class="lineNum">     166 </span>                :            : 
+<span class="lineNum">     167 </span>                :<span class="lineNoCov">          0 :         for (;;)</span>
+<span class="lineNum">     168 </span>                :            :         {
+<span class="lineNum">     169 </span>                :            :                 /*
+<span class="lineNum">     170 </span>                :            :                  * If we don't have an outer tuple, get the next one and reset the
+<span class="lineNum">     171 </span>                :            :                  * inner scan.
+<span class="lineNum">     172 </span>                :            :                  */
+<span class="lineNum">     173 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (node-&gt;nl_NeedNewOuter)</span>
+<span class="lineNum">     174 </span>                :            :                 {
+<span class="lineNum">     175 </span>                :            :                         ENL1_printf(&quot;getting new outer tuple&quot;);
+<span class="lineNum">     176 </span>                :<span class="lineNoCov">          0 :                         outerTupleSlot = ExecProcNode(outerPlan);</span>
+<span class="lineNum">     177 </span>                :<span class="lineNoCov">          0 :                         Gpmon_Incr_Rows_In(GpmonPktFromNLJState(node));</span>
+<span class="lineNum">     178 </span>                :            : 
+<span class="lineNum">     179 </span>                :            :                         /*
+<span class="lineNum">     180 </span>                :            :                          * if there are no more outer tuples, then the join is complete..
+<span class="lineNum">     181 </span>                :            :                          */
+<span class="lineNum">     182 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (TupIsNull(outerTupleSlot))</span>
+<span class="lineNum">     183 </span>                :            :                         {
+<span class="lineNum">     184 </span>                :            :                                 ENL1_printf(&quot;no outer tuple, ending join&quot;);
+<span class="lineNum">     185 </span>                :            : 
+<span class="lineNum">     186 </span>                :            :                                 /*
+<span class="lineNum">     187 </span>                :            :                                  * CDB: If outer tuple stream was empty, notify inner
+<span class="lineNum">     188 </span>                :            :                                  * subplan that we won't fetch its results, so QEs in
+<span class="lineNum">     189 </span>                :            :                                  * lower gangs won't keep trying to send to us.  Else
+<span class="lineNum">     190 </span>                :            :                                  * we have reached inner end-of-data at least once and
+<span class="lineNum">     191 </span>                :            :                                  * squelch is not needed.
+<span class="lineNum">     192 </span>                :            :                                  */
+<span class="lineNum">     193 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (node-&gt;nl_innerSquelchNeeded)</span>
+<span class="lineNum">     194 </span>                :            :                                 {
+<span class="lineNum">     195 </span>                :<span class="lineNoCov">          0 :                                         ExecSquelchNode(innerPlan);</span>
+<span class="lineNum">     196 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     197 </span>                :            : 
+<span class="lineNum">     198 </span>                :            :                                 /*
+<span class="lineNum">     199 </span>                :            :                                  * The memory used by child nodes might not be freed because
+<span class="lineNum">     200 </span>                :            :                                  * they are not eager free safe. However, when the nestloop is done,
+<span class="lineNum">     201 </span>                :            :                                  * we can free the memory used by the child nodes.
+<span class="lineNum">     202 </span>                :            :                                  */
+<span class="lineNum">     203 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (!node-&gt;js.ps.delayEagerFree)</span>
+<span class="lineNum">     204 </span>                :            :                                 {
+<span class="lineNum">     205 </span>                :<span class="lineNoCov">          0 :                                         ExecEagerFreeChildNodes((PlanState *)node, false);</span>
+<span class="lineNum">     206 </span>                :<span class="lineNoCov">          0 :                                 }</span>
+<span class="lineNum">     207 </span>                :            : 
+<span class="lineNum">     208 </span>                :<span class="lineNoCov">          0 :                                 return NULL;</span>
+<span class="lineNum">     209 </span>                :            :                         }
+<span class="lineNum">     210 </span>                :            : 
+<span class="lineNum">     211 </span>                :            :                         ENL1_printf(&quot;saving new outer tuple information&quot;);
+<span class="lineNum">     212 </span>                :<span class="lineNoCov">          0 :                         node-&gt;js.ps.ps_OuterTupleSlot = outerTupleSlot;</span>
+<span class="lineNum">     213 </span>                :<span class="lineNoCov">          0 :                         econtext-&gt;ecxt_outertuple = outerTupleSlot;</span>
+<span class="lineNum">     214 </span>                :<span class="lineNoCov">          0 :                         node-&gt;nl_NeedNewOuter = false;</span>
+<span class="lineNum">     215 </span>                :<span class="lineNoCov">          0 :                         node-&gt;nl_MatchedOuter = false;</span>
+<span class="lineNum">     216 </span>                :            : 
+<span class="lineNum">     217 </span>                :            :                         /*
+<span class="lineNum">     218 </span>                :            :                          * now rescan the inner plan
+<span class="lineNum">     219 </span>                :            :                          */
+<span class="lineNum">     220 </span>                :            :                         ENL1_printf(&quot;rescanning inner plan&quot;);
+<span class="lineNum">     221 </span>                :            : 
+<span class="lineNum">     222 </span>                :            :                         /*
+<span class="lineNum">     223 </span>                :            :                          * The scan key of the inner plan might depend on the current
+<span class="lineNum">     224 </span>                :            :                          * outer tuple (e.g. in index scans), that's why we pass our expr
+<span class="lineNum">     225 </span>                :            :                          * context.
+<span class="lineNum">     226 </span>                :            :                          */
+<span class="lineNum">     227 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if ( node-&gt;require_inner_reset || node-&gt;reset_inner )</span>
+<span class="lineNum">     228 </span>                :            :                         {
+<span class="lineNum">     229 </span>                :<span class="lineNoCov">          0 :                                 ExecReScan(innerPlan, econtext);</span>
+<span class="lineNum">     230 </span>                :<span class="lineNoCov">          0 :                                 node-&gt;reset_inner = false;</span>
+<span class="lineNum">     231 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     232 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     233 </span>                :            : 
+<span class="lineNum">     234 </span>                :            :                 /*
+<span class="lineNum">     235 </span>                :            :                  * we have an outerTuple, try to get the next inner tuple.
+<span class="lineNum">     236 </span>                :            :                  */
+<span class="lineNum">     237 </span>                :            :                 ENL1_printf(&quot;getting new inner tuple&quot;);
+<span class="lineNum">     238 </span>                :            : 
+<span class="lineNum">     239 </span>                :<span class="lineNoCov">          0 :                 innerTupleSlot = ExecProcNode(innerPlan);</span>
+<span class="lineNum">     240 </span>                :<span class="lineNoCov">          0 :                 CheckSendPlanStateGpmonPkt(&amp;node-&gt;js.ps);</span>
+<span class="lineNum">     241 </span>                :            : 
+<span class="lineNum">     242 </span>                :<span class="lineNoCov">          0 :                 node-&gt;reset_inner = true;</span>
+<span class="lineNum">     243 </span>                :<span class="lineNoCov">          0 :                 econtext-&gt;ecxt_innertuple = innerTupleSlot;</span>
+<span class="lineNum">     244 </span>                :            : 
+<span class="lineNum">     245 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (TupIsNull(innerTupleSlot))</span>
+<span class="lineNum">     246 </span>                :            :                 {
+<span class="lineNum">     247 </span>                :            :                         ENL1_printf(&quot;no inner tuple, need new outer tuple&quot;);
+<span class="lineNum">     248 </span>                :            : 
+<span class="lineNum">     249 </span>                :<span class="lineNoCov">          0 :                         node-&gt;nl_NeedNewOuter = true;</span>
+<span class="lineNum">     250 </span>                :            :                         /*
+<span class="lineNum">     251 </span>                :            :                          * Finished one complete scan of the inner side. Mark it here
+<span class="lineNum">     252 </span>                :            :                          * so that we don't keep checking for inner nulls at subsequent
+<span class="lineNum">     253 </span>                :            :                          * iterations.
+<span class="lineNum">     254 </span>                :            :                          */
+<span class="lineNum">     255 </span>                :<span class="lineNoCov">          0 :                         node-&gt;nl_innerSideScanned = true;</span>
+<span class="lineNum">     256 </span>                :            : 
+<span class="lineNum">     257 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (!node-&gt;nl_MatchedOuter &amp;&amp;</span>
+<span class="lineNum">     258 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (node-&gt;js.jointype == JOIN_LEFT ||</span>
+<span class="lineNum">     259 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                  node-&gt;js.jointype == JOIN_LASJ ||</span>
+<span class="lineNum">     260 </span>                :<span class="lineNoCov">          0 :                                  node-&gt;js.jointype == JOIN_LASJ_NOTIN))</span>
+<span class="lineNum">     261 </span>                :            :                         {
+<span class="lineNum">     262 </span>                :            :                                 /*
+<span class="lineNum">     263 </span>                :            :                                  * We are doing an outer join and there were no join matches
+<span class="lineNum">     264 </span>                :            :                                  * for this outer tuple.  Generate a fake join tuple with
+<span class="lineNum">     265 </span>                :            :                                  * nulls for the inner tuple, and return it if it passes the
+<span class="lineNum">     266 </span>                :            :                                  * non-join quals.
+<span class="lineNum">     267 </span>                :            :                                  */
+<span class="lineNum">     268 </span>                :<span class="lineNoCov">          0 :                                 econtext-&gt;ecxt_innertuple = node-&gt;nl_NullInnerTupleSlot;</span>
+<span class="lineNum">     269 </span>                :            : 
+<span class="lineNum">     270 </span>                :            :                                 ENL1_printf(&quot;testing qualification for outer-join tuple&quot;);
+<span class="lineNum">     271 </span>                :            : 
+<span class="lineNum">     272 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 if (ExecQual(otherqual, econtext, false))</span>
+<span class="lineNum">     273 </span>                :            :                                 {
+<span class="lineNum">     274 </span>                :            :                                         /*
+<span class="lineNum">     275 </span>                :            :                                          * qualification was satisfied so we project and return
+<span class="lineNum">     276 </span>                :            :                                          * the slot containing the result tuple using
+<span class="lineNum">     277 </span>                :            :                                          * ExecProject().
+<span class="lineNum">     278 </span>                :            :                                          */
+<span class="lineNum">     279 </span>                :            :                                         ENL1_printf(&quot;qualification succeeded, projecting tuple&quot;);
+<span class="lineNum">     280 </span>                :            : 
+<span class="lineNum">     281 </span>                :<span class="lineNoCov">          0 :                                         Gpmon_Incr_Rows_Out(GpmonPktFromNLJState(node));</span>
+<span class="lineNum">     282 </span>                :<span class="lineNoCov">          0 :                                 CheckSendPlanStateGpmonPkt(&amp;node-&gt;js.ps);</span>
+<span class="lineNum">     283 </span>                :<span class="lineNoCov">          0 :                                         return ExecProject(node-&gt;js.ps.ps_ProjInfo, NULL);</span>
+<span class="lineNum">     284 </span>                :            :                                 }
+<span class="lineNum">     285 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     286 </span>                :            : 
+<span class="lineNum">     287 </span>                :            :                         /*
+<span class="lineNum">     288 </span>                :            :                          * Otherwise just return to top of loop for a new outer tuple.
+<span class="lineNum">     289 </span>                :            :                          */
+<span class="lineNum">     290 </span>                :<span class="lineNoCov">          0 :                         continue;</span>
+<span class="lineNum">     291 </span>                :            :                 }
+<span class="lineNum">     292 </span>                :            : 
+<span class="lineNum">     293 </span>                :            : 
+<span class="lineNum">     294 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if ((node-&gt;js.jointype == JOIN_LASJ_NOTIN) &amp;&amp;</span>
+<span class="lineNum">     295 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (!node-&gt;nl_innerSideScanned) &amp;&amp;</span>
+<span class="lineNum">     296 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 (node-&gt;nl_InnerJoinKeys &amp;&amp; isJoinExprNull(node-&gt;nl_InnerJoinKeys, econtext)))</span>
+<span class="lineNum">     297 </span>                :            :                 {
+<span class="lineNum">     298 </span>                :            :                         /*
+<span class="lineNum">     299 </span>                :            :                          * If LASJ_NOTIN and a null was found on the inner side, then clean out.
+<span class="lineNum">     300 </span>                :            :                          * We'll read no more from either inner or outer subtree. To keep our
+<span class="lineNum">     301 </span>                :            :                          * sibling QEs from being starved, tell source QEs not to
+<span class="lineNum">     302 </span>                :            :                          * clog up the pipeline with our never-to-be-consumed
+<span class="lineNum">     303 </span>                :            :                          * data.
+<span class="lineNum">     304 </span>                :            :                          */
+<span class="lineNum">     305 </span>                :            :                         ENL1_printf(&quot;Found NULL tuple on the inner side, clean out&quot;);
+<span class="lineNum">     306 </span>                :<span class="lineNoCov">          0 :                         ExecSquelchNode(outerPlan);</span>
+<span class="lineNum">     307 </span>                :<span class="lineNoCov">          0 :                         ExecSquelchNode(innerPlan);</span>
+<span class="lineNum">     308 </span>                :<span class="lineNoCov">          0 :                         return NULL;</span>
+<span class="lineNum">     309 </span>                :            :                 }
+<span class="lineNum">     310 </span>                :            : 
+<span class="lineNum">     311 </span>                :            :                 /*
+<span class="lineNum">     312 </span>                :            :                  * at this point we have a new pair of inner and outer tuples so we
+<span class="lineNum">     313 </span>                :            :                  * test the inner and outer tuples to see if they satisfy the node's
+<span class="lineNum">     314 </span>                :            :                  * qualification.
+<span class="lineNum">     315 </span>                :            :                  *
+<span class="lineNum">     316 </span>                :            :                  * Only the joinquals determine MatchedOuter status, but all quals
+<span class="lineNum">     317 </span>                :            :                  * must pass to actually return the tuple.
+<span class="lineNum">     318 </span>                :            :                  */
+<span class="lineNum">     319 </span>                :            :                 ENL1_printf(&quot;testing qualification&quot;);
+<span class="lineNum">     320 </span>                :            : 
+<span class="lineNum">     321 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (ExecQual(joinqual, econtext, node-&gt;nl_qualResultForNull))</span>
+<span class="lineNum">     322 </span>                :            :                 {
+<span class="lineNum">     323 </span>                :<span class="lineNoCov">          0 :                         node-&gt;nl_MatchedOuter = true;</span>
+<span class="lineNum">     324 </span>                :            : 
+<span class="lineNum">     325 </span>                :            :                         /* In an antijoin, we never return a matched tuple */
+<span class="lineNum">     326 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (node-&gt;js.jointype == JOIN_LASJ || node-&gt;js.jointype == JOIN_LASJ_NOTIN)</span>
+<span class="lineNum">     327 </span>                :            :                         {
+<span class="lineNum">     328 </span>                :<span class="lineNoCov">          0 :                                 node-&gt;nl_NeedNewOuter = true;</span>
+<span class="lineNum">     329 </span>                :<span class="lineNoCov">          0 :                                 continue;               /* return to top of loop */</span>
+<span class="lineNum">     330 </span>                :            :                         }
+<span class="lineNum">     331 </span>                :            : 
+<span class="lineNum">     332 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (otherqual == NIL || ExecQual(otherqual, econtext, false))</span>
+<span class="lineNum">     333 </span>                :            :                         {
+<span class="lineNum">     334 </span>                :            :                                 /*
+<span class="lineNum">     335 </span>                :            :                                  * qualification was satisfied so we project and return the
+<span class="lineNum">     336 </span>                :            :                                  * slot containing the result tuple using ExecProject().
+<span class="lineNum">     337 </span>                :            :                                  */
+<span class="lineNum">     338 </span>                :            :                                 ENL1_printf(&quot;qualification succeeded, projecting tuple&quot;);
+<span class="lineNum">     339 </span>                :            : 
+<span class="lineNum">     340 </span>                :<span class="lineNoCov">          0 :                                 Gpmon_Incr_Rows_Out(GpmonPktFromNLJState(node));</span>
+<span class="lineNum">     341 </span>                :<span class="lineNoCov">          0 :                         CheckSendPlanStateGpmonPkt(&amp;node-&gt;js.ps);</span>
+<span class="lineNum">     342 </span>                :<span class="lineNoCov">          0 :                                 return ExecProject(node-&gt;js.ps.ps_ProjInfo, NULL);</span>
+<span class="lineNum">     343 </span>                :            :                         }
+<span class="lineNum">     344 </span>                :            : 
+<span class="lineNum">     345 </span>                :            :                         /* If we didn't return a tuple, may need to set NeedNewOuter */
+<span class="lineNum">     346 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (node-&gt;js.jointype == JOIN_IN)</span>
+<span class="lineNum">     347 </span>                :<span class="lineNoCov">          0 :                                 node-&gt;nl_NeedNewOuter = true;</span>
+<span class="lineNum">     348 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     349 </span>                :            : 
+<span class="lineNum">     350 </span>                :            :                 /*
+<span class="lineNum">     351 </span>                :            :                  * Tuple fails qual, so free per-tuple memory and try again.
+<span class="lineNum">     352 </span>                :            :                  */
+<span class="lineNum">     353 </span>                :<span class="lineNoCov">          0 :                 ResetExprContext(econtext);</span>
+<span class="lineNum">     354 </span>                :            : 
+<span class="lineNum">     355 </span>                :            :                 ENL1_printf(&quot;qualification failed, looping&quot;);
+<span class="lineNum">     356 </span>                :            :         }
+<span class="lineNum">     357 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     358 </span>                :            : 
+<span class="lineNum">     359 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     360 </span>                :            :  *              ExecInitNestLoop
+<span class="lineNum">     361 </span>                :            :  * ----------------------------------------------------------------
+<a name="362"><span class="lineNum">     362 </span>                :            :  */</a>
+<span class="lineNum">     363 </span>                :            : NestLoopState *
+<span class="lineNum">     364 </span>                :            : ExecInitNestLoop(NestLoop *node, EState *estate, int eflags)
+<span class="lineNum">     365 </span>                :            : {
+<span class="lineNum">     366 </span>                :            :         NestLoopState *nlstate;
+<span class="lineNum">     367 </span>                :            : 
+<span class="lineNum">     368 </span>                :            :         /* check for unsupported flags */
+<span class="lineNum">     369 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(!(eflags &amp; (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));</span>
+<span class="lineNum">     370 </span>                :            : 
+<span class="lineNum">     371 </span>                :            :         NL1_printf(&quot;ExecInitNestLoop: %s\n&quot;,
+<span class="lineNum">     372 </span>                :            :                            &quot;initializing node&quot;);
+<span class="lineNum">     373 </span>                :            : 
+<span class="lineNum">     374 </span>                :            :         /*
+<span class="lineNum">     375 </span>                :            :          * create state structure
+<span class="lineNum">     376 </span>                :            :          */
+<span class="lineNum">     377 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         nlstate = makeNode(NestLoopState);</span>
+<span class="lineNum">     378 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.ps.plan = (Plan *) node;</span>
+<span class="lineNum">     379 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.ps.state = estate;</span>
+<span class="lineNum">     380 </span>                :            : 
+<span class="lineNum">     381 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;shared_outer = node-&gt;shared_outer;</span>
+<span class="lineNum">     382 </span>                :            : 
+<span class="lineNum">     383 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;prefetch_inner = node-&gt;join.prefetch_inner;</span>
+<span class="lineNum">     384 </span>                :            :         
+<span class="lineNum">     385 </span>                :            :         /*CDB-OLAP*/
+<span class="lineNum">     386 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;reset_inner = false;</span>
+<span class="lineNum">     387 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;require_inner_reset = !node-&gt;singleton_outer;</span>
+<span class="lineNum">     388 </span>                :            : 
+<span class="lineNum">     389 </span>                :            :         /*
+<span class="lineNum">     390 </span>                :            :          * Miscellaneous initialization
+<span class="lineNum">     391 </span>                :            :          *
+<span class="lineNum">     392 </span>                :            :          * create expression context for node
+<span class="lineNum">     393 </span>                :            :          */
+<span class="lineNum">     394 </span>                :<span class="lineNoCov">          0 :         ExecAssignExprContext(estate, &amp;nlstate-&gt;js.ps);</span>
+<span class="lineNum">     395 </span>                :            : 
+<span class="lineNum">     396 </span>                :            :         /*
+<span class="lineNum">     397 </span>                :            :          * If eflag contains EXEC_FLAG_REWIND or EXEC_FLAG_BACKWARD or EXEC_FLAG_MARK,
+<span class="lineNum">     398 </span>                :            :          * then this node is not eager free safe.
+<span class="lineNum">     399 </span>                :            :          */
+<span class="lineNum">     400 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.ps.delayEagerFree =</span>
+<span class="lineNum">     401 </span>                :<span class="lineNoCov">          0 :                 ((eflags &amp; (EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)) != 0);</span>
+<span class="lineNum">     402 </span>                :            : 
+<span class="lineNum">     403 </span>                :            :         /*
+<span class="lineNum">     404 </span>                :            :          * initialize child expressions
+<span class="lineNum">     405 </span>                :            :          */
+<span class="lineNum">     406 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.ps.targetlist = (List *)</span>
+<span class="lineNum">     407 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;join.plan.targetlist,</span>
+<span class="lineNum">     408 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) nlstate);</span>
+<span class="lineNum">     409 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.ps.qual = (List *)</span>
+<span class="lineNum">     410 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;join.plan.qual,</span>
+<span class="lineNum">     411 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) nlstate);</span>
+<span class="lineNum">     412 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.jointype = node-&gt;join.jointype;</span>
+<span class="lineNum">     413 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.joinqual = (List *)</span>
+<span class="lineNum">     414 </span>                :<span class="lineNoCov">          0 :                 ExecInitExpr((Expr *) node-&gt;join.joinqual,</span>
+<span class="lineNum">     415 </span>                :<span class="lineNoCov">          0 :                                          (PlanState *) nlstate);</span>
+<span class="lineNum">     416 </span>                :            : 
+<span class="lineNum">     417 </span>                :            :         /*
+<span class="lineNum">     418 </span>                :            :          * initialize child nodes
+<span class="lineNum">     419 </span>                :            :          *
+<span class="lineNum">     420 </span>                :            :          * Tell the inner child that cheap rescans would be good.  (This is
+<span class="lineNum">     421 </span>                :            :          * unnecessary if we are doing nestloop with inner indexscan, because the
+<span class="lineNum">     422 </span>                :            :          * rescan will always be with a fresh parameter --- but since
+<span class="lineNum">     423 </span>                :            :          * nodeIndexscan doesn't actually care about REWIND, there's no point in
+<span class="lineNum">     424 </span>                :            :          * dealing with that refinement.)
+<span class="lineNum">     425 </span>                :            :          */
+<span class="lineNum">     426 </span>                :            :         /*
+<span class="lineNum">     427 </span>                :            :          * XXX ftian: Because share input need to make the whole thing into a tree,
+<span class="lineNum">     428 </span>                :            :          * we can put the underlying share only under one shareinputscan.  During execution,
+<span class="lineNum">     429 </span>                :            :          * we need the shareinput node that has underlying subtree be inited/executed first.
+<span class="lineNum">     430 </span>                :            :          * This means, 
+<span class="lineNum">     431 </span>                :            :          *      1. Init and first ExecProcNode call must be in the same order
+<span class="lineNum">     432 </span>                :            :          *      2. Init order above is the same as the tree walking order in cdbmutate.c
+<span class="lineNum">     433 </span>                :            :          * For nest loop join, it is more strange than others.  Depends on prefetch_inner,
+<span class="lineNum">     434 </span>                :            :          * the execution order may change.  Handle this correctly here.
+<span class="lineNum">     435 </span>                :            :          * 
+<span class="lineNum">     436 </span>                :            :          * Until we find a better way to handle the dependency of ShareInputScan on 
+<span class="lineNum">     437 </span>                :            :          * execution order, this is pretty much what we have to deal with.
+<span class="lineNum">     438 </span>                :            :          */
+<span class="lineNum">     439 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (nlstate-&gt;prefetch_inner)</span>
+<span class="lineNum">     440 </span>                :            :         {
+<span class="lineNum">     441 </span>                :<span class="lineNoCov">          0 :                 innerPlanState(nlstate) = ExecInitNode(innerPlan(node), estate,</span>
+<span class="lineNum">     442 </span>                :<span class="lineNoCov">          0 :                                 eflags | EXEC_FLAG_REWIND);</span>
+<span class="lineNum">     443 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!node-&gt;shared_outer)</span>
+<span class="lineNum">     444 </span>                :<span class="lineNoCov">          0 :                         outerPlanState(nlstate) = ExecInitNode(outerPlan(node), estate, eflags);</span>
+<span class="lineNum">     445 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     446 </span>                :            :         else
+<span class="lineNum">     447 </span>                :            :         {
+<span class="lineNum">     448 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 if (!node-&gt;shared_outer)</span>
+<span class="lineNum">     449 </span>                :<span class="lineNoCov">          0 :                         outerPlanState(nlstate) = ExecInitNode(outerPlan(node), estate, eflags);</span>
+<span class="lineNum">     450 </span>                :<span class="lineNoCov">          0 :                 innerPlanState(nlstate) = ExecInitNode(innerPlan(node), estate,</span>
+<span class="lineNum">     451 </span>                :<span class="lineNoCov">          0 :                                 eflags | EXEC_FLAG_REWIND);</span>
+<span class="lineNum">     452 </span>                :            :         }
+<span class="lineNum">     453 </span>                :            : 
+<span class="lineNum">     454 </span>                :            : #define NESTLOOP_NSLOTS 2
+<span class="lineNum">     455 </span>                :            : 
+<span class="lineNum">     456 </span>                :            :         /*
+<span class="lineNum">     457 </span>                :            :          * tuple table initialization
+<span class="lineNum">     458 </span>                :            :          */
+<span class="lineNum">     459 </span>                :<span class="lineNoCov">          0 :         ExecInitResultTupleSlot(estate, &amp;nlstate-&gt;js.ps);</span>
+<span class="lineNum">     460 </span>                :            : 
+<span class="lineNum">     461 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span> :<span class="lineNoCov">          0 :         switch (node-&gt;join.jointype)</span>
+<span class="lineNum">         </span>         <span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     462 </span>                :            :         {
+<span class="lineNum">     463 </span>                :            :                 case JOIN_INNER:
+<span class="lineNum">     464 </span>                :            :                 case JOIN_IN:
+<span class="lineNum">     465 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     466 </span>                :            :                 case JOIN_LEFT:
+<span class="lineNum">     467 </span>                :            :                 case JOIN_LASJ:
+<span class="lineNum">     468 </span>                :            :                 case JOIN_LASJ_NOTIN:
+<span class="lineNum">     469 </span>                :<span class="lineNoCov">          0 :                         nlstate-&gt;nl_NullInnerTupleSlot =</span>
+<span class="lineNum">     470 </span>                :<span class="lineNoCov">          0 :                                 ExecInitNullTupleSlot(estate,</span>
+<span class="lineNum">     471 </span>                :<span class="lineNoCov">          0 :                                                                  ExecGetResultType(innerPlanState(nlstate)));</span>
+<span class="lineNum">     472 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     473 </span>                :            :                 default:
+<span class="lineNum">     474 </span>                :<span class="lineNoCov">          0 :                         elog(ERROR, &quot;unrecognized join type: %d&quot;,</span>
+<span class="lineNum">     475 </span>                :            :                                  (int) node-&gt;join.jointype);
+<span class="lineNum">     476 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     477 </span>                :            : 
+<span class="lineNum">     478 </span>                :            :         /*
+<span class="lineNum">     479 </span>                :            :          * initialize tuple type and projection info
+<span class="lineNum">     480 </span>                :            :          */
+<span class="lineNum">     481 </span>                :<span class="lineNoCov">          0 :         ExecAssignResultTypeFromTL(&amp;nlstate-&gt;js.ps);</span>
+<span class="lineNum">     482 </span>                :<span class="lineNoCov">          0 :         ExecAssignProjectionInfo(&amp;nlstate-&gt;js.ps, NULL);</span>
+<span class="lineNum">     483 </span>                :            : 
+<span class="lineNum">     484 </span>                :            :         /*
+<span class="lineNum">     485 </span>                :            :          * finally, wipe the current outer tuple clean.
+<span class="lineNum">     486 </span>                :            :          */
+<span class="lineNum">     487 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;js.ps.ps_OuterTupleSlot = NULL;</span>
+<span class="lineNum">     488 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;nl_NeedNewOuter = true;</span>
+<span class="lineNum">     489 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;nl_MatchedOuter = false;</span>
+<span class="lineNum">     490 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;nl_innerSquelchNeeded = true;               /*CDB*/</span>
+<span class="lineNum">     491 </span>                :            : 
+<span class="lineNum">     492 </span>                :            : 
+<span class="lineNum">     493 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :     if (node-&gt;join.jointype == JOIN_LASJ_NOTIN)</span>
+<span class="lineNum">     494 </span>                :            :     {
+<span class="lineNum">     495 </span>                :<span class="lineNoCov">          0 :         splitJoinQualExpr(nlstate);</span>
+<span class="lineNum">     496 </span>                :            :         /*
+<span class="lineNum">     497 </span>                :            :          * For LASJ_NOTIN, when we evaluate the join condition, we want to
+<span class="lineNum">     498 </span>                :            :          * return true when one of the conditions is NULL, so we exclude
+<span class="lineNum">     499 </span>                :            :          * that tuple from the output.
+<span class="lineNum">     500 </span>                :            :          */
+<span class="lineNum">     501 </span>                :<span class="lineNoCov">          0 :                 nlstate-&gt;nl_qualResultForNull = true;</span>
+<span class="lineNum">     502 </span>                :<span class="lineNoCov">          0 :     }</span>
+<span class="lineNum">     503 </span>                :            :     else
+<span class="lineNum">     504 </span>                :            :     {
+<span class="lineNum">     505 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;nl_qualResultForNull = false;</span>
+<span class="lineNum">     506 </span>                :            :     }
+<span class="lineNum">     507 </span>                :            : 
+<span class="lineNum">     508 </span>                :            :         NL1_printf(&quot;ExecInitNestLoop: %s\n&quot;,
+<span class="lineNum">     509 </span>                :            :                            &quot;node initialized&quot;);
+<span class="lineNum">     510 </span>                :            : 
+<span class="lineNum">     511 </span>                :<span class="lineNoCov">          0 :         initGpmonPktForNestLoop((Plan *)node, &amp;nlstate-&gt;js.ps.gpmon_pkt, estate);</span>
+<span class="lineNum">     512 </span>                :            :         
+<span class="lineNum">     513 </span>                :<span class="lineNoCov">          0 :         return nlstate;</span>
+<span class="lineNum">     514 </span>                :            : }
+<a name="515"><span class="lineNum">     515 </span>                :            : </a>
+<span class="lineNum">     516 </span>                :            : int
+<span class="lineNum">     517 </span>                :            : ExecCountSlotsNestLoop(NestLoop *node)
+<span class="lineNum">     518 </span>                :            : {
+<span class="lineNum">     519 </span>                :<span class="lineNoCov">          0 :         return ExecCountSlotsNode(outerPlan(node)) +</span>
+<span class="lineNum">     520 </span>                :<span class="lineNoCov">          0 :                 ExecCountSlotsNode(innerPlan(node)) +</span>
+<span class="lineNum">     521 </span>                :            :                 NESTLOOP_NSLOTS;
+<span class="lineNum">     522 </span>                :            : }
+<span class="lineNum">     523 </span>                :            : 
+<span class="lineNum">     524 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     525 </span>                :            :  *              ExecEndNestLoop
+<span class="lineNum">     526 </span>                :            :  *
+<span class="lineNum">     527 </span>                :            :  *              closes down scans and frees allocated storage
+<span class="lineNum">     528 </span>                :            :  * ----------------------------------------------------------------
+<a name="529"><span class="lineNum">     529 </span>                :            :  */</a>
+<span class="lineNum">     530 </span>                :            : void
+<span class="lineNum">     531 </span>                :            : ExecEndNestLoop(NestLoopState *node)
+<span class="lineNum">     532 </span>                :            : {
+<span class="lineNum">     533 </span>                :            :         NL1_printf(&quot;ExecEndNestLoop: %s\n&quot;,
+<span class="lineNum">     534 </span>                :            :                            &quot;ending node processing&quot;);
+<span class="lineNum">     535 </span>                :            : 
+<span class="lineNum">     536 </span>                :            :         /*
+<span class="lineNum">     537 </span>                :            :          * Free the exprcontext
+<span class="lineNum">     538 </span>                :            :          */
+<span class="lineNum">     539 </span>                :<span class="lineNoCov">          0 :         ExecFreeExprContext(&amp;node-&gt;js.ps);</span>
+<span class="lineNum">     540 </span>                :            : 
+<span class="lineNum">     541 </span>                :            :         /*
+<span class="lineNum">     542 </span>                :            :          * clean out the tuple table
+<span class="lineNum">     543 </span>                :            :          */
+<span class="lineNum">     544 </span>                :<span class="lineNoCov">          0 :         ExecClearTuple(node-&gt;js.ps.ps_ResultTupleSlot);</span>
+<span class="lineNum">     545 </span>                :            : 
+<span class="lineNum">     546 </span>                :            :         /*
+<span class="lineNum">     547 </span>                :            :          * close down subplans
+<span class="lineNum">     548 </span>                :            :          */
+<span class="lineNum">     549 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (!node-&gt;shared_outer)</span>
+<span class="lineNum">     550 </span>                :<span class="lineNoCov">          0 :                 ExecEndNode(outerPlanState(node));</span>
+<span class="lineNum">     551 </span>                :<span class="lineNoCov">          0 :         ExecEndNode(innerPlanState(node));</span>
+<span class="lineNum">     552 </span>                :            : 
+<span class="lineNum">     553 </span>                :            :         NL1_printf(&quot;ExecEndNestLoop: %s\n&quot;,
+<span class="lineNum">     554 </span>                :            :                            &quot;node processing ended&quot;);
+<span class="lineNum">     555 </span>                :            : 
+<span class="lineNum">     556 </span>                :<span class="lineNoCov">          0 :         EndPlanStateGpmonPkt(&amp;node-&gt;js.ps);</span>
+<span class="lineNum">     557 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     558 </span>                :            : 
+<span class="lineNum">     559 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     560 </span>                :            :  *              ExecReScanNestLoop
+<span class="lineNum">     561 </span>                :            :  * ----------------------------------------------------------------
+<a name="562"><span class="lineNum">     562 </span>                :            :  */</a>
+<span class="lineNum">     563 </span>                :            : void
+<span class="lineNum">     564 </span>                :            : ExecReScanNestLoop(NestLoopState *node, ExprContext *exprCtxt)
+<span class="lineNum">     565 </span>                :            : {
+<span class="lineNum">     566 </span>                :<span class="lineNoCov">          0 :         PlanState  *outerPlan = outerPlanState(node);</span>
+<span class="lineNum">     567 </span>                :            : 
+<span class="lineNum">     568 </span>                :            :         /*
+<span class="lineNum">     569 </span>                :            :          * If outerPlan-&gt;chgParam is not null then plan will be automatically
+<span class="lineNum">     570 </span>                :            :          * re-scanned by first ExecProcNode. innerPlan is re-scanned for each new
+<span class="lineNum">     571 </span>                :            :          * outer tuple and MUST NOT be re-scanned from here or you'll get troubles
+<span class="lineNum">     572 </span>                :            :          * from inner index scans when outer Vars are used as run-time keys...
+<span class="lineNum">     573 </span>                :            :          */
+<span class="lineNum">     574 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         if (outerPlan-&gt;chgParam == NULL)</span>
+<span class="lineNum">     575 </span>                :<span class="lineNoCov">          0 :                 ExecReScan(outerPlan, exprCtxt);</span>
+<span class="lineNum">     576 </span>                :            : 
+<span class="lineNum">     577 </span>                :            :         /* let outerPlan to free its result tuple ... */
+<span class="lineNum">     578 </span>                :<span class="lineNoCov">          0 :         node-&gt;js.ps.ps_OuterTupleSlot = NULL;</span>
+<span class="lineNum">     579 </span>                :<span class="lineNoCov">          0 :         node-&gt;nl_NeedNewOuter = true;</span>
+<span class="lineNum">     580 </span>                :<span class="lineNoCov">          0 :         node-&gt;nl_MatchedOuter = false;</span>
+<span class="lineNum">     581 </span>                :<span class="lineNoCov">          0 :         node-&gt;nl_innerSideScanned = false;</span>
+<span class="lineNum">     582 </span>                :            :         /* CDB: We intentionally leave node-&gt;nl_innerSquelchNeeded unchanged on ReScan */
+<span class="lineNum">     583 </span>                :<span class="lineNoCov">          0 : }</span>
+<a name="584"><span class="lineNum">     584 </span>                :            : </a>
+<span class="lineNum">     585 </span>                :            : void
+<span class="lineNum">     586 </span>                :            : initGpmonPktForNestLoop(Plan *planNode, gpmon_packet_t *gpmon_pkt, EState *estate)
+<span class="lineNum">     587 </span>                :            : {
+<span class="lineNum">     588 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(planNode != NULL &amp;&amp; gpmon_pkt != NULL &amp;&amp; IsA(planNode, NestLoop));</span>
+<span class="lineNum">         </span>[<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>][<span class="branchNoExec" title="Branch 6 was not executed"> # </span><span class="branchNoExec" title="Branch 7 was not executed"> # </span>]
+<span class="lineNum">     589 </span>                :            : 
+<span class="lineNum">     590 </span>                :<span class="lineNoCov">          0 :     InitPlanNodeGpmonPkt(planNode, gpmon_pkt, estate);</span>
+<span class="lineNum">     591 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     592 </span>                :            : 
+<span class="lineNum">     593 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     594 </span>                :            :  * splitJoinQualExpr
+<span class="lineNum">     595 </span>                :            :  *
+<span class="lineNum">     596 </span>                :            :  * Deconstruct the join clauses into outer and inner argument values, so
+<span class="lineNum">     597 </span>                :            :  * that we can evaluate those subexpressions separately. Note: for constant
+<span class="lineNum">     598 </span>                :            :  * expression we don't need to split (MPP-21294). However, if constant expressions
+<span class="lineNum">     599 </span>                :            :  * have peer splittable expressions we *do* split those.
+<span class="lineNum">     600 </span>                :            :  *
+<span class="lineNum">     601 </span>                :            :  * This is used for NOTIN joins, as we need to look for NULLs on both
+<span class="lineNum">     602 </span>                :            :  * inner and outer side.
+<span class="lineNum">     603 </span>                :            :  * ----------------------------------------------------------------
+<a name="604"><span class="lineNum">     604 </span>                :            :  */</a>
+<span class="lineNum">     605 </span>                :            : static void
+<span class="lineNum">     606 </span>                :            : splitJoinQualExpr(NestLoopState *nlstate)
+<span class="lineNum">     607 </span>                :            : {
+<span class="lineNum">     608 </span>                :<span class="lineNoCov">          0 :         List *lclauses = NIL;</span>
+<span class="lineNum">     609 </span>                :<span class="lineNoCov">          0 :         List *rclauses = NIL;</span>
+<span class="lineNum">     610 </span>                :<span class="lineNoCov">          0 :         ListCell *lc = NULL;</span>
+<span class="lineNum">     611 </span>                :            : 
+<span class="lineNum">     612 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :         foreach(lc, nlstate-&gt;js.joinqual)</span>
+<span class="lineNum">     613 </span>                :            :         {
+<span class="lineNum">     614 </span>                :<span class="lineNoCov">          0 :                 GenericExprState *exprstate = (GenericExprState *) lfirst(lc);</span>
+<span class="lineNum">     615 </span>  [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span><span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                 switch (exprstate-&gt;xprstate.type)</span>
+<span class="lineNum">     616 </span>                :            :                 {
+<span class="lineNum">     617 </span>                :            :                 case T_FuncExprState:
+<span class="lineNum">     618 </span>                :<span class="lineNoCov">          0 :                         extractFuncExprArgs((FuncExprState *) exprstate, &amp;lclauses, &amp;rclauses);</span>
+<span class="lineNum">     619 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     620 </span>                :            :                 case T_BoolExprState:
+<span class="lineNum">     621 </span>                :            :                 {
+<span class="lineNum">     622 </span>                :<span class="lineNoCov">          0 :                         BoolExprState *bstate = (BoolExprState *) exprstate;</span>
+<span class="lineNum">     623 </span>                :<span class="lineNoCov">          0 :                         ListCell *argslc = NULL;</span>
+<span class="lineNum">     624 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         foreach(argslc,bstate-&gt;args)</span>
+<span class="lineNum">     625 </span>                :            :                         {
+<span class="lineNum">     626 </span>                :<span class="lineNoCov">          0 :                                 FuncExprState *fstate = (FuncExprState *) lfirst(argslc);</span>
+<span class="lineNum">     627 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :                                 Assert(IsA(fstate, FuncExprState));</span>
+<span class="lineNum">     628 </span>                :<span class="lineNoCov">          0 :                                 extractFuncExprArgs(fstate, &amp;lclauses, &amp;rclauses);</span>
+<span class="lineNum">     629 </span>                :<span class="lineNoCov">          0 :                         }</span>
+<span class="lineNum">     630 </span>                :<span class="lineNoCov">          0 :                         break;</span>
+<span class="lineNum">     631 </span>                :            :                 }
+<span class="lineNum">     632 </span>                :            :                 case T_ExprState:
+<span class="lineNum">     633 </span>                :            :                         /* For constant expression we don't need to split */
+<span class="lineNum">     634 </span>        [<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>]:<span class="lineNoCov">          0 :                         if (exprstate-&gt;xprstate.expr-&gt;type == T_Const)</span>
+<span class="lineNum">     635 </span>                :            :                         {
+<span class="lineNum">     636 </span>                :            :                                 /*
+<span class="lineNum">     637 </span>                :            :                                  * Constant expressions do not need to be splitted into left and
+<span class="lineNum">     638 </span>                :            :                                  * right as they don't need to be considered for NULL value special
+<span class="lineNum">     639 </span>                :            :                                  * cases
+<span class="lineNum">     640 </span>                :            :                                  */
+<span class="lineNum">     641 </span>                :<span class="lineNoCov">          0 :                                 continue;</span>
+<span class="lineNum">     642 </span>                :            :                         }
+<span class="lineNum">     643 </span>                :            : 
+<span class="lineNum">     644 </span>                :<span class="lineNoCov">          0 :                         insist_log(false, &quot;unexpected expression type in NestLoopJoin qual&quot;);</span>
+<span class="lineNum">     645 </span>                :            : 
+<span class="lineNum">     646 </span>                :<span class="lineNoCov">          0 :                         break; /* Unreachable */</span>
+<span class="lineNum">     647 </span>                :            :                 default:
+<span class="lineNum">     648 </span>                :<span class="lineNoCov">          0 :                         insist_log(false, &quot;unexpected expression type in NestLoopJoin qual&quot;);</span>
+<span class="lineNum">     649 </span>                :<span class="lineNoCov">          0 :                 }</span>
+<span class="lineNum">     650 </span>                :<span class="lineNoCov">          0 :         }</span>
+<span class="lineNum">     651 </span>[<span class="branchNoExec" title="Branch 0 was not executed"> # </span><span class="branchNoExec" title="Branch 1 was not executed"> # </span>][<span class="branchNoExec" title="Branch 2 was not executed"> # </span><span class="branchNoExec" title="Branch 3 was not executed"> # </span>]:<span class="lineNoCov">          0 :         Assert(NIL == nlstate-&gt;nl_InnerJoinKeys &amp;&amp; NIL == nlstate-&gt;nl_OuterJoinKeys);</span>
+<span class="lineNum">         </span>        [<span class="branchNoExec" title="Branch 4 was not executed"> # </span><span class="branchNoExec" title="Branch 5 was not executed"> # </span>]
+<span class="lineNum">     652 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;nl_InnerJoinKeys = rclauses;</span>
+<span class="lineNum">     653 </span>                :<span class="lineNoCov">          0 :         nlstate-&gt;nl_OuterJoinKeys = lclauses;</span>
+<span class="lineNum">     654 </span>                :<span class="lineNoCov">          0 : }</span>
+<span class="lineNum">     655 </span>                :            : 
+<span class="lineNum">     656 </span>                :            : 
+<span class="lineNum">     657 </span>                :            : /* ----------------------------------------------------------------
+<span class="lineNum">     658 </span>                :            :  * extractFuncExprArgs
+<span class="lineNum">     659 </span>                :            :  *
+<span class="lineNum">     660 </span>                :            :  * Extract the arguments of a FuncExpr and append them into two
+<span class="lineNum">     661 </span>                :            :  * given lists:
+<span class="lineNum">     662 </span>                :            :  *   - lclauses for the left side of the expression,
+<span class="lineNum">     663 </span>                :            :  *   - rclauses for the right side
+<span class="lineNum">     664 </span>                :            :  * ----------------------------------------------------------------
+<a name="665"><span class="lineNum">     665 </span>                :            :  */</a>
+<span class="lineNum">     666 </span>                :            : static void
+<span class="lineNum">     667 </span>                :            : extractFuncExprArgs(FuncExprState *fstate, List **lclauses, List **rclauses)
+<span class="lineNum">     668 </span>                :            : {
+<span class="lineNum">     669 </span>                :<span class="lineNoCov">          0 :         *lclauses = lappend(*lclauses, linitial(fstate-&gt;args));</span>
+<span class="lineNum">     670 </span>                :<span class="lineNoCov">          0 :         *rclauses = lappend(*rclauses, lsecond(fstate-&gt;args));</span>
+<span class="lineNum">     671 </span>                :<span class="lineNoCov">          0 : }</span>
+</pre>
+      </td>
+    </tr>
+  </table>
+  <br>
+
+  <table width="100%" border=0 cellspacing=0 cellpadding=0>
+    <tr><td class="ruler"><img src="../glass.png" width=3 height=3 alt=""></td></tr>
+    <tr><td class="versionInfo">Generated by: <a href="http://ltp.sourceforge.net/coverage/lcov.php" target="_parent">LCOV version 1.13</a></td></tr>
+  </table>
+  <br>
+
+</body>
+</html>
