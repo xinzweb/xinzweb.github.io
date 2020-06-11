@@ -1,18 +1,19 @@
 ---
 layout: post
-title:  "Welcome to Jekyll!"
+title:  "歡迎來到 Jekyll!"
 date:   2020-06-10 18:37:25 -0500
 categories: jekyll update
 ---
-You’ll find this post in your `_posts` directory. Go ahead and edit it and re-build the site to see your changes. You can rebuild the site in many different ways, but the most common way is to run `jekyll serve`, which launches a web server and auto-regenerates your site when a file is updated.
 
-Jekyll requires blog post files to be named according to the following format:
+你會在你的 `_posts` 目錄中找到這個文件. 去改一下，看看新的效果. 你可以用各種方式重建, 最普遍的方法是運行 `jekyll serve`, 會在本地生成靜態網站.
 
-`YEAR-MONTH-DAY-title.MARKUP`
+Jekyll需要文件名有下列格式:
 
-Where `YEAR` is a four-digit number, `MONTH` and `DAY` are both two-digit numbers, and `MARKUP` is the file extension representing the format used in the file. After that, include the necessary front matter. Take a look at the source for this post to get an idea about how it works.
+`年-月-日-標題.markdown`
 
-Jekyll also offers powerful support for code snippets:
+這裏 `年` 是四位數, `月` 和 `日` 都是兩位數, 而 `markdown` 是文件擴展名. 之後，看看這個文件，就知道文件內容需要什麼框架了。
+
+Jekyll 也支持程序片段:
 
 {% highlight ruby %}
 def print_hi(name)
@@ -22,8 +23,10 @@ print_hi('Tom')
 #=> prints 'Hi, Tom' to STDOUT.
 {% endhighlight %}
 
-Check out the [Jekyll docs][jekyll-docs] for more info on how to get the most out of Jekyll. File all bugs/feature requests at [Jekyll’s GitHub repo][jekyll-gh]. If you have questions, you can ask them on [Jekyll Talk][jekyll-talk].
+去 [Jekyll docs][jekyll-docs] 查詢更多有關 Jekyll 的信息. 有錯誤或者性能要求，可以去 [Jekyll’s GitHub repo][jekyll-gh]. 如果你還有問題, 你可以去 [Jekyll Talk][jekyll-talk].
 
 [jekyll-docs]: https://jekyllrb.com/docs/home
 [jekyll-gh]:   https://github.com/jekyll/jekyll
 [jekyll-talk]: https://talk.jekyllrb.com/
+
+祝好運！
