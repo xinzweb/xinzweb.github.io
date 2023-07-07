@@ -1,4 +1,8 @@
-# About
+---
+layout: page
+title: About
+permalink: /about/
+---
 
 Welcome to Shine's markdown repo.
 

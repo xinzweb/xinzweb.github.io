@@ -1,3 +1,7 @@
+---
+layout: post
+--- 
+
 # Remote Pairing
 
 Back in 2017, I published my opinion of remote pairing at [linkedin](https://www.linkedin.com/pulse/remote-pairing-xin-zhang/?trackingId=zPP7jxc8QuWWI2e3yVN6Vw%3D%3D).
@@ -77,7 +81,7 @@ I even join the [`donut` program](https://vmware.slack.com/apps/A11MJ51SR-donut?
 
 This is really wide topic, and it's impossible to get a best setup for the home office.
 Here are some principles to setup my home office and reduce the technical challenges:
-- Stay away from wireless network. If possible do a hardware
+- Stay away from wireless network. If possible do a hard link.
 - Invest in a good HD webcam. [Logitech 4K Pro Webcam](https://www.logitech.com/en-us/products/webcams/4kprowebcam.960-001390.html) can be a good start.
 - Make sure the webcam facing a wall
   - Try to avoid sitting in front of a window, since the backlight can make your face really dark.
