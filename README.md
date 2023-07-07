@@ -1,7 +1,3 @@
-layout: page
-title: "README"
-permalink: /README.md
-
 # About
 
 Welcome to Shine's markdown repo.
