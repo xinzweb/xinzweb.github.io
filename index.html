@@ -1,4 +1,5 @@
 ---
 layout: home
 entries_layout: list
+paginate: true
 ---
