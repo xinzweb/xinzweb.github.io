@@ -1,5 +1,8 @@
 ---
 layout: post
+tags:
+  - remote
+  - pairing
 --- 
 
 # Remote Pairing
