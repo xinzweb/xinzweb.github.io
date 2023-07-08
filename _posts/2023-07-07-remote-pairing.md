@@ -78,7 +78,7 @@ The pairing can be done in 1:1 meetings, like meeting with reports, the meeting 
 Regardless of how I am meeting with, the important part is to create opportunities for 1:1 meetings.
 1:1 meetings force people to pay full attention to the meeting.
 To me, the `full attention` is the secret to handle the social isolation.
-I even join the [`donut` program](https://vmware.slack.com/apps/A11MJ51SR-donut?tab=more_info) to increase my 1:1 meeting opportunities.
+I even join the [`donut` program](https://www.donut.com/) to increase my 1:1 meeting opportunities.
 
 ## Technical Challenge
 
